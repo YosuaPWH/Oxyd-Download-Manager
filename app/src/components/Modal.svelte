@@ -19,9 +19,13 @@
 
   $effect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    const first = dialog.querySelector<HTMLElement>(
-      "input, select, button.primary, button, [tabindex]",
-    );
+    // Start in the first field of the dialog body so typing works right away. querySelector
+    // returns the first match in document order, which would be the close button in the
+    // header. Dialogs without fields keep that safe default.
+    const first =
+      dialog.querySelector<HTMLElement>(
+        ".content input:not([readonly]):not([type='hidden']), .content select, .content textarea",
+      ) ?? dialog.querySelector<HTMLElement>("button");
     first?.focus();
     return () => prev?.focus();
   });
