@@ -191,8 +191,9 @@ reduced to their host and path, and there is no telemetry.
 
 ## Install
 
-**Installer.** Every push to `main` builds a Windows installer: open the latest run of the
-*Build installer* workflow in the **Actions** tab and download its artifact. It contains
+**Installer.** Released versions are on the **Releases** page of the repository. Every push to
+`main` also builds an installer: open the latest run of the *Build installer* workflow in the
+**Actions** tab and download its artifact (kept for 30 days). Both contain
 
 - `Oxyd-Setup-<version>-<commit>.exe`, the installer (per user, no administrator rights),
 - `Oxyd-Extension-<version>-<commit>.zip`, the unpacked browser extension,
@@ -206,6 +207,18 @@ confirmation. WebView2 (part of Windows 11) is installed automatically if it is 
 `chrome://extensions` or `edge://extensions`, turn on *Developer mode*, choose *Load
 unpacked* and select the folder. Its ID is always `gnihamodjbioaennpopmldmjdecbmfpl`, which is
 the one the installer allows to talk to the helper.
+
+**Publishing a release** (maintainers): raise the version in `app/src-tauri/tauri.conf.json`,
+the workspace `Cargo.toml` and both `package.json` files, commit, then
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow checks that the tag matches the app version, builds the installer and publishes
+a GitHub Release with the installer, the extension zip and `SHA256SUMS.txt`. Tags with a
+suffix such as `v0.2.0-beta.1` become pre-releases.
 
 **Data.** Everything lives in `%LOCALAPPDATA%\Oxyd`: `oxyd.db` (downloads and settings),
 `logs\` and `native-host\`.
