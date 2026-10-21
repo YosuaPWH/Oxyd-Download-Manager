@@ -41,10 +41,8 @@ pub fn byte_at(offset: u64) -> u8 {
 /// every byte, without a division per byte so the server is never the bottleneck).
 pub fn fill(offset: u64, buf: &mut [u8]) {
     let mut m = (offset % 251) as u8;
-    let mut pos = offset;
-    for b in buf.iter_mut() {
+    for (pos, b) in (offset..).zip(buf.iter_mut()) {
         *b = m ^ ((pos >> 12) as u8);
-        pos += 1;
         m = if m == 250 { 0 } else { m + 1 };
     }
 }
