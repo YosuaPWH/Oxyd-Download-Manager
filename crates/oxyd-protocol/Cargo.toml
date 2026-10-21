@@ -3,5 +3,26 @@ name = "oxyd-protocol"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Messages and framing shared by the Oxyd extension, bridge and app"
+
+[features]
+default = []
+# Async named pipe server used by the desktop app.
+server = ["dep:tokio", "dep:windows-sys"]
 
 [dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Memory",
+] }
+
+[dev-dependencies]
+tokio = { workspace = true }
