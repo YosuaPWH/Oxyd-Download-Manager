@@ -21,6 +21,12 @@ impl SharedFile {
             .create(true)
             .truncate(fresh)
             .open(path)?;
+        if fresh {
+            // Segments write far into the file right away. On a normal NTFS file every such
+            // write first zero-fills everything before it (valid data length), stalling
+            // for seconds on big files and writing the disk twice. Sparse files skip that.
+            set_sparse(&file, true);
+        }
         if let Some(size) = size {
             if fresh || file.metadata()?.len() != size {
                 file.set_len(size)?;
@@ -47,6 +53,42 @@ impl SharedFile {
 
     pub fn set_len(&self, len: u64) -> io::Result<()> {
         self.0.set_len(len)
+    }
+}
+
+/// Mark `file` sparse (or back to normal once fully written). Best effort: file systems
+/// without sparse support (FAT32, exFAT) just keep the old behaviour.
+#[cfg(windows)]
+pub fn set_sparse(file: &File, sparse: bool) {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::Ioctl::{FILE_SET_SPARSE_BUFFER, FSCTL_SET_SPARSE};
+    use windows_sys::Win32::System::IO::DeviceIoControl;
+    let input = FILE_SET_SPARSE_BUFFER {
+        SetSparse: u8::from(sparse),
+    };
+    let mut returned = 0u32;
+    // SAFETY: valid file handle and a correctly sized input buffer for FSCTL_SET_SPARSE.
+    unsafe {
+        DeviceIoControl(
+            file.as_raw_handle() as _,
+            FSCTL_SET_SPARSE,
+            &input as *const _ as *const _,
+            std::mem::size_of::<FILE_SET_SPARSE_BUFFER>() as u32,
+            std::ptr::null_mut(),
+            0,
+            &mut returned,
+            std::ptr::null_mut(),
+        );
+    }
+}
+
+#[cfg(not(windows))]
+pub fn set_sparse(_file: &File, _sparse: bool) {}
+
+/// Turn a completed part file back into a regular file (no sparse attribute).
+pub fn finalize(path: &Path) {
+    if let Ok(file) = OpenOptions::new().write(true).open(path) {
+        set_sparse(&file, false);
     }
 }
 
@@ -112,6 +154,31 @@ mod tests {
         f.write_at(0, b"hello".to_vec()).await.unwrap();
         f.sync().await.unwrap();
         assert_eq!(std::fs::read(&p).unwrap(), b"helloworld");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn part_files_are_sparse_until_finalized() {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_SPARSE_FILE: u32 = 0x200;
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("big.part");
+        let f = SharedFile::open(&p, Some(1 << 30), true).unwrap();
+        let attrs = std::fs::metadata(&p).unwrap().file_attributes();
+        assert_ne!(attrs & FILE_ATTRIBUTE_SPARSE_FILE, 0, "part file not sparse");
+        drop(f);
+        // Fully written files lose the flag (here: a small file written completely).
+        let small = dir.path().join("small.part");
+        let f = SharedFile::open(&small, Some(4), true).unwrap();
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(f.write_at(0, b"data".to_vec()))
+            .unwrap();
+        drop(f);
+        finalize(&small);
+        let attrs = std::fs::metadata(&small).unwrap().file_attributes();
+        assert_eq!(attrs & FILE_ATTRIBUTE_SPARSE_FILE, 0);
+        assert_eq!(std::fs::read(&small).unwrap(), b"data");
     }
 
     #[test]

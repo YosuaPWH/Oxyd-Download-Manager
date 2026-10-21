@@ -987,6 +987,7 @@ impl Manager {
                 dest = self.resolve_path(&rec.dir, &rec.filename, policy, &rec.id);
             }
         }
+        writer::finalize(part);
         std::fs::rename(part, &dest)?;
         rec.save_path = dest;
         rec.filename = file_name(&rec.save_path);
