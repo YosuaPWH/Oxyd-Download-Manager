@@ -35,3 +35,9 @@ percent-encoding = "2"
 bytes = "1"
 oxyd-core = { path = "crates/oxyd-core" }
 oxyd-protocol = { path = "crates/oxyd-protocol" }
+
+[profile.release]
+# Smaller binaries and installer, less memory at idle.
+lto = "thin"
+codegen-units = 1
+strip = true
