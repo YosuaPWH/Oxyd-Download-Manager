@@ -37,10 +37,19 @@ impl SharedFile {
 
     /// Write `buf` at `offset` on a blocking thread.
     pub async fn write_at(&self, offset: u64, buf: Vec<u8>) -> io::Result<()> {
-        let file = self.0.clone();
-        tokio::task::spawn_blocking(move || write_all_at(&file, &buf, offset))
+        self.spawn_write(offset, buf)
             .await
             .map_err(io::Error::other)?
+    }
+
+    /// Start writing `buf` at `offset` on a blocking thread without waiting for it.
+    pub fn spawn_write(
+        &self,
+        offset: u64,
+        buf: Vec<u8>,
+    ) -> tokio::task::JoinHandle<io::Result<()>> {
+        let file = self.0.clone();
+        tokio::task::spawn_blocking(move || write_all_at(&file, &buf, offset))
     }
 
     /// Flush file data to disk so recorded progress never exceeds what is persisted.
@@ -165,7 +174,11 @@ mod tests {
         let p = dir.path().join("big.part");
         let f = SharedFile::open(&p, Some(1 << 30), true).unwrap();
         let attrs = std::fs::metadata(&p).unwrap().file_attributes();
-        assert_ne!(attrs & FILE_ATTRIBUTE_SPARSE_FILE, 0, "part file not sparse");
+        assert_ne!(
+            attrs & FILE_ATTRIBUTE_SPARSE_FILE,
+            0,
+            "part file not sparse"
+        );
         drop(f);
         // Fully written files lose the flag (here: a small file written completely).
         let small = dir.path().join("small.part");

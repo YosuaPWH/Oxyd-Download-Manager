@@ -108,6 +108,13 @@ pub(crate) struct Job {
     pub multi: bool,
 }
 
+impl Job {
+    /// Whether any speed limit applies (skips the limiter on the hot path otherwise).
+    fn limited(&self) -> bool {
+        self.global.rate().is_some() || self.shared.limiter.rate().is_some()
+    }
+}
+
 #[derive(Debug)]
 pub(crate) enum WorkerError {
     /// The worker stopped early so the server gets fewer connections.
@@ -251,43 +258,14 @@ async fn fetch(job: &Job, idx: usize, from: u64, end: u64) -> Result<(), Attempt
 
     let mut stream = resp.bytes_stream();
     let mut buf: Vec<u8> = Vec::with_capacity(WRITE_BUF);
-    let mut pos = from;
-    let mut progressed = false;
-
-    // Write the buffer and record progress; returns true when the segment is full.
-    async fn flush(
-        job: &Job,
-        idx: usize,
-        pos: &mut u64,
-        buf: &mut Vec<u8>,
-        progressed: &mut bool,
-    ) -> Result<bool, Attempt> {
-        if buf.is_empty() {
-            return Ok(job.shared.segments()[idx].is_done());
-        }
-        let len = buf.len() as u64;
-        let data = std::mem::replace(buf, Vec::with_capacity(WRITE_BUF));
-        job.file
-            .write_at(*pos, data)
-            .await
-            .map_err(|e| Attempt::Fatal(e.into()))?;
-        let mut segs = job.shared.segments();
-        let s = &mut segs[idx];
-        // The segment may have been shortened by a split while we were writing.
-        let room = s.remaining().min(len);
-        if s.pos() == *pos {
-            s.downloaded += room;
-        }
-        *pos += len;
-        *progressed = true;
-        Ok(s.is_done())
-    }
+    let mut out = SegmentWriter::new(job, idx, from);
 
     loop {
         let next = tokio::select! {
             biased;
             _ = job.cancel.cancelled() => {
-                flush(job, idx, &mut pos, &mut buf, &mut progressed).await?;
+                out.submit(&mut buf).await?;
+                out.settle().await?;
                 return Err(Attempt::Cancelled);
             }
             n = tokio::time::timeout(READ_TIMEOUT, stream.next()) => n,
@@ -296,45 +274,55 @@ async fn fetch(job: &Job, idx: usize, from: u64, end: u64) -> Result<(), Attempt
             Ok(Some(Ok(c))) => c,
             Ok(None) => break,
             Ok(Some(Err(e))) => {
-                flush(job, idx, &mut pos, &mut buf, &mut progressed).await?;
+                out.submit(&mut buf).await?;
+                out.settle().await?;
                 return Err(Attempt::Retry {
                     reason: e.without_url().to_string(),
                     after: None,
-                    progressed,
+                    progressed: out.progressed,
                 });
             }
             Err(_) => {
-                flush(job, idx, &mut pos, &mut buf, &mut progressed).await?;
+                out.submit(&mut buf).await?;
+                out.settle().await?;
                 return Err(Attempt::Retry {
                     reason: "read timeout".into(),
                     after: None,
-                    progressed,
+                    progressed: out.progressed,
                 });
             }
         };
         let n = chunk.len() as u64;
-        tokio::select! {
-            _ = job.cancel.cancelled() => {}
-            _ = async {
-                job.global.acquire(n).await;
-                job.shared.limiter.acquire(n).await;
-            } => {}
+        if job.limited() {
+            tokio::select! {
+                _ = job.cancel.cancelled() => {}
+                _ = async {
+                    job.global.acquire(n).await;
+                    job.shared.limiter.acquire(n).await;
+                } => {}
+            }
         }
         buf.extend_from_slice(&chunk);
-        let seg_end = job.shared.segments()[idx].end;
+        let seg_end = job
+            .shared
+            .segments()
+            .get(idx)
+            .map_or(UNKNOWN_END, |s| s.end);
         if seg_end != UNKNOWN_END {
-            let room = (seg_end + 1).saturating_sub(pos) as usize;
+            let room = (seg_end + 1).saturating_sub(out.next_offset()) as usize;
             if buf.len() >= room {
                 buf.truncate(room);
-                flush(job, idx, &mut pos, &mut buf, &mut progressed).await?;
+                out.submit(&mut buf).await?;
+                out.settle().await?;
                 return Ok(());
             }
         }
-        if buf.len() >= WRITE_BUF && flush(job, idx, &mut pos, &mut buf, &mut progressed).await? {
-            return Ok(());
+        if buf.len() >= WRITE_BUF {
+            out.submit(&mut buf).await?;
         }
     }
-    flush(job, idx, &mut pos, &mut buf, &mut progressed).await?;
+    out.submit(&mut buf).await?;
+    out.settle().await?;
 
     let mut segs = job.shared.segments();
     let s = &mut segs[idx];
@@ -353,8 +341,69 @@ async fn fetch(job: &Job, idx: usize, from: u64, end: u64) -> Result<(), Attempt
     Err(Attempt::Retry {
         reason: "connection closed early".into(),
         after: None,
-        progressed,
+        progressed: out.progressed,
     })
+}
+
+/// Writes a segment's data while the next block is still being received: at most one
+/// write is in flight. Progress is recorded only after a write completed, so the stored
+/// progress never runs ahead of the data on disk.
+struct SegmentWriter<'a> {
+    job: &'a Job,
+    idx: usize,
+    /// Offset of the next submitted block.
+    pos: u64,
+    inflight: Option<(tokio::task::JoinHandle<std::io::Result<()>>, u64, u64)>,
+    progressed: bool,
+}
+
+impl<'a> SegmentWriter<'a> {
+    fn new(job: &'a Job, idx: usize, from: u64) -> Self {
+        SegmentWriter {
+            job,
+            idx,
+            pos: from,
+            inflight: None,
+            progressed: false,
+        }
+    }
+
+    fn next_offset(&self) -> u64 {
+        self.pos
+    }
+
+    /// Start writing `buf` (emptying it) after the previous write finished.
+    async fn submit(&mut self, buf: &mut Vec<u8>) -> Result<(), Attempt> {
+        self.settle().await?;
+        if buf.is_empty() {
+            return Ok(());
+        }
+        let data = std::mem::replace(buf, Vec::with_capacity(WRITE_BUF));
+        let len = data.len() as u64;
+        let task = self.job.file.spawn_write(self.pos, data);
+        self.inflight = Some((task, self.pos, len));
+        self.pos += len;
+        Ok(())
+    }
+
+    /// Wait for the write in flight and record it as downloaded.
+    async fn settle(&mut self) -> Result<(), Attempt> {
+        let Some((task, offset, len)) = self.inflight.take() else {
+            return Ok(());
+        };
+        task.await
+            .map_err(|e| Attempt::Fatal(std::io::Error::other(e).into()))?
+            .map_err(|e| Attempt::Fatal(e.into()))?;
+        let mut segs = self.job.shared.segments();
+        if let Some(s) = segs.get_mut(self.idx) {
+            // The segment may have been shortened by a split while we were writing.
+            if s.pos() == offset {
+                s.downloaded += s.remaining().min(len);
+            }
+        }
+        self.progressed = true;
+        Ok(())
+    }
 }
 
 /// Run workers for all unfinished segments, keeping at most `conn_limit` connections and
