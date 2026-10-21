@@ -7,7 +7,7 @@
       "nsis": {
         "installMode": "currentUser",
         "installerHooks": "../../installer/nsis-hooks.nsh",
-        "languages": ["English", "Indonesian"],
+        "languages": ["English"],
         "displayLanguageSelector": false
       }
     }
