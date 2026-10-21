@@ -46,7 +46,11 @@ fn handle(app: &AppHandle, msg: Message) -> Message {
 }
 
 fn accept(app: &AppHandle, a: AddDownload) -> Result<(), String> {
-    tracing::info!(url = %a.url, source = ?a.source, "link from browser");
+    tracing::info!(
+        url = %oxyd_core::probe::redact_url(&a.url),
+        source = ?a.source,
+        "link from browser"
+    );
     let headers = RequestHeaders {
         cookie: a.cookies.filter(|c| !c.is_empty()),
         referer: a.referrer.clone().filter(|r| !r.is_empty()),

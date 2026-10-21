@@ -58,6 +58,26 @@ pub(crate) fn check_url(url: &str) -> Result<reqwest::Url> {
     }
 }
 
+/// URL without credentials, query string or fragment, safe to write to logs (signed links
+/// carry their tokens in the query).
+pub fn redact_url(url: &str) -> String {
+    match reqwest::Url::parse(url) {
+        Ok(mut u) => {
+            let had_query = u.query().is_some();
+            let _ = u.set_username("");
+            let _ = u.set_password(None);
+            u.set_query(None);
+            u.set_fragment(None);
+            let mut s = u.to_string();
+            if had_query {
+                s.push_str("?…");
+            }
+            s
+        }
+        Err(_) => "<invalid url>".into(),
+    }
+}
+
 /// Map a non-success status to an error.
 pub(crate) fn status_error(status: StatusCode) -> Error {
     match status.as_u16() {
@@ -158,5 +178,20 @@ fn from_response(final_url: &str, status: StatusCode, h: &HeaderMap, orig: &str)
         last_modified: header_str(h, header::LAST_MODIFIED),
         filename: name,
         mime,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redacts_secrets_from_urls() {
+        assert_eq!(
+            redact_url("https://user:pw@cdn.example.com/a/file.zip?X-Amz-Signature=abc#frag"),
+            "https://cdn.example.com/a/file.zip?…"
+        );
+        assert_eq!(redact_url("http://x.org/f"), "http://x.org/f");
+        assert_eq!(redact_url("nope"), "<invalid url>");
     }
 }
