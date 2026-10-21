@@ -132,6 +132,23 @@ pub fn copy_text(app: AppHandle, text: String) -> Res<()> {
         .map_err(|e| CmdError::other("clipboard", e))
 }
 
+/// The clipboard text if it is a single http(s) link; prefills *Add URL*. Only read when the
+/// user opens that dialog.
+#[tauri::command]
+pub fn clipboard_link(app: AppHandle) -> Option<String> {
+    as_link(&app.clipboard().read_text().ok()?)
+}
+
+fn as_link(text: &str) -> Option<String> {
+    let text = text.trim();
+    let scheme = ["http://", "https://"].into_iter().find(|s| {
+        text.get(..s.len())
+            .is_some_and(|p| p.eq_ignore_ascii_case(s))
+    })?;
+    let ok = text.len() > scheme.len() && text.len() <= 8192 && !text.contains(char::is_whitespace);
+    ok.then(|| text.to_string())
+}
+
 #[tauri::command]
 pub fn get_settings(state: State<'_, AppState>) -> Settings {
     state.mgr.settings()
@@ -351,4 +368,23 @@ pub async fn resume_with_url(
 #[tauri::command]
 pub fn clear_completed(state: State<'_, AppState>) -> Res<usize> {
     Ok(state.mgr.clear_completed()?)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn takes_only_single_web_links() {
+        use super::as_link;
+        assert_eq!(
+            as_link("  https://x.org/a.zip\n").as_deref(),
+            Some("https://x.org/a.zip")
+        );
+        assert!(as_link("HTTP://x.org/get?id=1").is_some());
+        assert!(as_link("https://").is_none());
+        assert!(as_link("ftp://x.org/a.zip").is_none());
+        assert!(as_link("see https://x.org/a.zip").is_none());
+        assert!(as_link("https://x.org/a.zip https://x.org/b.zip").is_none());
+        assert!(as_link("héllo").is_none());
+        assert!(as_link("").is_none());
+    }
 }

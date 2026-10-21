@@ -141,6 +141,8 @@ export function installMock() {
           return downloads.find(
             (d) => d.filename.toLowerCase() === String(a.filename).toLowerCase() && d.status !== "completed",
           ) ?? null;
+        case "clipboard_link":
+          return "https://releases.ubuntu.com/24.04/ubuntu-24.04-desktop-amd64.iso";
         case "suggest_dir":
           return settings.downloadDir;
         case "path_exists":

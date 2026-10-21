@@ -207,6 +207,7 @@ pub fn run() {
             commands::open_file,
             commands::open_folder,
             commands::copy_text,
+            commands::clipboard_link,
             commands::get_settings,
             commands::set_settings,
             commands::pick_folder,

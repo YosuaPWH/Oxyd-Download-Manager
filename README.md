@@ -98,9 +98,11 @@ uses AppIndicator: KDE, Cinnamon, XFCE and Ubuntu show it out of the box; on pla
 
 ### Adding downloads
 
-Click a download link in your browser and Oxyd takes over, or press **Add URL**. The
-*New download* dialog checks the link first: file name, size, whether the server supports
-parallel downloads, destination folder, number of connections and an optional checksum.
+Click a download link in your browser and Oxyd takes over, or press **Add URL**. A link you
+copied just before is filled in and checked right away; pasting a link or pressing Enter
+checks it too. Once the check succeeds the *New download* dialog shows the file name, size,
+whether the server supports parallel downloads, destination folder, number of connections and
+an optional checksum.
 Choose **Start**, **Later** (adds it paused) or **Cancel**. If the file name already exists
 you can rename automatically or overwrite.
 

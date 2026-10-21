@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { api, errorMessage } from "../lib/api";
   import * as fmt from "../lib/format";
   import { t } from "../lib/i18n.svelte";
@@ -32,31 +32,56 @@
   // svelte-ignore state_referenced_locally
   let match = $state<PendingMatch | null>(pending?.matched ?? null);
 
+  /** The link the current `probe` belongs to. */
+  let probedUrl = $state("");
+  /** The link of the latest check, finished or not; only the latest one may update the form. */
+  let checking = "";
+  let seq = 0;
+  let urlInput = $state<HTMLInputElement>();
+
   const size = $derived(probe?.size ?? pending?.size ?? null);
+  // Browser downloads arrive checked; a typed link shows its details once it was checked.
+  const ready = $derived(!!pending || (!!probe && probedUrl === url.trim()));
 
   async function check() {
     const target = url.trim();
     if (!target) return;
+    const id = ++seq;
+    checking = target;
     probing = true;
     error = null;
+    if (!pending) match = null;
     try {
-      probe = pending ? await api.probePending(pending.key) : await api.probe(target);
-      if (!nameTouched && probe.filename && (!filename || !pending?.filename)) {
-        filename = probe.filename;
+      const info = pending ? await api.probePending(pending.key) : await api.probe(target);
+      if (id !== seq) return;
+      if (!nameTouched && info.filename && (!filename || !pending?.filename)) {
+        filename = info.filename;
       }
-      const name = filename || probe.filename;
+      const name = filename || info.filename;
       if (!match && name) {
-        const d = await api.findUnfinished(name, probe.size);
+        const d = await api.findUnfinished(name, info.size);
+        if (id !== seq) return;
         match = d
           ? { id: d.id, filename: d.filename, downloaded: d.downloaded, totalSize: d.totalSize }
           : null;
       }
+      probe = info;
+      probedUrl = target;
     } catch (e) {
+      if (id !== seq) return;
       error = errorMessage(e);
       probe = null;
     } finally {
-      probing = false;
+      if (id === seq) probing = false;
     }
+  }
+
+  function onUrlInput(e: Event) {
+    if ((e as InputEvent).inputType === "insertFromPaste") void check();
+  }
+
+  function onUrlChange() {
+    if (url.trim() !== checking) void check();
   }
 
   // Suggest a folder for the file name and detect name clashes.
@@ -79,7 +104,17 @@
   });
 
   onMount(() => {
-    if (url) void check();
+    void (async () => {
+      // A link copied just before pressing Add URL is filled in, selected so typing replaces it.
+      if (!url && !pending) {
+        const link = await api.clipboardLink().catch(() => null);
+        if (!link || url.trim()) return;
+        url = link;
+        await tick();
+        urlInput?.select();
+      }
+      if (url) void check();
+    })();
   });
 
   async function browse() {
@@ -150,84 +185,94 @@
 </script>
 
 <Modal title={t("new.title")} onclose={cancel} width={600}>
-  <form class="grid" onsubmit={(e) => (e.preventDefault(), submit(true))}>
+  <form class="grid" onsubmit={(e) => (e.preventDefault(), ready ? submit(true) : check())}>
     <label for="nd-url">{t("new.url")}</label>
     <div class="row">
       <input
         id="nd-url"
         class="mono"
         bind:value={url}
+        bind:this={urlInput}
         readonly={!!pending}
         placeholder="https://"
-        onchange={check}
+        oninput={onUrlInput}
+        onchange={onUrlChange}
       />
       {#if !pending}
-        <button type="button" onclick={check} disabled={probing || !url.trim()}>{t("new.check")}</button>
-      {/if}
-    </div>
-
-    <label for="nd-name">{t("new.filename")}</label>
-    <input id="nd-name" bind:value={filename} oninput={() => (nameTouched = true)} />
-
-    <label for="nd-dir">{t("new.folder")}</label>
-    <div class="row">
-      <input id="nd-dir" bind:value={dir} oninput={() => (dirTouched = true)} />
-      <button type="button" onclick={browse}>{t("new.browse")}</button>
-    </div>
-
-    <span class="lbl">{t("new.size")}</span>
-    <div class="info">
-      {#if probing}
-        <span class="muted">{t("new.probing")}</span>
-      {:else}
-        <strong>{size === null ? t("new.unknown") : fmt.bytes(size)}</strong>
-        {#if probe}
-          <span class={probe.acceptRanges ? "ok" : "warn"}>
-            · {probe.acceptRanges ? t("new.ranges") : t("new.noRanges")}
-          </span>
-        {/if}
-      {/if}
-    </div>
-
-    <label for="nd-conn">{t("new.connections")}</label>
-    <div class="row">
-      <input id="nd-conn" type="range" min="1" max="32" bind:value={connections} />
-      <span class="conn">{connections}</span>
-    </div>
-
-    <label for="nd-sum">{t("new.checksum")}</label>
-    <input id="nd-sum" class="mono" bind:value={checksum} placeholder="sha256:… / md5:…" title={t("new.checksumHint")} />
-
-    {#if pending?.source || pending?.referrer}
-      <span class="lbl">{t("new.from")}</span>
-      <div class="info ellipsis muted" title={pending.referrer ?? ""}>
-        {pending.source ?? ""}
-        {pending.referrer ? `· ${pending.referrer}` : ""}
-      </div>
-    {/if}
-
-    {#if match}
-      {@const pct = fmt.percent(match.downloaded, match.totalSize)}
-      <div class="full matchbox" role="alert">
-        <div class="matchtext">
-          <span>{t("match.title")}</span>
-          <strong class="ellipsis">{match.filename}</strong>
-          <span class="muted">
-            {pct === null ? fmt.bytes(match.downloaded) : `${pct.toFixed(1)}%`}
-            · {fmt.bytes(match.downloaded)} / {fmt.bytes(match.totalSize)} — {t("match.hint")}
-          </span>
-        </div>
-        <button type="button" class="primary" onclick={continueExisting} disabled={busy}>
-          {t("match.resume")}
+        <button type="button" class:primary={!ready} onclick={check} disabled={probing || !url.trim()}>
+          {t("new.check")}
         </button>
+      {/if}
+    </div>
+
+    {#if !ready}
+      <div class="hint muted" aria-live="polite">
+        {probing ? t("new.probing") : error ? "" : t("new.hint")}
       </div>
-    {/if}
-    {#if exists && !match}
-      <div class="full warnbox" role="alert">
-        {t("new.exists")}
-        <label class="check"><input type="radio" bind:group={conflict} value="rename" />{t("new.rename")}</label>
-        <label class="check"><input type="radio" bind:group={conflict} value="overwrite" />{t("new.overwrite")}</label>
+    {:else}
+      <label for="nd-name">{t("new.filename")}</label>
+      <input id="nd-name" bind:value={filename} oninput={() => (nameTouched = true)} />
+
+      <label for="nd-dir">{t("new.folder")}</label>
+      <div class="row">
+        <input id="nd-dir" bind:value={dir} oninput={() => (dirTouched = true)} />
+        <button type="button" onclick={browse}>{t("new.browse")}</button>
       </div>
+
+      <span class="lbl">{t("new.size")}</span>
+      <div class="info">
+        {#if probing}
+          <span class="muted">{t("new.probing")}</span>
+        {:else}
+          <strong>{size === null ? t("new.unknown") : fmt.bytes(size)}</strong>
+          {#if probe}
+            <span class={probe.acceptRanges ? "ok" : "warn"}>
+              · {probe.acceptRanges ? t("new.ranges") : t("new.noRanges")}
+            </span>
+          {/if}
+        {/if}
+      </div>
+
+      <label for="nd-conn">{t("new.connections")}</label>
+      <div class="row">
+        <input id="nd-conn" type="range" min="1" max="32" bind:value={connections} />
+        <span class="conn">{connections}</span>
+      </div>
+
+      <label for="nd-sum">{t("new.checksum")}</label>
+      <input id="nd-sum" class="mono" bind:value={checksum} placeholder="sha256:… / md5:…" title={t("new.checksumHint")} />
+
+      {#if pending?.source || pending?.referrer}
+        <span class="lbl">{t("new.from")}</span>
+        <div class="info ellipsis muted" title={pending.referrer ?? ""}>
+          {pending.source ?? ""}
+          {pending.referrer ? `· ${pending.referrer}` : ""}
+        </div>
+      {/if}
+
+      {#if match}
+        {@const pct = fmt.percent(match.downloaded, match.totalSize)}
+        <div class="full matchbox" role="alert">
+          <div class="matchtext">
+            <span>{t("match.title")}</span>
+            <strong class="ellipsis">{match.filename}</strong>
+            <span class="muted">
+              {pct === null ? fmt.bytes(match.downloaded) : `${pct.toFixed(1)}%`}
+              · {fmt.bytes(match.downloaded)} / {fmt.bytes(match.totalSize)} — {t("match.hint")}
+            </span>
+          </div>
+          <button type="button" class="primary" onclick={continueExisting} disabled={busy}>
+            {t("match.resume")}
+          </button>
+        </div>
+      {/if}
+      {#if exists && !match}
+        <div class="full warnbox" role="alert">
+          {t("new.exists")}
+          <label class="check"><input type="radio" bind:group={conflict} value="rename" />{t("new.rename")}</label>
+          <label class="check"><input type="radio" bind:group={conflict} value="overwrite" />{t("new.overwrite")}</label>
+        </div>
+      {/if}
     {/if}
     {#if error}
       <div class="full errbox" role="alert">{error}</div>
@@ -240,8 +285,8 @@
       <span class="muted more">+{more} {t("new.more")}</span>
     {/if}
     <button onclick={cancel}>{t("new.cancel")}</button>
-    <button onclick={() => submit(false)} disabled={busy || !url.trim()}>{t("new.later")}</button>
-    <button class="primary" onclick={() => submit(true)} disabled={busy || !url.trim()}>{t("new.start")}</button>
+    <button onclick={() => submit(false)} disabled={busy || !ready}>{t("new.later")}</button>
+    <button class="primary" onclick={() => submit(true)} disabled={busy || !ready}>{t("new.start")}</button>
   {/snippet}
 </Modal>
 
@@ -275,6 +320,10 @@
   }
   .info {
     min-width: 0;
+  }
+  .hint {
+    grid-column: 2;
+    margin-top: -4px;
   }
   .ok {
     color: var(--ok);

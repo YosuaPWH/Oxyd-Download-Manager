@@ -29,6 +29,7 @@ export const api = {
   openFile: (id: string) => invoke<void>("open_file", { id }),
   openFolder: (id: string) => invoke<void>("open_folder", { id }),
   copy: (text: string) => invoke<void>("copy_text", { text }),
+  clipboardLink: () => invoke<string | null>("clipboard_link"),
   getSettings: () => invoke<Settings>("get_settings"),
   setSettings: (settings: Settings) => invoke<Settings>("set_settings", { settings }),
   pickFolder: (start: string | null) => invoke<string | null>("pick_folder", { start }),
