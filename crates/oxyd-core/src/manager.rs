@@ -93,7 +93,17 @@ impl Manager {
         Self::with_store(Store::open(db_path)?)
     }
 
+    /// Like [`Manager::open`] but every unfinished download is left paused instead of being
+    /// resumed automatically (used by the CLI).
+    pub async fn open_idle(db_path: &Path) -> Result<Arc<Self>> {
+        Self::build(Store::open(db_path)?, false)
+    }
+
     pub fn with_store(store: Store) -> Result<Arc<Self>> {
+        Self::build(store, true)
+    }
+
+    fn build(store: Store, resume: bool) -> Result<Arc<Self>> {
         let settings = store.load_settings()?;
         let client = probe::build_client(settings.proxy.as_deref())?;
         let (events, _) = broadcast::channel(1024);
@@ -111,16 +121,22 @@ impl Manager {
             rt,
             me: me.clone(),
         });
-        mgr.recover()?;
+        mgr.recover(resume)?;
         mgr.schedule();
         Ok(mgr)
     }
 
-    /// Downloads interrupted by a crash or shutdown go back to the queue.
-    fn recover(&self) -> Result<()> {
+    /// Downloads interrupted by a crash or shutdown go back to the queue (or are paused
+    /// when `resume` is false).
+    fn recover(&self, resume: bool) -> Result<()> {
         for mut r in self.store.list()? {
-            if r.status.is_active() {
-                r.status = Status::Queued;
+            let interrupted = r.status.is_active() || r.status == Status::Queued;
+            if interrupted && (r.status != Status::Queued || !resume) {
+                r.status = if resume {
+                    Status::Queued
+                } else {
+                    Status::Paused
+                };
                 self.store.update(&r)?;
             }
         }
