@@ -3,10 +3,11 @@
 [![CI](https://github.com/YosuaPWH/Oxyd-Download-Manager/actions/workflows/ci.yml/badge.svg)](https://github.com/YosuaPWH/Oxyd-Download-Manager/actions/workflows/ci.yml)
 [![Build installer](https://github.com/YosuaPWH/Oxyd-Download-Manager/actions/workflows/build.yml/badge.svg)](https://github.com/YosuaPWH/Oxyd-Download-Manager/actions/workflows/build.yml)
 
-A fast, lightweight download manager for Windows in the spirit of Internet Download Manager.
-Oxyd splits every file into segments that download in parallel, survives crashes and lost
-connections, picks up downloads from Chrome and Edge, and lets you continue a download from
-where it stopped even after its link has expired.
+A fast, lightweight download manager for **Windows and Linux** in the spirit of Internet
+Download Manager. Oxyd splits every file into segments that download in parallel, survives
+crashes and lost connections, picks up downloads from Chrome, Edge and other Chromium
+browsers, and lets you continue a download from where it stopped even after its link has
+expired.
 
 <p align="center">
   <img src="docs/images/main-dark.png" alt="Oxyd main window, dark theme" width="900">
@@ -19,21 +20,38 @@ where it stopped even after its link has expired.
 - Up to **32 parallel connections** per file, with segments that rebalance themselves
 - **Resume after anything**: pause, crash, power loss, lost network, app restart
 - **Refresh an expired link** from the browser and continue from the last byte, like IDM
-- **Chrome and Edge integration**: downloads are captured, cookies and referer included
-- **Small**: the installer is about 5 MB and the app uses about 21 MB in the tray
-- **Light and dark** themes that follow Windows, in English and Indonesian
+- **Browser integration**: Chrome, Edge, Chromium, Brave and Vivaldi downloads are captured,
+  cookies and referer included
+- **Small**: the Windows installer is about 5 MB and the app uses about 21 MB in the tray
+- **Light and dark** themes that follow your system, in English and Indonesian
 
 ## Contents
 
-- [Design](#design) · [Everyday use](#everyday-use) · [Browser extension](#browser-extension)
-- [How it works](#how-it-works) · [Install](#install) · [Build from source](#build-from-source)
-- [Repository layout](#repository-layout) · [Documentation](#documentation) · [License](#license)
+- [Platforms](#platforms) · [Design](#design) · [Everyday use](#everyday-use)
+- [Browser extension](#browser-extension) · [How it works](#how-it-works) · [Install](#install)
+- [Build from source](#build-from-source) · [Repository layout](#repository-layout)
+- [Documentation](#documentation) · [License](#license)
+
+## Platforms
+
+| | Windows | Linux |
+|---|---|---|
+| Versions | Windows 10 and 11, 64-bit | 64-bit distributions with GTK 3 and WebKitGTK 4.1 (Ubuntu 22.04+, Debian 12+, Fedora 38+, …) |
+| Packages | Setup `.exe`, `.msi` | `.deb`, `.rpm`, `.AppImage` |
+| Web view | WebView2 (installed automatically if missing) | WebKitGTK |
+| Browsers | Chrome, Edge (plus any Chromium browser through the per-user registration) | Chrome, Chromium, Edge, Brave, Vivaldi |
+| Bridge ↔ app | Named pipe `\\.\pipe\oxyd`, owner and SYSTEM only | Unix socket in `$XDG_RUNTIME_DIR`, mode 0600 |
+| Stored cookies | Encrypted with DPAPI | In a database only you can read (folder 0700, file 0600) |
+| Data folder | `%LOCALAPPDATA%\Oxyd` | `~/.local/share/Oxyd` |
+
+The engine, the interface and the extension are the same code on both systems; only the
+parts that talk to the operating system differ.
 
 ## Design
 
 Oxyd is a single window that keeps the download list in the middle and everything else out of
-the way. It is built with Svelte 5 inside a Tauri 2 shell (WebView2), so it starts fast and
-looks the same on every Windows 10/11 machine.
+the way. It is built with Svelte 5 inside a Tauri 2 shell, so it starts fast and looks the
+same on Windows and Linux.
 
 | Dark | Light |
 |---|---|
@@ -72,13 +90,15 @@ underneath.
 
 **Tray.** Closing the window does not quit Oxyd. It keeps downloading from the tray (*Open*,
 *Pause all*, *Resume all*, *Quit*) and the window, with its web view, is only created when you
-open it. That is why a tray-only Oxyd needs about 21 MB.
+open it. That is why a tray-only Oxyd needs about 21 MB on Windows. On Linux the tray icon
+uses AppIndicator: KDE, Cinnamon, XFCE and Ubuntu show it out of the box; on plain GNOME
+(for example Fedora) install the *AppIndicator and KStatusNotifierItem Support* extension.
 
 ## Everyday use
 
 ### Adding downloads
 
-Click a download link in Chrome or Edge and Oxyd takes over, or press **Add URL**. The
+Click a download link in your browser and Oxyd takes over, or press **Add URL**. The
 *New download* dialog checks the link first: file name, size, whether the server supports
 parallel downloads, destination folder, number of connections and an optional checksum.
 Choose **Start**, **Later** (adds it paused) or **Cancel**. If the file name already exists
@@ -126,7 +146,7 @@ as `file (1)`. You can also paste a new URL by hand in the detail panel.
 
 | Tab | What you can set |
 |---|---|
-| General | Language, theme, start with Windows, notifications |
+| General | Language, theme, start automatically when you sign in, notifications |
 | Downloads | Default folder, a sub folder per category, connections per download (1–32), simultaneous downloads, global speed limit, what to do with duplicate names |
 | Browser & integration | Show the confirmation dialog for browser downloads, watch the clipboard for file links |
 | Schedule | Start and stop times, action when the queue finishes |
@@ -134,8 +154,9 @@ as `file (1)`. You can also paste a new URL by hand in the detail panel.
 
 ## Browser extension
 
-A Manifest V3 extension for Chrome and Edge sends downloads to Oxyd. The extension only talks
-to the app through a small native helper (`oxyd-bridge.exe`), and no network port is opened.
+A Manifest V3 extension for Chrome, Edge and other Chromium browsers sends downloads to Oxyd.
+The extension only talks to the app through a small native helper (`oxyd-bridge`), and no
+network port is opened. Firefox is not supported yet.
 
 - **Captures** downloads by file type, with a minimum size of 1 MB by default; blob and data
   URLs are always left to the browser. Cookies (including HttpOnly), referer and user agent
@@ -162,17 +183,21 @@ can be downloaded.
 ## How it works
 
 ```
-Browser extension ──stdio──▶ oxyd-bridge.exe ──\\.\pipe\oxyd──▶ Oxyd.exe (Tauri)
- (Chrome / Edge)   ◀──────                    ◀──────────────    ├─ UI (WebView2, Svelte)
-                                                                 ├─ queue and scheduler
-                                                                 └─ oxyd-core ─ SQLite + disk
+Browser extension ──stdio──▶ oxyd-bridge ──pipe / socket──▶ Oxyd (Tauri)
+ (Chrome, Edge, …) ◀──────               ◀───────────────    ├─ UI (web view, Svelte)
+                                                             ├─ queue and scheduler
+                                                             └─ oxyd-core ─ SQLite + disk
 ```
+
+The browser starts `oxyd-bridge` (its *native messaging host*) for each message; the bridge
+forwards it to the running app over a named pipe on Windows or a Unix socket on Linux, and
+starts the app first if needed.
 
 1. **Probe.** Oxyd asks the server for the first bytes with a `Range` request. The answer
    tells it the size, whether ranges work, the ETag and the file name; that same response
    becomes the first segment, so small files need a single request.
-2. **Segments.** The file is cut into up to 32 segments (initially at least 1 MiB each), each fetched
-   by its own connection and written straight to its offset in a pre-allocated `.oxydpart`
+2. **Segments.** The file is cut into up to 32 segments (initially at least 1 MiB each), each
+   fetched by its own connection and written straight to its offset in a sparse `.oxydpart`
    file. When a connection becomes idle, the segment that will take longest to finish is
    split so the fastest connections help the slowest. Servers without range support fall back
    to one connection.
@@ -185,20 +210,28 @@ Browser extension ──stdio──▶ oxyd-bridge.exe ──\\.\pipe\oxyd──
 5. **Be polite.** Failed requests retry with exponential backoff and `Retry-After`; when a
    server answers 429 or 503, connections are given up immediately and added back slowly.
 
-**Privacy.** Cookies and authorisation headers are encrypted with Windows DPAPI for your user
-account while a download needs them and deleted when it completes. Links in the log files are
+**Privacy.** Cookies and authorisation headers are kept only while a download needs them and
+deleted when it completes. On Windows they are encrypted with DPAPI for your user account; on
+Linux the database lives in a folder only your user can open. Links in the log files are
 reduced to their host and path, and there is no telemetry.
 
 ## Install
 
-**Installers.** Released versions are on the **Releases** page of the repository. Every push to
-`main` also builds them: open the latest run of the *Build installer* workflow in the
-**Actions** tab and download its artifact (kept for 30 days). Both contain
+Released versions are on the **Releases** page of the repository. Every push to `main` also
+builds them: open the latest run of the *Build installer* workflow in the **Actions** tab and
+download the Windows or Linux artifact (kept for 30 days).
 
-- `Oxyd-Setup-<version>.exe`, the setup program,
-- `Oxyd-Setup-<version>.msi`, the same app as a Windows Installer package,
-- `Oxyd-Extension-<version>.zip`, the unpacked browser extension,
-- `SHA256SUMS.txt`.
+| File | Platform |
+|---|---|
+| `Oxyd-Setup-<version>.exe` | Windows setup program |
+| `Oxyd-Setup-<version>.msi` | Windows Installer package of the same app |
+| `Oxyd-<version>-amd64.deb` | Debian, Ubuntu, Linux Mint, Pop!_OS, … |
+| `Oxyd-<version>-x86_64.rpm` | Fedora, RHEL, openSUSE, … |
+| `Oxyd-<version>-x86_64.AppImage` | Any other 64-bit distribution, no installation |
+| `Oxyd-Extension-<version>.zip` | The unpacked browser extension (same on every system) |
+| `SHA256SUMS.txt` | Checksums of all files |
+
+### Windows
 
 | | `.exe` (NSIS) | `.msi` |
 |---|---|---|
@@ -212,12 +245,44 @@ Pre-release versions such as `0.2.0-beta.1` only come as `.exe`, because MSI ver
 numeric. Neither installer is code signed yet, so Windows SmartScreen may ask for
 confirmation. WebView2 (part of Windows 11) is installed automatically if it is missing.
 
-**Extension.** Unzip the extension (or use `extension/build` after building it), open
-`chrome://extensions` or `edge://extensions`, turn on *Developer mode*, choose *Load
-unpacked* and select the folder. Its ID is always `gnihamodjbioaennpopmldmjdecbmfpl`, which is
-the one the installer allows to talk to the helper.
+### Linux
 
-**Publishing a release** (maintainers): raise the version in `app/src-tauri/tauri.conf.json`,
+```bash
+sudo apt install ./Oxyd-<version>-amd64.deb      # Debian, Ubuntu and derivatives
+sudo dnf install ./Oxyd-<version>-x86_64.rpm     # Fedora, RHEL
+```
+
+The packages pull in WebKitGTK and the tray library, put the app in the application menu and
+`oxyd-bridge` in `/usr/bin`, and register the helper system-wide for Chrome, Chromium and
+Edge (`/etc/opt/chrome`, `/etc/chromium`, `/etc/opt/edge`).
+
+The AppImage needs no installation:
+
+```bash
+chmod +x Oxyd-<version>-x86_64.AppImage
+./Oxyd-<version>-x86_64.AppImage
+```
+
+It needs FUSE 2 (`sudo apt install libfuse2`, called `libfuse2t64` on Ubuntu 24.04). On its
+first start it copies `oxyd-bridge` to `~/.local/share/Oxyd/bin`, because the browser cannot
+start a program inside the AppImage. Keep the AppImage where it is; if you move it, start it
+once from the new place so the helper finds it again.
+
+Whatever the package, Oxyd also registers the helper for your user in
+`~/.config/<browser>/NativeMessagingHosts` every time it starts, for each of Chrome, Chromium,
+Edge, Brave and Vivaldi that is installed. Browsers installed as Flatpak or Snap cannot start
+native helpers and are not supported.
+
+### Extension
+
+Unzip the extension (or use `extension/build` after building it), open `chrome://extensions`
+(or `edge://extensions`, `brave://extensions`, …), turn on *Developer mode*, choose *Load
+unpacked* and select the folder. Its ID is always `gnihamodjbioaennpopmldmjdecbmfpl`, which is
+the one the installers allow to talk to the helper.
+
+### Publishing a release
+
+For maintainers: raise the version in `app/src-tauri/tauri.conf.json`,
 the workspace `Cargo.toml` and both `package.json` files, commit, then
 
 ```bash
@@ -225,16 +290,30 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The workflow checks that the tag matches the app version, builds both installers and publishes
-a GitHub Release with them, the extension zip and `SHA256SUMS.txt`. Tags with a suffix such as
-`v0.2.0-beta.1` become pre-releases.
+The workflow checks that the tag matches the app version, builds the Windows and Linux
+packages in parallel and publishes a GitHub Release with all of them, the extension zip and
+one `SHA256SUMS.txt`. Tags with a suffix such as `v0.2.0-beta.1` become pre-releases.
 
-**Data.** Everything lives in `%LOCALAPPDATA%\Oxyd`: `oxyd.db` (downloads and settings),
-`logs\` and `native-host\`.
+### Data
+
+| | Windows | Linux |
+|---|---|---|
+| Downloads and settings | `%LOCALAPPDATA%\Oxyd\oxyd.db` | `~/.local/share/Oxyd/oxyd.db` |
+| Logs | `%LOCALAPPDATA%\Oxyd\logs\` | `~/.local/share/Oxyd/logs/` |
+| Browser helper | `%LOCALAPPDATA%\Oxyd\native-host\` and HKCU | `~/.config/<browser>/NativeMessagingHosts/` |
 
 ## Build from source
 
-Requirements: Windows 10/11 (64-bit), Rust stable (MSVC toolchain) and Node.js 22 or newer.
+Requirements: Rust stable and Node.js 22 or newer, plus
+
+- **Windows** 10/11 (64-bit) with the MSVC toolchain;
+- **Linux**: the Tauri system libraries. On Debian or Ubuntu:
+
+  ```bash
+  sudo apt install build-essential libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+  ```
+
+  On Fedora: `sudo dnf install webkit2gtk4.1-devel libappindicator-gtk3-devel librsvg2-devel patchelf`.
 
 ```bash
 cargo test --workspace                 # engine, protocol and bridge tests
@@ -242,10 +321,17 @@ cd app && npm install && npx tauri dev # desktop app with hot reload
 cd extension && npm install && npm run build   # extension into extension/build
 ```
 
+Packages:
+
 ```bash
+# Windows
 powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1
 # -> target/release/bundle/nsis/Oxyd Download Manager_<version>_x64-setup.exe
 # -> target/release/bundle/msi/Oxyd Download Manager_<version>_x64_en-US.msi
+
+# Linux (pass e.g. "deb" to build only one kind)
+bash scripts/build-linux.sh
+# -> target/release/bundle/deb/*.deb, rpm/*.rpm, appimage/*.AppImage
 ```
 
 Useful during development:
@@ -254,11 +340,17 @@ Useful during development:
 cargo run -p test-server               # local server: ranges, throttling, drops, 429/503, ETags, cookies
 cargo run -p oxyd-cli -- download "http://127.0.0.1:8787/file/104857600?rate=1048576" -c 8
 cd app && npm run dev                  # UI alone in a browser with a mock backend
-powershell -File scripts/register-dev.ps1   # register a local oxyd-bridge.exe (-Unregister to remove)
+powershell -File scripts/register-dev.ps1   # Windows: register a local oxyd-bridge.exe (-Unregister to remove)
 ```
 
-`OXYD_DATA_DIR` moves the data folder, `OXYD_LOG=debug` raises the log level and `OXYD_PIPE`
-renames the bridge pipe.
+On Linux a development build registers its own `oxyd-bridge` for your user when it starts.
+
+| Variable | Effect |
+|---|---|
+| `OXYD_DATA_DIR` | Moves the data folder |
+| `OXYD_LOG=debug` | Raises the log level |
+| `OXYD_PIPE` | Another pipe name (Windows) or socket path (Linux) between bridge and app; the default socket is `$XDG_RUNTIME_DIR/oxyd.sock` |
+| `OXYD_APP` | The app the bridge starts when it is not running |
 
 ## Repository layout
 
@@ -266,11 +358,11 @@ renames the bridge pipe.
 |---|---|
 | `crates/oxyd-core` | Download engine: probe, segments, workers, limiter, SQLite, queue and manager |
 | `crates/oxyd-cli` | `oxyd-cli`, a command line front end for the engine |
-| `crates/oxyd-protocol` | Message types, framing and the secured named pipe |
-| `crates/oxyd-bridge` | `oxyd-bridge.exe`, the native messaging host |
+| `crates/oxyd-protocol` | Message types, framing, the secured named pipe (Windows) and Unix socket (Linux) |
+| `crates/oxyd-bridge` | `oxyd-bridge`, the native messaging host |
 | `app/` | Tauri app (`src-tauri/`) and the Svelte interface (`src/`) |
-| `extension/` | Chrome and Edge extension (TypeScript, esbuild) |
-| `installer/`, `scripts/` | NSIS hooks, WiX fragment for the MSI, installer build, dev registration, kill/resume test |
+| `extension/` | Chromium extension (TypeScript, esbuild) |
+| `installer/`, `scripts/` | NSIS hooks, WiX fragment for the MSI, Windows and Linux package builds, dev registration, kill/resume test |
 | `test-server/` | Local HTTP server used by the tests and benchmarks |
 
 ## Documentation

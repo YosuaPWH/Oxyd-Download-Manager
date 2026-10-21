@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "category": "Network",
+    "externalBin": ["binaries/oxyd-bridge"],
+    "linux": {
+      "deb": {
+        "depends": ["libayatana-appindicator3-1"],
+        "files": {
+          "/etc/opt/chrome/native-messaging-hosts/com.oxyd.bridge.json": "native-host/linux/com.oxyd.bridge.json",
+          "/etc/chromium/native-messaging-hosts/com.oxyd.bridge.json": "native-host/linux/com.oxyd.bridge.json",
+          "/etc/opt/edge/native-messaging-hosts/com.oxyd.bridge.json": "native-host/linux/com.oxyd.bridge.json"
+        }
+      },
+      "rpm": {
+        "depends": ["libappindicator-gtk3"],
+        "files": {
+          "/etc/opt/chrome/native-messaging-hosts/com.oxyd.bridge.json": "native-host/linux/com.oxyd.bridge.json",
+          "/etc/chromium/native-messaging-hosts/com.oxyd.bridge.json": "native-host/linux/com.oxyd.bridge.json",
+          "/etc/opt/edge/native-messaging-hosts/com.oxyd.bridge.json": "native-host/linux/com.oxyd.bridge.json"
+        }
+      }
+    }
+  }
+}

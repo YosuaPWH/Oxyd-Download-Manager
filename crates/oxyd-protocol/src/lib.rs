@@ -1,22 +1,25 @@
 //! Protocol between the browser extension, `oxyd-bridge` and the Oxyd app.
 //!
 //! Every message is JSON with a protocol version `v` and a `type`. On both links
-//! (browser ↔ bridge over stdio and bridge ↔ app over the named pipe) a message is framed
+//! (browser ↔ bridge over stdio and bridge ↔ app over a named pipe on Windows or a Unix
+//! socket elsewhere) a message is framed
 //! as a 4 byte little-endian length followed by the UTF-8 JSON payload.
 
 use std::io::{self, Read, Write};
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(all(feature = "server", windows))]
+#[cfg(all(feature = "server", any(windows, unix)))]
 pub mod pipe;
 
 pub const VERSION: u32 = 1;
 /// Native messaging host name registered for Chrome and Edge.
 pub const HOST_NAME: &str = "com.oxyd.bridge";
-/// Named pipe served by the app.
+/// Named pipe served by the app on Windows.
 pub const PIPE_NAME: &str = r"\\.\pipe\oxyd";
-/// Environment variable overriding [`PIPE_NAME`] (tests, multiple dev instances).
+/// Socket file name used on Unix, inside `$XDG_RUNTIME_DIR` when it is set.
+pub const SOCKET_NAME: &str = "oxyd.sock";
+/// Environment variable overriding [`pipe_name`] (tests, multiple dev instances).
 pub const PIPE_ENV: &str = "OXYD_PIPE";
 /// Maximum size of a message coming from the browser (and of any frame).
 pub const MAX_MESSAGE: usize = 1024 * 1024;
@@ -40,8 +43,62 @@ pub fn host_manifest(bridge_path: &str) -> String {
     serde_json::to_string_pretty(&manifest).expect("manifest serializes")
 }
 
+/// Address the app listens on and the bridge connects to: [`PIPE_NAME`] on Windows,
+/// `$XDG_RUNTIME_DIR/oxyd.sock` (or a per-user file in the temp folder) on Unix.
 pub fn pipe_name() -> String {
-    std::env::var(PIPE_ENV).unwrap_or_else(|_| PIPE_NAME.to_string())
+    if let Ok(name) = std::env::var(PIPE_ENV) {
+        return name;
+    }
+    if cfg!(windows) {
+        return PIPE_NAME.to_string();
+    }
+    match std::env::var_os("XDG_RUNTIME_DIR").filter(|d| !d.is_empty()) {
+        Some(dir) => std::path::Path::new(&dir).join(SOCKET_NAME),
+        None => {
+            let user = std::env::var("USER").unwrap_or_else(|_| "user".into());
+            std::env::temp_dir().join(format!("oxyd-{user}.sock"))
+        }
+    }
+    .to_string_lossy()
+    .into_owned()
+}
+
+/// Client side of the app's pipe or socket.
+#[cfg(windows)]
+pub type Connection = std::fs::File;
+#[cfg(unix)]
+pub type Connection = std::os::unix::net::UnixStream;
+
+/// Connect to the app listening on `name` (see [`pipe_name`]).
+pub fn connect(name: &str) -> io::Result<Connection> {
+    #[cfg(windows)]
+    {
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(name)
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::net::UnixStream::connect(name)
+    }
+}
+
+/// A pipe or socket name no other test or app instance uses.
+#[doc(hidden)]
+pub fn unique_pipe_name(tag: &str) -> String {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static N: AtomicU32 = AtomicU32::new(0);
+    let n = N.fetch_add(1, Ordering::Relaxed);
+    let id = format!("oxyd-{tag}-{}-{n}", std::process::id());
+    if cfg!(windows) {
+        format!(r"\\.\pipe\{id}")
+    } else {
+        std::env::temp_dir()
+            .join(format!("{id}.sock"))
+            .to_string_lossy()
+            .into_owned()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

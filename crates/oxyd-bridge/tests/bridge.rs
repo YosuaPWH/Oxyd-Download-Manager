@@ -10,7 +10,10 @@ use oxyd_protocol::{
 fn bridge(pipe: &str) -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_oxyd-bridge"));
     c.env("OXYD_PIPE", pipe)
-        .env("OXYD_APP", "Z:\\does-not-exist\\Oxyd.exe")
+        .env(
+            "OXYD_APP",
+            std::env::temp_dir().join("does-not-exist").join("Oxyd"),
+        )
         .arg("chrome-extension://test/")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped());
@@ -28,21 +31,17 @@ fn add(id: &str) -> Message {
 
 #[tokio::test]
 async fn forwards_messages_to_the_app() {
-    let pipe = format!(r"\\.\pipe\oxyd-bridge-test-{}", std::process::id());
+    let pipe = oxyd_protocol::unique_pipe_name("bridge");
     let server = oxyd_protocol::pipe::bind(&pipe).unwrap();
-    tokio::spawn(oxyd_protocol::pipe::serve(
-        pipe.clone(),
-        server,
-        |msg| async move {
-            match msg {
-                Message::Ping => Message::Pong {
-                    app_version: "9.9.9".into(),
-                },
-                Message::AddDownload(a) => Message::ack(a.id, AckStatus::Accepted, None),
-                _ => Message::ack("", AckStatus::Rejected, None),
-            }
-        },
-    ));
+    tokio::spawn(oxyd_protocol::pipe::serve(server, |msg| async move {
+        match msg {
+            Message::Ping => Message::Pong {
+                app_version: "9.9.9".into(),
+            },
+            Message::AddDownload(a) => Message::ack(a.id, AckStatus::Accepted, None),
+            _ => Message::ack("", AckStatus::Rejected, None),
+        }
+    }));
 
     let out = tokio::task::spawn_blocking(move || {
         let mut child = bridge(&pipe).spawn().unwrap();
@@ -93,7 +92,9 @@ async fn forwards_messages_to_the_app() {
 
 #[test]
 fn reports_error_when_app_is_unreachable() {
-    let mut child = bridge(r"\\.\pipe\oxyd-nobody-listens").spawn().unwrap();
+    let mut child = bridge(&oxyd_protocol::unique_pipe_name("nobody"))
+        .spawn()
+        .unwrap();
     let mut stdin = child.stdin.take().unwrap();
     write_message(&mut stdin, &Message::Ping).unwrap();
     write_message(&mut stdin, &add("dl-2")).unwrap();
@@ -113,7 +114,9 @@ fn reports_error_when_app_is_unreachable() {
 
 #[test]
 fn rejects_oversized_frames() {
-    let mut child = bridge(r"\\.\pipe\oxyd-nobody-listens").spawn().unwrap();
+    let mut child = bridge(&oxyd_protocol::unique_pipe_name("nobody"))
+        .spawn()
+        .unwrap();
     let mut stdin = child.stdin.take().unwrap();
     stdin
         .write_all(&((2 * 1024 * 1024) as u32).to_le_bytes())

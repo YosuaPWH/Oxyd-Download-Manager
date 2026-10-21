@@ -1,17 +1,16 @@
 //! `oxyd-bridge` — Chrome/Edge native messaging host.
 //!
-//! Reads length-prefixed JSON from stdin, forwards each message to the app over the named
-//! pipe (starting the app when a download arrives and it is not running) and writes the
-//! reply to stdout. Nothing but protocol frames may ever be written to stdout; logs go to
-//! `%LOCALAPPDATA%\Oxyd\logs\bridge.log`.
+//! Reads length-prefixed JSON from stdin, forwards each message to the app over its named
+//! pipe (Windows) or Unix socket (Linux), starting the app when a download arrives and it is
+//! not running, and writes the reply to stdout. Nothing but protocol frames may ever be
+//! written to stdout; logs go to `logs/bridge.log` in the Oxyd data folder.
 
-use std::fs::File;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use oxyd_protocol::{
-    decode, read_frame, read_message, write_message, AckStatus, Message, ProtocolError,
+    decode, read_frame, read_message, write_message, AckStatus, Connection, Message, ProtocolError,
 };
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -62,7 +61,7 @@ fn peek_id(frame: &[u8]) -> String {
 
 #[derive(Default)]
 struct Bridge {
-    pipe: Option<File>,
+    pipe: Option<Connection>,
 }
 
 impl Bridge {
@@ -100,15 +99,12 @@ impl Bridge {
     }
 }
 
-fn open_pipe() -> io::Result<File> {
-    std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(oxyd_protocol::pipe_name())
+fn open_pipe() -> io::Result<Connection> {
+    oxyd_protocol::connect(&oxyd_protocol::pipe_name())
 }
 
 /// Connect to the app, starting it first if `launch` and it is not running.
-fn connect(launch: bool) -> io::Result<File> {
+fn connect(launch: bool) -> io::Result<Connection> {
     match open_pipe() {
         Ok(f) => return Ok(f),
         Err(e) if !launch => return Err(e),
@@ -133,14 +129,34 @@ fn connect(launch: bool) -> io::Result<File> {
     }
 }
 
+/// File next to the bridge naming the app to start. The AppImage writes it when it copies
+/// the bridge out of its (randomly mounted) image, pointing back at the AppImage file.
+const APP_PATH_FILE: &str = "app-path";
+
+#[cfg(windows)]
+const APP_NAMES: &[&str] = &["Oxyd.exe"];
+#[cfg(not(windows))]
+const APP_NAMES: &[&str] = &["Oxyd", "oxyd", "oxyd-download-manager"];
+
 fn app_path() -> PathBuf {
     if let Some(p) = std::env::var_os("OXYD_APP") {
         return PathBuf::from(p);
     }
-    std::env::current_exe()
+    let dir = std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(|d| d.join("Oxyd.exe")))
-        .unwrap_or_else(|| PathBuf::from("Oxyd.exe"))
+        .and_then(|p| p.parent().map(PathBuf::from))
+        .unwrap_or_default();
+    if let Ok(p) = std::fs::read_to_string(dir.join(APP_PATH_FILE)) {
+        let p = PathBuf::from(p.trim());
+        if p.exists() {
+            return p;
+        }
+    }
+    APP_NAMES
+        .iter()
+        .map(|n| dir.join(n))
+        .find(|p| p.exists())
+        .unwrap_or_else(|| dir.join(APP_NAMES[0]))
 }
 
 fn launch_app() -> io::Result<()> {
@@ -166,6 +182,13 @@ fn launch_app() -> io::Result<()> {
             return Ok(());
         }
         cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Own process group, so the app is not killed with the browser's helper processes.
+        // Rust opens every file descriptor close-on-exec, so nothing else is inherited.
+        cmd.process_group(0);
     }
     cmd.spawn().map(|_| ())
 }

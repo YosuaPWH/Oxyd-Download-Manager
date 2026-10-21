@@ -64,15 +64,21 @@ fn notify(app: &AppHandle, title: &str, body: &str) {
     }
 }
 
+#[cfg(windows)]
+const SLEEP: &[&str] = &["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"];
+// A one minute delay leaves time to abort with `shutdown /a` (Windows) or `shutdown -c`.
+#[cfg(windows)]
+const SHUTDOWN: &[&str] = &["shutdown", "/s", "/t", "60"];
+#[cfg(not(windows))]
+const SLEEP: &[&str] = &["systemctl", "suspend"];
+#[cfg(not(windows))]
+const SHUTDOWN: &[&str] = &["shutdown", "-h", "+1"];
+
 fn after_queue(app: &AppHandle, action: AfterQueue, lang: &str) {
     let (msg, cmd): (&str, &[&str]) = match action {
         AfterQueue::Nothing => return,
-        AfterQueue::Sleep => (
-            tr(lang, "notify.sleep"),
-            &["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"],
-        ),
-        // A one minute delay leaves time to abort with `shutdown /a`.
-        AfterQueue::Shutdown => (tr(lang, "notify.shutdown"), &["shutdown", "/s", "/t", "60"]),
+        AfterQueue::Sleep => (tr(lang, "notify.sleep"), SLEEP),
+        AfterQueue::Shutdown => (tr(lang, "notify.shutdown"), SHUTDOWN),
     };
     notify(app, "Oxyd", msg);
     tracing::info!(?action, "queue finished, running after-queue action");

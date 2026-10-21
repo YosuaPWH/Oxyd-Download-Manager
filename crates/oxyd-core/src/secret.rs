@@ -1,7 +1,8 @@
 //! Protects request headers (cookies, authorization) at rest.
 //!
 //! On Windows the data is encrypted with DPAPI for the current user, so the database alone
-//! does not reveal session cookies. Elsewhere it is stored as plain JSON.
+//! does not reveal session cookies. Elsewhere it is stored as plain JSON in a database only the
+//! user can read (folder 0700, file 0600); completed downloads drop it either way.
 
 use crate::error::{Error, Result};
 

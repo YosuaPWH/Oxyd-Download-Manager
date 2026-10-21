@@ -145,7 +145,20 @@ pub fn available_space(dir: &Path) -> Option<u64> {
     (ok != 0).then_some(free)
 }
 
-#[cfg(not(windows))]
+#[cfg(unix)]
+pub fn available_space(dir: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let existing = dir.ancestors().find(|p| p.exists())?;
+    let path = std::ffi::CString::new(existing.as_os_str().as_bytes()).ok()?;
+    // SAFETY: `path` is NUL terminated and `st` is a plain C struct filled by statvfs.
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    let rc = unsafe { libc::statvfs(path.as_ptr(), &mut st) };
+    // Blocks available to unprivileged users, like GetDiskFreeSpaceEx on Windows.
+    #[allow(clippy::unnecessary_cast)]
+    (rc == 0).then(|| st.f_bavail as u64 * st.f_frsize as u64)
+}
+
+#[cfg(not(any(windows, unix)))]
 pub fn available_space(_dir: &Path) -> Option<u64> {
     None
 }
@@ -196,8 +209,10 @@ mod tests {
 
     #[test]
     fn reports_free_space() {
-        if cfg!(windows) {
+        if cfg!(any(windows, unix)) {
             assert!(available_space(Path::new(".")).unwrap() > 0);
+            // A folder that does not exist yet is measured on its closest existing parent.
+            assert!(available_space(&std::env::temp_dir().join("oxyd-missing/a/b")).is_some());
         }
     }
 }

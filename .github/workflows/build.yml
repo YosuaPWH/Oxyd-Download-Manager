@@ -1,9 +1,12 @@
 name: Build installer
 
-# Builds the Windows installers (NSIS setup .exe and .msi) for every push to main and attaches them to the run as an
-# artifact (Actions tab -> the run -> Artifacts). Use "Run workflow" to build any branch.
+# Builds the installers for every push to main and attaches them to the run as artifacts
+# (Actions tab -> the run -> Artifacts):
+#   - Windows: NSIS setup .exe and .msi
+#   - Linux: .deb, .rpm and .AppImage
+# Use "Run workflow" to build any branch.
 #
-# Pushing a tag such as v0.1.0 also publishes a GitHub Release with the installers, the
+# Pushing a tag such as v0.1.0 also publishes a GitHub Release with all installers, the
 # extension and the checksums. The tag must match the version in tauri.conf.json:
 #   git tag v0.1.0 && git push origin v0.1.0
 on:
@@ -77,7 +80,7 @@ jobs:
           if ($msi) { Copy-Item $msi.FullName "$out/Oxyd-Setup-$version.msi" }
           elseif ($version -notmatch '-') { throw "MSI not found in target/release/bundle/msi" }
 
-          # The unpacked extension for "Load unpacked" in Chrome/Edge.
+          # The unpacked extension for "Load unpacked" in Chrome/Edge (same on every OS).
           Compress-Archive -Path extension/build/* -DestinationPath "$out/Oxyd-Extension-$version.zip"
 
           Push-Location $out
@@ -88,7 +91,7 @@ jobs:
 
           "name=oxyd-windows-x64-$version-$short" >> $env:GITHUB_OUTPUT
 
-          "### Oxyd $version ($short)" >> $env:GITHUB_STEP_SUMMARY
+          "### Windows: Oxyd $version ($short)" >> $env:GITHUB_STEP_SUMMARY
           "" >> $env:GITHUB_STEP_SUMMARY
           "| File | Size |" >> $env:GITHUB_STEP_SUMMARY
           "|---|---|" >> $env:GITHUB_STEP_SUMMARY
@@ -107,9 +110,83 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  linux:
+    name: Linux packages (deb, rpm, AppImage)
+    # The oldest supported Ubuntu keeps the AppImage and .deb working on older glibc.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    outputs:
+      artifact: ${{ steps.collect.outputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag matches the app version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(jq -r .version app/src-tauri/tauri.conf.json)
+          case "$GITHUB_REF_NAME" in
+            "v$version" | "v$version"-*) ;;
+            *) echo "::error::Tag $GITHUB_REF_NAME does not match the app version $version"; exit 1 ;;
+          esac
+
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev patchelf libfuse2 file
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            extension/package-lock.json
+
+      - name: Build packages
+        run: bash scripts/build-linux.sh
+
+      - name: Collect release files
+        id: collect
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version app/src-tauri/tauri.conf.json)
+          short=${GITHUB_SHA::7}
+          bundle=target/release/bundle
+          mkdir -p out
+          cp "$(ls $bundle/deb/*.deb | head -1)" "out/Oxyd-$version-amd64.deb"
+          cp "$(ls $bundle/rpm/*.rpm | head -1)" "out/Oxyd-$version-x86_64.rpm"
+          cp "$(ls $bundle/appimage/*.AppImage | head -1)" "out/Oxyd-$version-x86_64.AppImage"
+          chmod +x out/*.AppImage
+          (cd out && sha256sum -- * > SHA256SUMS.txt)
+
+          echo "name=oxyd-linux-x64-$version-$short" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Linux: Oxyd $version ($short)"
+            echo
+            echo "| File | Size |"
+            echo "|---|---|"
+            for f in out/*; do echo "| $(basename "$f") | $(du -h "$f" | cut -f1) |"; done
+            echo
+            echo '```'
+            cat out/SHA256SUMS.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.collect.outputs.name }}
+          path: out/*
+          if-no-files-found: error
+          retention-days: 30
+
   release:
     name: GitHub release
-    needs: installer
+    needs: [installer, linux]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -119,6 +196,18 @@ jobs:
         with:
           name: ${{ needs.installer.outputs.artifact }}
           path: out
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.linux.outputs.artifact }}
+          path: out
+
+      - name: One checksum file for all platforms
+        run: |
+          cd out
+          rm -f SHA256SUMS.txt
+          sha256sum -- * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
       - name: Publish release
         env:

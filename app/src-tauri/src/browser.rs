@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::state::{AppState, PendingAdd, PendingMatch};
 
-/// Serve the bridge pipe for the lifetime of the app.
+/// Serve the bridge pipe (Windows) or socket (Linux) for the lifetime of the app.
 pub fn start_pipe_server(app: &AppHandle) {
     let name = oxyd_protocol::pipe_name();
     let app = app.clone();
@@ -25,7 +25,7 @@ pub fn start_pipe_server(app: &AppHandle) {
             let app = app.clone();
             async move { handle(&app, msg) }
         };
-        if let Err(e) = oxyd_protocol::pipe::serve(name, first, handler).await {
+        if let Err(e) = oxyd_protocol::pipe::serve(first, handler).await {
             tracing::error!("bridge pipe stopped: {e}");
         }
     });

@@ -26,6 +26,9 @@ hex = "0.4"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_IO", "Win32_System_Ioctl"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 test-server = { path = "../../test-server" }
 tempfile = "3"

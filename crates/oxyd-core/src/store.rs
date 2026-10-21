@@ -72,9 +72,25 @@ const COLUMNS: &str = "id, url, final_url, filename, dir, save_path, total_size,
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(dir) = path.parent() {
+            let created = !dir.exists();
             std::fs::create_dir_all(dir)?;
+            // The database holds download history and, on Linux, cookies in plain text:
+            // keep a folder Oxyd created to itself (never touch an existing one).
+            #[cfg(unix)]
+            if created {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+            }
+            #[cfg(not(unix))]
+            let _ = created;
         }
-        Self::init(Connection::open(path)?)
+        let conn = Connection::open(path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        }
+        Self::init(conn)
     }
 
     pub fn open_in_memory() -> Result<Self> {
@@ -557,5 +573,23 @@ mod tests {
         Store::open(&p).unwrap().insert(&record("x")).unwrap();
         let again = Store::open(&p).unwrap();
         assert!(again.get("x").unwrap().is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn keeps_its_own_folder_private_but_leaves_others_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let tmp = tempfile::tempdir().unwrap();
+        let own = tmp.path().join("Oxyd");
+        Store::open(&own.join("oxyd.db")).unwrap();
+        assert_eq!(mode(&own), 0o700, "folder created by Oxyd");
+        assert_eq!(mode(&own.join("oxyd.db")), 0o600);
+
+        let shared = tmp.path().join("shared");
+        std::fs::create_dir(&shared).unwrap();
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o755)).unwrap();
+        Store::open(&shared.join("cli.db")).unwrap();
+        assert_eq!(mode(&shared), 0o755, "existing folders are not changed");
     }
 }

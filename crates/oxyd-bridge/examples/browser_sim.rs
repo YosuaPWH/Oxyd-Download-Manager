@@ -34,7 +34,7 @@ fn main() {
         .expect("current exe")
         .parent()
         .and_then(|p| p.parent())
-        .map(|p| p.join("oxyd-bridge.exe"))
+        .map(|p| p.join(format!("oxyd-bridge{}", std::env::consts::EXE_SUFFIX)))
         .expect("target dir");
     let mut child = Command::new(&exe)
         .arg("chrome-extension://browser-sim/")
