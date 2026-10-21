@@ -11,7 +11,7 @@ use crate::segment::{Segment, UNKNOWN_END};
 use crate::settings::Settings;
 use crate::types::{now, DownloadRecord, RequestHeaders, Status};
 
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE downloads (
@@ -57,6 +57,9 @@ CREATE TABLE settings (
 /// messages and automatic retries.
 const MIGRATION_2: &str = "ALTER TABLE downloads ADD COLUMN error_code TEXT;";
 
+/// The scheduler looks downloads up by status on every change.
+const MIGRATION_3: &str = "CREATE INDEX IF NOT EXISTS idx_downloads_status ON downloads(status);";
+
 #[derive(Debug)]
 pub struct Store {
     conn: Mutex<Connection>,
@@ -89,6 +92,9 @@ impl Store {
         }
         if version < 2 {
             conn.execute_batch(MIGRATION_2)?;
+        }
+        if version < 3 {
+            conn.execute_batch(MIGRATION_3)?;
         }
         if version < SCHEMA_VERSION {
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -236,6 +242,28 @@ impl Store {
             "SELECT {COLUMNS} FROM downloads ORDER BY position, created_at"
         ))?;
         let rows = st.query_map([], row_to_record)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Downloads in one of `statuses`, in queue order.
+    pub fn list_by_status(&self, statuses: &[Status]) -> Result<Vec<DownloadRecord>> {
+        let c = self.conn();
+        let marks = vec!["?"; statuses.len()].join(",");
+        let mut st = c.prepare(&format!(
+            "SELECT {COLUMNS} FROM downloads WHERE status IN ({marks}) ORDER BY position, created_at"
+        ))?;
+        let names: Vec<&str> = statuses.iter().map(|s| s.as_str()).collect();
+        let rows = st.query_map(rusqlite::params_from_iter(names), row_to_record)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Destination paths claimed by unfinished downloads other than `except`.
+    pub fn reserved_paths(&self, except: &str) -> Result<Vec<PathBuf>> {
+        let c = self.conn();
+        let mut st = c.prepare(
+            "SELECT save_path FROM downloads WHERE id != ?1 AND save_path != ''              AND status NOT IN ('completed', 'cancelled')",
+        )?;
+        let rows = st.query_map([except], |r| Ok(PathBuf::from(r.get::<_, String>(0)?)))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
@@ -481,6 +509,29 @@ mod tests {
         s.delete("a").unwrap();
         assert!(s.get("a").unwrap().is_none());
         assert!(s.load_segments("a").unwrap().is_empty());
+    }
+
+    #[test]
+    fn filters_by_status_and_reserved_paths() {
+        let s = Store::open_in_memory().unwrap();
+        for (id, status) in [
+            ("q", Status::Queued),
+            ("p", Status::Paused),
+            ("c", Status::Completed),
+        ] {
+            let mut r = record(id);
+            r.status = status;
+            r.save_path = PathBuf::from(format!(r"C:\dl\{id}.zip"));
+            s.insert(&r).unwrap();
+        }
+        let ids = |v: Vec<DownloadRecord>| v.into_iter().map(|r| r.id).collect::<Vec<_>>();
+        assert_eq!(ids(s.list_by_status(&[Status::Queued]).unwrap()), ["q"]);
+        assert_eq!(
+            ids(s.list_by_status(&[Status::Paused, Status::Completed]).unwrap()).len(),
+            2
+        );
+        let reserved = s.reserved_paths("q").unwrap();
+        assert_eq!(reserved, [PathBuf::from(r"C:\dl\p.zip")]);
     }
 
     #[test]

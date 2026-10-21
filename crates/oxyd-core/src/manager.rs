@@ -304,14 +304,7 @@ impl Manager {
         if policy == DuplicatePolicy::Overwrite {
             return dir.join(name);
         }
-        let reserved: Vec<PathBuf> = self
-            .store
-            .list()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|r| r.id != id && !r.status.is_finished())
-            .map(|r| r.save_path)
-            .collect();
+        let reserved = self.store.reserved_paths(id).unwrap_or_default();
         let taken = |p: &Path| reserved.iter().any(|r| paths_eq(r, p));
         filename::unique_path(dir, name, &taken)
     }
@@ -507,7 +500,13 @@ impl Manager {
     }
 
     pub fn pause_all(&self) -> Result<()> {
-        for r in self.store.list()? {
+        let statuses = [
+            Status::Queued,
+            Status::Probing,
+            Status::Downloading,
+            Status::Failed,
+        ];
+        for r in self.store.list_by_status(&statuses)? {
             if matches!(r.status, Status::Queued) || r.status.is_active() {
                 self.pause(&r.id)?;
             } else if r.status == Status::Failed {
@@ -519,7 +518,7 @@ impl Manager {
     }
 
     pub fn resume_all(&self) -> Result<()> {
-        for r in self.store.list()? {
+        for r in self.store.list_by_status(&[Status::Paused])? {
             if r.status == Status::Paused {
                 self.start(&r.id)?;
             }
@@ -622,10 +621,11 @@ impl Manager {
         let mut ids: Vec<&str> = list.iter().map(|r| r.id.as_str()).collect();
         let item = ids.remove(i);
         ids.insert(j, item);
-        for (pos, id) in ids.iter().enumerate() {
+        // Only the items between the old and the new place change position.
+        let (lo, hi) = (i.min(j), i.max(j));
+        for (pos, id) in ids.iter().enumerate().take(hi + 1).skip(lo) {
             self.store.set_position(id, pos as i64 + 1)?;
-        }
-        for r in self.store.list()? {
+            let r = self.record(id)?;
             self.emit(Event::Updated {
                 download: Box::new(self.info(r)),
             });
@@ -683,11 +683,8 @@ impl Manager {
             return;
         };
         let max = self.settings().max_active as usize;
-        let queued: Vec<DownloadRecord> = match self.store.list() {
-            Ok(l) => l
-                .into_iter()
-                .filter(|r| r.status == Status::Queued)
-                .collect(),
+        let queued: Vec<DownloadRecord> = match self.store.list_by_status(&[Status::Queued]) {
+            Ok(l) => l,
             Err(e) => {
                 tracing::error!("listing downloads failed: {e}");
                 return;
