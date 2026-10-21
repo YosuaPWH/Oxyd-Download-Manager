@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Registers oxyd-bridge.exe as the Chrome and Edge native messaging host in the MSI
+  (the NSIS installer does the same in installer/nsis-hooks.nsh).
+
+  The manifest com.oxyd.bridge.json is installed next to the exe with a relative "path", which
+  Chrome and Edge resolve against the manifest's own folder, so it works from any install
+  directory. The registry keys below point to it. Chromium reads HKLM in the 32-bit registry
+  view, so the keys are written to both views (two components); the app also repairs its own
+  per-user registration on every start.
+
+  Both Component GUIDs must stay fixed so upgrades and uninstalls find the old components.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="OxydNativeHost64" Guid="B3A6D1F2-6C5E-4B7A-9E41-2D0F7C8A5E11" Win64="yes">
+        <RegistryValue Id="OxydChrome64" Root="HKLM" Key="Software\Google\Chrome\NativeMessagingHosts\com.oxyd.bridge" Type="string" Value="[INSTALLDIR]com.oxyd.bridge.json" KeyPath="yes" />
+        <RegistryValue Id="OxydEdge64" Root="HKLM" Key="Software\Microsoft\Edge\NativeMessagingHosts\com.oxyd.bridge" Type="string" Value="[INSTALLDIR]com.oxyd.bridge.json" />
+      </Component>
+    </DirectoryRef>
+    <!-- Registry only, so the directory does not matter; a 32-bit component may not sit in
+         the 64-bit INSTALLDIR (ICE80). [INSTALLDIR] in the values is resolved at install time. -->
+    <DirectoryRef Id="TARGETDIR">
+      <Component Id="OxydNativeHost32" Guid="7E2C94B8-1A3D-4F60-8B5C-90D4E6A1C372" Win64="no">
+        <RegistryValue Id="OxydChrome32" Root="HKLM" Key="Software\Google\Chrome\NativeMessagingHosts\com.oxyd.bridge" Type="string" Value="[INSTALLDIR]com.oxyd.bridge.json" KeyPath="yes" />
+        <RegistryValue Id="OxydEdge32" Root="HKLM" Key="Software\Microsoft\Edge\NativeMessagingHosts\com.oxyd.bridge" Type="string" Value="[INSTALLDIR]com.oxyd.bridge.json" />
+      </Component>
+    </DirectoryRef>
+  </Fragment>
+</Wix>

@@ -1,9 +1,9 @@
 name: Build installer
 
-# Builds the Windows installer for every push to main and attaches it to the run as an
+# Builds the Windows installers (NSIS setup .exe and .msi) for every push to main and attaches them to the run as an
 # artifact (Actions tab -> the run -> Artifacts). Use "Run workflow" to build any branch.
 #
-# Pushing a tag such as v0.1.0 also publishes a GitHub Release with the installer, the
+# Pushing a tag such as v0.1.0 also publishes a GitHub Release with the installers, the
 # extension and the checksums. The tag must match the version in tauri.conf.json:
 #   git tag v0.1.0 && git push origin v0.1.0
 on:
@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   installer:
-    name: Windows installer (NSIS)
+    name: Windows installers (NSIS and MSI)
     runs-on: windows-latest
     timeout-minutes: 45
     outputs:
@@ -54,7 +54,7 @@ jobs:
             extension/package-lock.json
 
       # Builds oxyd-bridge.exe (sidecar), the browser extension and the Tauri app, then
-      # bundles the NSIS installer into target/release/bundle/nsis/.
+      # bundles the NSIS setup (target/release/bundle/nsis) and the MSI (bundle/msi).
       - name: Build installer
         shell: pwsh
         run: ./scripts/build-installer.ps1
@@ -67,15 +67,21 @@ jobs:
           $short = $env:GITHUB_SHA.Substring(0, 7)
           $out = New-Item -ItemType Directory -Path out -Force
 
+          # File names carry only the version; the commit is in the artifact name.
           $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
           if (-not $installer) { throw "installer not found in target/release/bundle/nsis" }
-          Copy-Item $installer.FullName "$out/Oxyd-Setup-$version-$short.exe"
+          Copy-Item $installer.FullName "$out/Oxyd-Setup-$version.exe"
+
+          # Pre-release versions (0.2.0-beta.1) are not valid MSI versions: NSIS only.
+          $msi = Get-ChildItem target/release/bundle/msi/*.msi -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($msi) { Copy-Item $msi.FullName "$out/Oxyd-Setup-$version.msi" }
+          elseif ($version -notmatch '-') { throw "MSI not found in target/release/bundle/msi" }
 
           # The unpacked extension for "Load unpacked" in Chrome/Edge.
-          Compress-Archive -Path extension/build/* -DestinationPath "$out/Oxyd-Extension-$version-$short.zip"
+          Compress-Archive -Path extension/build/* -DestinationPath "$out/Oxyd-Extension-$version.zip"
 
           Push-Location $out
-          Get-FileHash -Algorithm SHA256 *.exe, *.zip |
+          Get-FileHash -Algorithm SHA256 (Get-ChildItem -File | Where-Object Name -ne 'SHA256SUMS.txt') |
             ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } |
             Set-Content SHA256SUMS.txt -Encoding ascii
           Pop-Location
@@ -124,7 +130,10 @@ jobs:
           flags=""
           case "$TAG" in *-*) flags="--prerelease" ;; esac
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            # The release was drafted in the web UI first: just attach the files.
+            # The release exists already (drafted in the web UI, or this tag is being
+            # re-released): replace its files so no stale ones with old names remain.
+            gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name' |
+              while read -r asset; do gh release delete-asset "$TAG" "$asset" --yes --repo "$REPO"; done
             gh release upload "$TAG" out/* --clobber --repo "$REPO"
           else
             gh release create "$TAG" out/* --repo "$REPO" --title "Oxyd $TAG" --generate-notes $flags

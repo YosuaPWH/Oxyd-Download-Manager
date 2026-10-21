@@ -1,15 +1,35 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
-    "externalBin": ["binaries/oxyd-bridge"],
+    "externalBin": [
+      "binaries/oxyd-bridge"
+    ],
     "windows": {
-      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
       "nsis": {
         "installMode": "currentUser",
         "installerHooks": "../../installer/nsis-hooks.nsh",
-        "languages": ["English"],
+        "languages": [
+          "English"
+        ],
         "displayLanguageSelector": false
+      },
+      "wix": {
+        "language": "en-US",
+        "fragmentPaths": [
+          "../../installer/native-host.wxs"
+        ],
+        "componentRefs": [
+          "OxydNativeHost64",
+          "OxydNativeHost32"
+        ]
       }
+    },
+    "resources": {
+      "native-host/com.oxyd.bridge.json": "com.oxyd.bridge.json"
     }
   }
 }

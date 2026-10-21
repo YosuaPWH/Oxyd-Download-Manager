@@ -191,16 +191,25 @@ reduced to their host and path, and there is no telemetry.
 
 ## Install
 
-**Installer.** Released versions are on the **Releases** page of the repository. Every push to
-`main` also builds an installer: open the latest run of the *Build installer* workflow in the
+**Installers.** Released versions are on the **Releases** page of the repository. Every push to
+`main` also builds them: open the latest run of the *Build installer* workflow in the
 **Actions** tab and download its artifact (kept for 30 days). Both contain
 
-- `Oxyd-Setup-<version>-<commit>.exe`, the installer (per user, no administrator rights),
-- `Oxyd-Extension-<version>-<commit>.zip`, the unpacked browser extension,
+- `Oxyd-Setup-<version>.exe`, the setup program,
+- `Oxyd-Setup-<version>.msi`, the same app as a Windows Installer package,
+- `Oxyd-Extension-<version>.zip`, the unpacked browser extension,
 - `SHA256SUMS.txt`.
 
-The installer registers the native messaging helper for Chrome and Edge and removes it again
-when you uninstall. It is not code signed yet, so Windows SmartScreen may ask for
+| | `.exe` (NSIS) | `.msi` |
+|---|---|---|
+| For | Normal use on your own PC | IT deployment: Group Policy, Intune, `msiexec` |
+| Installs | Per user, **no administrator rights** | For all users in `Program Files`, needs administrator rights |
+| Browser helper | Registered for your user in the registry | Registered machine-wide (HKLM) for Chrome and Edge |
+| Uninstall | Removes the program, the registration and the autostart entry | Removes the program and the machine-wide registration |
+| Silent install | `Oxyd-Setup-<version>.exe /S` | `msiexec /i Oxyd-Setup-<version>.msi /qn` |
+
+Pre-release versions such as `0.2.0-beta.1` only come as `.exe`, because MSI versions must be
+numeric. Neither installer is code signed yet, so Windows SmartScreen may ask for
 confirmation. WebView2 (part of Windows 11) is installed automatically if it is missing.
 
 **Extension.** Unzip the extension (or use `extension/build` after building it), open
@@ -216,9 +225,9 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The workflow checks that the tag matches the app version, builds the installer and publishes
-a GitHub Release with the installer, the extension zip and `SHA256SUMS.txt`. Tags with a
-suffix such as `v0.2.0-beta.1` become pre-releases.
+The workflow checks that the tag matches the app version, builds both installers and publishes
+a GitHub Release with them, the extension zip and `SHA256SUMS.txt`. Tags with a suffix such as
+`v0.2.0-beta.1` become pre-releases.
 
 **Data.** Everything lives in `%LOCALAPPDATA%\Oxyd`: `oxyd.db` (downloads and settings),
 `logs\` and `native-host\`.
@@ -236,6 +245,7 @@ cd extension && npm install && npm run build   # extension into extension/build
 ```bash
 powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1
 # -> target/release/bundle/nsis/Oxyd Download Manager_<version>_x64-setup.exe
+# -> target/release/bundle/msi/Oxyd Download Manager_<version>_x64_en-US.msi
 ```
 
 Useful during development:
@@ -260,7 +270,7 @@ renames the bridge pipe.
 | `crates/oxyd-bridge` | `oxyd-bridge.exe`, the native messaging host |
 | `app/` | Tauri app (`src-tauri/`) and the Svelte interface (`src/`) |
 | `extension/` | Chrome and Edge extension (TypeScript, esbuild) |
-| `installer/`, `scripts/` | NSIS hooks, installer build, dev registration, kill/resume test |
+| `installer/`, `scripts/` | NSIS hooks, WiX fragment for the MSI, installer build, dev registration, kill/resume test |
 | `test-server/` | Local HTTP server used by the tests and benchmarks |
 
 ## Documentation

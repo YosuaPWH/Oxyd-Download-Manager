@@ -155,16 +155,24 @@ checksums, automatic retries and more.
   (`OXYD_SIM_COOKIES`, `OXYD_SIM_SIZE`), for end-to-end tests against a release build.
 - CI: Rust format, clippy and tests on Windows, extension tests, app type check and build,
   and a workflow that builds the installer on every push to `main`.
-- Release profile with thin LTO, one codegen unit and stripped binaries; the installer is
-  about 4.8 MB.
+- Release profile with thin LTO, one codegen unit and stripped binaries; the NSIS installer is
+  about 4.8 MB and the MSI about 6.9 MB.
+- Two installers from one build (`scripts/build-installer.ps1`): an NSIS `.exe` (per user) and
+  an `.msi` (per machine). The MSI registers the Chrome/Edge native host through a WiX
+  fragment (`installer/native-host.wxs`): a manifest with a relative `path` next to the exe and
+  registry keys in both HKLM registry views, because Chromium reads HKLM in the 32-bit view.
+  Checked by reading the MSI tables and by extracting the package (not installed: that needs
+  administrator rights). Release files are named `Oxyd-Setup-<version>.exe|.msi`; the commit
+  is only in the artifact name of per-push builds.
 
 ## Known limitations and ideas
 
 Not verified yet:
 
 - Benchmarks against real mirrors and CDNs (only loopback so far).
-- The extension in a real Chrome and Edge, and the installer on a clean Windows VM
-  (including uninstall removing the registry keys).
+- The extension in a real Chrome and Edge, and both installers on a clean Windows VM
+  (including uninstall removing the registry keys). The MSI has only been inspected, not
+  installed; the browser helper registration is the part to test.
 - Real-world sites: login-protected downloads, Google Drive, GitHub Releases, tokenised links.
 
 Ideas, roughly by value:
