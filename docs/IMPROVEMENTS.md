@@ -130,6 +130,9 @@ checksums, automatic retries and more.
   error code with the raw details underneath, and automatic retries show a countdown.
 - The toolbar no longer wraps; narrow windows show icon-only buttons with tooltips. The tray
   menu follows the language setting.
+- Dialogs start in their first field. The focus used to land on the close button in the
+  header, so typing did not reach the URL box and Enter or Space closed the dialog (found
+  while capturing the README screenshots).
 - The schedule's *start* time resumes only what its *stop* time paused, plus downloads added
   with "Later"; downloads you paused by hand stay paused.
 
