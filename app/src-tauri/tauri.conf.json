@@ -19,8 +19,9 @@
         "height": 700,
         "minWidth": 780,
         "minHeight": 480,
-        "visible": false,
-        "center": true
+        "visible": true,
+        "center": true,
+        "create": false
       }
     ],
     "security": {
@@ -29,7 +30,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "publisher": "Oxyd Download Manager contributors",
     "shortDescription": "Fast segmented download manager",
     "icon": [

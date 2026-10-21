@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 use oxyd_core::Manager;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager as _, RunEvent, WindowEvent};
+use tauri::{AppHandle, Manager as _, RunEvent};
 
 use crate::i18n::tr;
 use crate::state::AppState;
@@ -38,12 +38,38 @@ fn init_logging() {
 }
 
 /// Show, un-minimize and focus the main window.
+///
+/// The window (and its WebView2 processes, ~330 MB) only exists while it is open: Oxyd
+/// usually sits in the tray, where the engine alone needs ~35 MB.
 pub fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
+        return;
     }
+    // Windows must be created on the main thread; links may arrive on a pipe thread.
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if handle.get_webview_window("main").is_some() {
+            return;
+        }
+        let Some(config) = handle
+            .config()
+            .app
+            .windows
+            .iter()
+            .find(|w| w.label == "main")
+        else {
+            return;
+        };
+        match tauri::WebviewWindowBuilder::from_config(&handle, config).and_then(|b| b.build()) {
+            Ok(w) => {
+                let _ = w.set_focus();
+            }
+            Err(e) => tracing::error!("cannot open the main window: {e}"),
+        }
+    });
 }
 
 fn quit(app: &AppHandle) {
@@ -164,13 +190,6 @@ pub fn run() {
             browser::handle_args(&handle, &args);
             Ok(())
         })
-        .on_window_event(|window, event| {
-            // Closing the window keeps Oxyd running in the tray.
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
-            }
-        })
         .invoke_handler(tauri::generate_handler![
             commands::list_downloads,
             commands::probe_url,
@@ -202,11 +221,17 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Oxyd");
 
-    app.run(|app, event| {
-        if let RunEvent::Exit = event {
+    app.run(|app, event| match event {
+        // Closing the window destroys it to free the WebView; Oxyd keeps running in the
+        // tray until "Quit" (which exits with an explicit code).
+        RunEvent::ExitRequested {
+            code: None, api, ..
+        } => api.prevent_exit(),
+        RunEvent::Exit => {
             if let Some(state) = app.try_state::<AppState>() {
                 tauri::async_runtime::block_on(state.mgr.shutdown());
             }
         }
+        _ => {}
     });
 }
