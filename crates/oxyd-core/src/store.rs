@@ -527,7 +527,10 @@ mod tests {
         let ids = |v: Vec<DownloadRecord>| v.into_iter().map(|r| r.id).collect::<Vec<_>>();
         assert_eq!(ids(s.list_by_status(&[Status::Queued]).unwrap()), ["q"]);
         assert_eq!(
-            ids(s.list_by_status(&[Status::Paused, Status::Completed]).unwrap()).len(),
+            ids(s
+                .list_by_status(&[Status::Paused, Status::Completed])
+                .unwrap())
+            .len(),
             2
         );
         let reserved = s.reserved_paths("q").unwrap();

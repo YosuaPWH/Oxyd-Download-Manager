@@ -52,6 +52,17 @@ fn quit(app: &AppHandle) {
     app.exit(0);
 }
 
+/// Tray menu entries with their translation keys, relabelled when the language changes.
+pub struct TrayMenu(Vec<(MenuItem<tauri::Wry>, &'static str)>);
+
+pub fn relabel_tray(app: &AppHandle, lang: &str) {
+    if let Some(menu) = app.try_state::<TrayMenu>() {
+        for (item, key) in &menu.0 {
+            let _ = item.set_text(tr(lang, key));
+        }
+    }
+}
+
 fn build_tray(app: &AppHandle, lang: &str) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", tr(lang, "tray.open"), true, None::<&str>)?;
     let pause = MenuItem::with_id(
@@ -71,6 +82,12 @@ fn build_tray(app: &AppHandle, lang: &str) -> tauri::Result<()> {
     let quit_item = MenuItem::with_id(app, "quit", tr(lang, "tray.quit"), true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&open, &sep, &pause, &resume, &sep, &quit_item])?;
+    app.manage(TrayMenu(vec![
+        (open.clone(), "tray.open"),
+        (pause.clone(), "tray.pause_all"),
+        (resume.clone(), "tray.resume_all"),
+        (quit_item.clone(), "tray.quit"),
+    ]));
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("Oxyd Download Manager")
         .menu(&menu)

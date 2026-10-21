@@ -145,6 +145,9 @@ pub fn set_settings(
 ) -> Res<Settings> {
     let old = state.mgr.settings();
     let new = state.mgr.set_settings(settings)?;
+    if old.language != new.language {
+        crate::relabel_tray(&app, &new.language);
+    }
     if old.autostart != new.autostart {
         let al = app.autolaunch();
         let r = if new.autostart {
