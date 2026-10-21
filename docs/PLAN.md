@@ -4,6 +4,27 @@ Dokumen ini menjabarkan langkah pengerjaan Oxyd berdasarkan [PRD.md](PRD.md). Se
 
 **Asumsi:** dikerjakan sendiri, paruh waktu (±10–15 jam/minggu), target Windows 10/11.
 
+## Status Implementasi
+
+Fase 0–7 serta fitur v0.2 (fase 9) dan v0.3 (fase 10) sudah diimplementasikan dan diuji
+otomatis. Yang masih terbuka: uji manual di Chrome/Edge dan Windows bersih, uji end-to-end
+dengan situs nyata, pengukuran metrik PRD §11, dan rilis `v0.1.0`.
+
+Catatan perbedaan dari rencana awal:
+
+- Probe memakai `GET Range: bytes=0-0` lebih dulu (sekaligus menguji dukungan range) dan
+  baru jatuh ke `HEAD` bila GET ditolak.
+- Progres dikirim lewat `tokio::sync::broadcast` (event `Progress` 4x/detik), bukan `watch`.
+- Speed limiter adalah token bucket sendiri (`limiter.rs`) agar rate bisa diubah saat
+  download berjalan, tanpa dependensi `governor`.
+- Named pipe memakai `tokio::net::windows::named_pipe` dengan DACL owner + SYSTEM, tanpa
+  crate `interprocess`.
+- Ekstensi memutuskan penangkapan di `downloads.onDeterminingFilename` (nama file dan MIME
+  sudah diketahui), bukan `onCreated`.
+- Modul `worker.rs`/`task.rs`/`queue.rs` digabung menjadi `engine.rs` (worker + scheduler
+  segmen) dan `manager.rs` (state machine, antrean, persistensi).
+- ID ekstensi development: `gnihamodjbioaennpopmldmjdecbmfpl`.
+
 ---
 
 ## Ringkasan Fase
@@ -95,11 +116,11 @@ oxyd-download-manager/
 ## Fase 0 — Persiapan
 
 **Tugas**
-- [ ] Install Rust stable, `cargo-tauri`, Node.js LTS, WebView2 (biasanya sudah ada di Windows 11).
-- [ ] Buat Cargo workspace dengan crate `oxyd-core`, `oxyd-cli`, `oxyd-protocol`, `oxyd-bridge`.
-- [ ] Setup `rustfmt`, `clippy`, `.editorconfig`.
-- [ ] GitHub Actions: `cargo fmt --check`, `cargo clippy`, `cargo test` di `windows-latest`.
-- [ ] Buat `test-server` (axum) yang bisa: melayani file dengan/ tanpa dukungan range, membatasi kecepatan per koneksi, memutus koneksi secara acak, mengembalikan 429/503, mengubah ETag.
+- [x] Install Rust stable, `cargo-tauri`, Node.js LTS, WebView2 (biasanya sudah ada di Windows 11).
+- [x] Buat Cargo workspace dengan crate `oxyd-core`, `oxyd-cli`, `oxyd-protocol`, `oxyd-bridge`.
+- [x] Setup `rustfmt`, `clippy`, `.editorconfig`.
+- [x] GitHub Actions: `cargo fmt --check`, `cargo clippy`, `cargo test` di `windows-latest`.
+- [x] Buat `test-server` (axum) yang bisa: melayani file dengan/ tanpa dukungan range, membatasi kecepatan per koneksi, memutus koneksi secara acak, mengembalikan 429/503, mengubah ETag.
 
 **Selesai jika:** `cargo test` hijau di CI dan test server bisa dijalankan lokal.
 
@@ -108,12 +129,12 @@ oxyd-download-manager/
 ## Fase 1 — Core: Download Dasar
 
 **Tugas**
-- [ ] `probe.rs`: HEAD request, fallback ke `GET Range: bytes=0-0` jika HEAD ditolak. Hasil: ukuran, `accept_ranges`, ETag, Last-Modified, nama file, final URL.
-- [ ] Penentuan nama file: `Content-Disposition` → path URL → fallback `download.bin`. Sanitasi karakter ilegal Windows (`<>:"/\|?*`) dan nama terlarang (`CON`, `NUL`, dll.).
-- [ ] Download satu koneksi dengan streaming ke file `.oxydpart`, buffer 64–256 KB.
-- [ ] Event progres via `tokio::sync::watch` (byte terunduh, kecepatan rata-rata bergerak, ETA).
-- [ ] Mendukung header kustom (Cookie, Referer, User-Agent).
-- [ ] `oxyd-cli download <url> [-o path]` dengan progress bar.
+- [x] `probe.rs`: HEAD request, fallback ke `GET Range: bytes=0-0` jika HEAD ditolak. Hasil: ukuran, `accept_ranges`, ETag, Last-Modified, nama file, final URL.
+- [x] Penentuan nama file: `Content-Disposition` → path URL → fallback `download.bin`. Sanitasi karakter ilegal Windows (`<>:"/\|?*`) dan nama terlarang (`CON`, `NUL`, dll.).
+- [x] Download satu koneksi dengan streaming ke file `.oxydpart`, buffer 64–256 KB.
+- [x] Event progres via `tokio::sync::watch` (byte terunduh, kecepatan rata-rata bergerak, ETA).
+- [x] Mendukung header kustom (Cookie, Referer, User-Agent).
+- [x] `oxyd-cli download <url> [-o path]` dengan progress bar.
 
 **Selesai jika:** CLI bisa mengunduh file 1 GB dari test server dan hash-nya cocok.
 
@@ -122,18 +143,18 @@ oxyd-download-manager/
 ## Fase 2 — Core: Segmented Download
 
 **Tugas**
-- [ ] `segment.rs`: bagi ukuran file ke N segmen; segmen minimum 1 MB agar file kecil tidak dipecah berlebihan.
-- [ ] `writer.rs`: pre-allocate file (`set_len`), tulis per offset. Di Windows gunakan `FileExt::seek_write`; satu file handle dibagi lewat `Arc` atau satu task writer yang menerima `(offset, bytes)` dari channel.
-- [ ] `worker.rs`: satu task per segmen, request `Range: bytes=start-end`, validasi respons `206` dan `Content-Range`. Jika server membalas `200`, batalkan mode multi-segmen dan fallback ke satu koneksi.
-- [ ] Retry per segmen: exponential backoff (1s, 2s, 4s, … maks 30s), maks 10 percobaan, timeout baca 30s.
-- [ ] Cancellation dengan `tokio_util::sync::CancellationToken`.
-- [ ] Agregasi progres seluruh segmen.
-- [ ] Opsi `--connections N` di CLI.
+- [x] `segment.rs`: bagi ukuran file ke N segmen; segmen minimum 1 MB agar file kecil tidak dipecah berlebihan.
+- [x] `writer.rs`: pre-allocate file (`set_len`), tulis per offset. Di Windows gunakan `FileExt::seek_write`; satu file handle dibagi lewat `Arc` atau satu task writer yang menerima `(offset, bytes)` dari channel.
+- [x] `worker.rs`: satu task per segmen, request `Range: bytes=start-end`, validasi respons `206` dan `Content-Range`. Jika server membalas `200`, batalkan mode multi-segmen dan fallback ke satu koneksi.
+- [x] Retry per segmen: exponential backoff (1s, 2s, 4s, … maks 30s), maks 10 percobaan, timeout baca 30s.
+- [x] Cancellation dengan `tokio_util::sync::CancellationToken`.
+- [x] Agregasi progres seluruh segmen.
+- [x] Opsi `--connections N` di CLI.
 
 **Pengujian**
-- [ ] Test server dengan batas 1 MB/s per koneksi: 8 koneksi harus mendekati 8 MB/s.
-- [ ] Server tanpa dukungan range: fallback berjalan.
-- [ ] Putus koneksi acak: semua segmen tetap selesai, hash cocok.
+- [x] Test server dengan batas 1 MB/s per koneksi: 8 koneksi harus mendekati 8 MB/s.
+- [x] Server tanpa dukungan range: fallback berjalan.
+- [x] Putus koneksi acak: semua segmen tetap selesai, hash cocok.
 
 **Selesai jika:** download paralel konsisten lebih cepat dan hasil selalu identik dengan file asli.
 
@@ -142,18 +163,18 @@ oxyd-download-manager/
 ## Fase 3 — Core: Persistensi & Resume
 
 **Tugas**
-- [ ] `store.rs`: skema SQLite `downloads`, `segments`, `settings` (lihat PRD §9.4) dengan migrasi sederhana (`user_version`).
-- [ ] Simpan progres segmen setiap 1 detik dan saat pause/stop. Gunakan WAL mode.
-- [ ] Setelah menulis data, `flush` sebelum mencatat progres, agar progres yang tercatat tidak pernah melebihi data di disk.
-- [ ] `task.rs`: state machine `Queued → Probing → Downloading ⇄ Paused → Completed / Failed / Cancelled`.
-- [ ] Resume: probe ulang, bandingkan ETag/Last-Modified/ukuran. Jika berubah, tandai `failed` dengan alasan "file di server berubah" dan tawarkan mulai ulang.
-- [ ] Rename `.oxydpart` → nama akhir saat selesai; tangani nama bentrok (`file (1).zip`).
-- [ ] `queue.rs`: batas download aktif, mulai otomatis item berikutnya.
-- [ ] CLI: `oxyd-cli list`, `pause`, `resume` untuk pengujian.
+- [x] `store.rs`: skema SQLite `downloads`, `segments`, `settings` (lihat PRD §9.4) dengan migrasi sederhana (`user_version`).
+- [x] Simpan progres segmen setiap 1 detik dan saat pause/stop. Gunakan WAL mode.
+- [x] Setelah menulis data, `flush` sebelum mencatat progres, agar progres yang tercatat tidak pernah melebihi data di disk.
+- [x] `task.rs`: state machine `Queued → Probing → Downloading ⇄ Paused → Completed / Failed / Cancelled`.
+- [x] Resume: probe ulang, bandingkan ETag/Last-Modified/ukuran. Jika berubah, tandai `failed` dengan alasan "file di server berubah" dan tawarkan mulai ulang.
+- [x] Rename `.oxydpart` → nama akhir saat selesai; tangani nama bentrok (`file (1).zip`).
+- [x] `queue.rs`: batas download aktif, mulai otomatis item berikutnya.
+- [x] CLI: `oxyd-cli list`, `pause`, `resume` untuk pengujian.
 
 **Pengujian**
 - [ ] Kill proses (`taskkill /F`) di tengah download 100 kali secara acak, lalu resume: hash selalu cocok.
-- [ ] Ubah ETag di server di antara pause dan resume: terdeteksi.
+- [x] Ubah ETag di server di antara pause dan resume: terdeteksi.
 
 **Selesai jika:** tidak ada satu pun file korup pada pengujian kill/resume.
 
@@ -162,16 +183,16 @@ oxyd-download-manager/
 ## Fase 4 — Aplikasi Tauri
 
 **Tugas**
-- [ ] Inisialisasi Tauri 2 di `app/` dengan frontend Svelte + TypeScript (atau pilihan lain sesuai PRD §14).
-- [ ] `src-tauri` menjalankan `oxyd-core` di runtime tokio Tauri; state dibagikan via `tauri::State`.
-- [ ] Commands: `add_download`, `start`, `pause`, `resume`, `cancel`, `remove`, `open_file`, `open_folder`, `get_downloads`, `get_settings`, `set_settings`.
-- [ ] Event progres dikirim ke frontend dengan throttle (maks 4x/detik per download) agar UI tetap ringan.
-- [ ] UI: daftar download, toolbar (Tambah URL, Mulai, Pause, Hapus), filter kategori di sidebar.
-- [ ] Dialog "Download baru": URL, nama file, ukuran (hasil probe), folder tujuan, tombol Mulai / Nanti / Batal.
-- [ ] Halaman Pengaturan (folder default, koneksi, batas bersamaan, autostart).
-- [ ] System tray: buka jendela, pause semua, keluar. Tutup jendela = sembunyikan ke tray.
-- [ ] `tauri-plugin-single-instance`: instance kedua meneruskan argumen ke instance pertama lalu keluar.
-- [ ] Logging ke `%LOCALAPPDATA%\Oxyd\logs`.
+- [x] Inisialisasi Tauri 2 di `app/` dengan frontend Svelte + TypeScript (atau pilihan lain sesuai PRD §14).
+- [x] `src-tauri` menjalankan `oxyd-core` di runtime tokio Tauri; state dibagikan via `tauri::State`.
+- [x] Commands: `add_download`, `start`, `pause`, `resume`, `cancel`, `remove`, `open_file`, `open_folder`, `get_downloads`, `get_settings`, `set_settings`.
+- [x] Event progres dikirim ke frontend dengan throttle (maks 4x/detik per download) agar UI tetap ringan.
+- [x] UI: daftar download, toolbar (Tambah URL, Mulai, Pause, Hapus), filter kategori di sidebar.
+- [x] Dialog "Download baru": URL, nama file, ukuran (hasil probe), folder tujuan, tombol Mulai / Nanti / Batal.
+- [x] Halaman Pengaturan (folder default, koneksi, batas bersamaan, autostart).
+- [x] System tray: buka jendela, pause semua, keluar. Tutup jendela = sembunyikan ke tray.
+- [x] `tauri-plugin-single-instance`: instance kedua meneruskan argumen ke instance pertama lalu keluar.
+- [x] Logging ke `%LOCALAPPDATA%\Oxyd\logs`.
 
 **Selesai jika:** semua alur download bisa dilakukan dari UI dengan menempelkan URL secara manual.
 
@@ -180,14 +201,14 @@ oxyd-download-manager/
 ## Fase 5 — Bridge Native Messaging
 
 **Tugas**
-- [ ] `oxyd-protocol`: enum pesan (`AddDownload`, `Ping`, `Pong`, `Ack`) dengan `serde` dan field versi `v`.
-- [ ] `oxyd-bridge`:
-  - [ ] Baca stdin: 4 byte panjang (u32 little-endian) lalu JSON. Tolak pesan > 1 MB.
-  - [ ] Tulis stdout dengan format yang sama. Pastikan stdout dalam mode biner dan **tidak ada `println!` lain** yang mengotori stdout (logging hanya ke file).
-  - [ ] Hubungkan ke named pipe `\\.\pipe\oxyd`. Jika gagal, jalankan `Oxyd.exe --background`, retry hingga 5 detik.
-  - [ ] Teruskan pesan dua arah; keluar saat stdin ditutup.
-- [ ] Di aplikasi: server named pipe menggunakan `interprocess`, dibatasi untuk user saat ini, memproses `AddDownload` dengan membuka dialog dan membalas `Ack`.
-- [ ] Tool uji kecil yang mensimulasikan browser (menulis pesan berprefix panjang ke stdin bridge).
+- [x] `oxyd-protocol`: enum pesan (`AddDownload`, `Ping`, `Pong`, `Ack`) dengan `serde` dan field versi `v`.
+- [x] `oxyd-bridge`:
+  - [x] Baca stdin: 4 byte panjang (u32 little-endian) lalu JSON. Tolak pesan > 1 MB.
+  - [x] Tulis stdout dengan format yang sama. Pastikan stdout dalam mode biner dan **tidak ada `println!` lain** yang mengotori stdout (logging hanya ke file).
+  - [x] Hubungkan ke named pipe `\\.\pipe\oxyd`. Jika gagal, jalankan `Oxyd.exe --background`, retry hingga 5 detik.
+  - [x] Teruskan pesan dua arah; keluar saat stdin ditutup.
+- [x] Di aplikasi: server named pipe menggunakan `interprocess`, dibatasi untuk user saat ini, memproses `AddDownload` dengan membuka dialog dan membalas `Ack`.
+- [x] Tool uji kecil yang mensimulasikan browser (menulis pesan berprefix panjang ke stdin bridge).
 
 **Selesai jika:** pesan dari tool uji muncul sebagai dialog di aplikasi, baik saat aplikasi sudah berjalan maupun belum.
 
@@ -196,17 +217,17 @@ oxyd-download-manager/
 ## Fase 6 — Ekstensi Chrome/Edge
 
 **Tugas**
-- [ ] `manifest.json` MV3: `background.service_worker`, permission `downloads`, `nativeMessaging`, `cookies`, `contextMenus`, `storage`, `host_permissions: ["<all_urls>"]`.
-- [ ] Generate key pair dan isi field `key` agar ID ekstensi tetap selama development; catat ID-nya untuk `allowed_origins`.
-- [ ] `background.ts`:
-  - [ ] `chrome.downloads.onCreated` → cek filter (ekstensi file, ukuran minimum, domain dikecualikan, toggle aktif).
-  - [ ] Jika cocok: `chrome.downloads.cancel` lalu `erase`.
-  - [ ] Kumpulkan cookie dengan `chrome.cookies.getAll({ url })`, Referer dari `downloadItem.referrer`, User-Agent dari `navigator.userAgent`.
-  - [ ] `chrome.runtime.sendNativeMessage("com.oxyd.bridge", msg)` dengan timeout 3 detik.
-  - [ ] Fallback: jika gagal, `chrome.downloads.download({ url })` dan tandai URL di set sementara agar tidak ditangkap ulang.
-- [ ] Menu klik kanan "Download dengan Oxyd" untuk link.
-- [ ] Popup: status koneksi (via `ping`), toggle aktif, pengaturan filter (disimpan di `chrome.storage.sync`).
-- [ ] Build dengan esbuild/vite ke folder `extension/build`.
+- [x] `manifest.json` MV3: `background.service_worker`, permission `downloads`, `nativeMessaging`, `cookies`, `contextMenus`, `storage`, `host_permissions: ["<all_urls>"]`.
+- [x] Generate key pair dan isi field `key` agar ID ekstensi tetap selama development; catat ID-nya untuk `allowed_origins`.
+- [x] `background.ts`:
+  - [x] `chrome.downloads.onCreated` → cek filter (ekstensi file, ukuran minimum, domain dikecualikan, toggle aktif).
+  - [x] Jika cocok: `chrome.downloads.cancel` lalu `erase`.
+  - [x] Kumpulkan cookie dengan `chrome.cookies.getAll({ url })`, Referer dari `downloadItem.referrer`, User-Agent dari `navigator.userAgent`.
+  - [x] `chrome.runtime.sendNativeMessage("com.oxyd.bridge", msg)` dengan timeout 3 detik.
+  - [x] Fallback: jika gagal, `chrome.downloads.download({ url })` dan tandai URL di set sementara agar tidak ditangkap ulang.
+- [x] Menu klik kanan "Download dengan Oxyd" untuk link.
+- [x] Popup: status koneksi (via `ping`), toggle aktif, pengaturan filter (disimpan di `chrome.storage.sync`).
+- [x] Build dengan esbuild/vite ke folder `extension/build`.
 - [ ] Uji di Chrome (`chrome://extensions`) dan Edge (`edge://extensions`) dengan Load unpacked.
 
 **Catatan**
@@ -220,13 +241,13 @@ oxyd-download-manager/
 ## Fase 7 — Installer & Registrasi
 
 **Tugas**
-- [ ] Konfigurasi bundler Tauri untuk NSIS; sertakan `oxyd-bridge.exe` sebagai resource/sidecar.
-- [ ] Hook NSIS saat instal:
-  - [ ] Tulis manifest `com.oxyd.bridge.json` ke `%LOCALAPPDATA%\Oxyd\native-host\` dengan `path` absolut ke `oxyd-bridge.exe`.
-  - [ ] Tulis registry `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.oxyd.bridge` dan `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.oxyd.bridge` (nilai default = path manifest).
-- [ ] Hook saat uninstall: hapus key dan manifest.
-- [ ] Alternatif untuk development: skrip PowerShell `scripts/register-dev.ps1` yang melakukan registrasi yang sama.
-- [ ] Bootstrapper WebView2 diaktifkan.
+- [x] Konfigurasi bundler Tauri untuk NSIS; sertakan `oxyd-bridge.exe` sebagai resource/sidecar.
+- [x] Hook NSIS saat instal:
+  - [x] Tulis manifest `com.oxyd.bridge.json` ke `%LOCALAPPDATA%\Oxyd\native-host\` dengan `path` absolut ke `oxyd-bridge.exe`.
+  - [x] Tulis registry `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.oxyd.bridge` dan `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.oxyd.bridge` (nilai default = path manifest).
+- [x] Hook saat uninstall: hapus key dan manifest.
+- [x] Alternatif untuk development: skrip PowerShell `scripts/register-dev.ps1` yang melakukan registrasi yang sama.
+- [x] Bootstrapper WebView2 diaktifkan.
 
 **Contoh manifest native host**
 ```json
@@ -252,10 +273,10 @@ oxyd-download-manager/
 **Tugas**
 - [ ] Uji end-to-end dengan situs nyata: file publik besar, Google Drive, GitHub Releases, situs dengan login, link bertoken.
 - [ ] Ukur metrik PRD §11: kecepatan vs browser, RAM idle, CPU.
-- [ ] Penanganan error yang jelas di UI (403, 404, 410, disk penuh, path tidak bisa ditulis).
-- [ ] Cek disk kosong sebelum pre-allocate.
-- [ ] Hapus cookie dari database setelah download selesai.
-- [ ] README instalasi dan penggunaan.
+- [x] Penanganan error yang jelas di UI (403, 404, 410, disk penuh, path tidak bisa ditulis).
+- [x] Cek disk kosong sebelum pre-allocate.
+- [x] Hapus cookie dari database setelah download selesai.
+- [x] README instalasi dan penggunaan.
 - [ ] Tag rilis `v0.1.0`, unggah installer ke GitHub Releases.
 
 **Selesai jika:** semua kebutuhan P0 di PRD terpenuhi dan metrik tercapai.
@@ -264,24 +285,24 @@ oxyd-download-manager/
 
 ## Fase 9 — v0.2 (Fitur P1)
 
-- [ ] Dynamic segmentation: saat worker selesai, ambil segmen aktif dengan sisa terbesar (di atas ambang, misal 2 MB) dan belah dua; worker baru mengambil separuh belakang.
-- [ ] Penyesuaian koneksi otomatis saat sering menerima 429/503.
-- [ ] Speed limiter global dan per download (`governor`), bisa diubah saat download berjalan.
-- [ ] Refresh link: input URL baru, probe, validasi ukuran sama, lanjutkan progres.
-- [ ] Kategori otomatis dan folder per kategori.
-- [ ] Notifikasi Windows.
-- [ ] Visualisasi segmen di jendela detail.
-- [ ] Ekstensi: daftar domain dikecualikan, status di popup.
-- [ ] Mengurutkan antrean dan prioritas.
+- [x] Dynamic segmentation: saat worker selesai, ambil segmen aktif dengan sisa terbesar (di atas ambang, misal 2 MB) dan belah dua; worker baru mengambil separuh belakang.
+- [x] Penyesuaian koneksi otomatis saat sering menerima 429/503.
+- [x] Speed limiter global dan per download (`governor`), bisa diubah saat download berjalan.
+- [x] Refresh link: input URL baru, probe, validasi ukuran sama, lanjutkan progres.
+- [x] Kategori otomatis dan folder per kategori.
+- [x] Notifikasi Windows.
+- [x] Visualisasi segmen di jendela detail.
+- [x] Ekstensi: daftar domain dikecualikan, status di popup.
+- [x] Mengurutkan antrean dan prioritas.
 
 ## Fase 10 — v0.3 (Fitur P2)
 
-- [ ] Penjadwal (mulai/berhenti jam tertentu) dan aksi setelah selesai (sleep/shutdown).
-- [ ] Pemantau clipboard.
-- [ ] Verifikasi checksum.
-- [ ] Proxy HTTP/SOCKS5.
-- [ ] Tema gelap/terang, bahasa Indonesia/Inggris.
-- [ ] Tombol pintas untuk melewati penangkapan di ekstensi.
+- [x] Penjadwal (mulai/berhenti jam tertentu) dan aksi setelah selesai (sleep/shutdown).
+- [x] Pemantau clipboard.
+- [x] Verifikasi checksum.
+- [x] Proxy HTTP/SOCKS5.
+- [x] Tema gelap/terang, bahasa Indonesia/Inggris.
+- [x] Tombol pintas untuk melewati penangkapan di ekstensi.
 
 ---
 
