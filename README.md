@@ -22,8 +22,11 @@ Ekstensi MV3 ──stdio──▶ oxyd-bridge.exe ──\\.\pipe\oxyd──▶ O
   mendukung Range.
 - Pre-allocate file `.oxydpart`, tulis per offset, progres dicatat ke SQLite tiap detik
   **setelah** `fsync` sehingga resume tidak pernah menghasilkan file korup.
-- Retry dengan exponential backoff, `Retry-After`, timeout baca 30 detik, koneksi otomatis
-  dikurangi saat server membalas 429/503.
+- Retry dengan exponential backoff, `Retry-After`, timeout baca 30 detik. Saat server
+  membalas 429/503 koneksi langsung dikurangi, lalu ditambah lagi satu per satu setelah
+  server tenang.
+- Saat internet putus atau server sibuk, download dicoba ulang otomatis (30 detik, berlipat
+  sampai 10 menit) dan otomatis masuk antrean lagi saat aplikasi dibuka ulang.
 - Validasi ETag/Last-Modified/ukuran saat resume; fitur **Perbarui link** untuk link bertoken
   yang kedaluwarsa tanpa kehilangan progres.
 - Antrean dengan batas download bersamaan, urutan bisa diubah, speed limit global dan per
@@ -37,7 +40,9 @@ Ekstensi MV3 ──stdio──▶ oxyd-bridge.exe ──\\.\pipe\oxyd──▶ O
   untuk melewatkan satu download, fallback ke browser bila aplikasi tidak menjawab dalam 3
   detik.
 - System tray, notifikasi Windows, mulai bersama Windows, pemantau clipboard, tema
-  terang/gelap, Bahasa Indonesia/Inggris.
+  terang/gelap, Bahasa Indonesia/Inggris (termasuk pesan error).
+- Cookie dan header otorisasi disimpan terenkripsi DPAPI (per user Windows) dan dihapus
+  setelah download selesai; URL di log dipotong tanpa query/token.
 
 ## Struktur
 
@@ -121,6 +126,7 @@ menghapus semuanya saat uninstall.
 | `%LOCALAPPDATA%\Oxyd\logs\` | `oxyd.log.*` (aplikasi), `bridge.log` |
 | `%LOCALAPPDATA%\Oxyd\native-host\` | Manifest native messaging |
 
+`oxyd.db` berskema v3 (migrasi otomatis lewat `PRAGMA user_version`).
 `OXYD_DATA_DIR` mengganti folder data (mode portable/pengujian), `OXYD_LOG` mengatur level
 log (mis. `debug`), `OXYD_PIPE` mengganti nama pipe.
 
