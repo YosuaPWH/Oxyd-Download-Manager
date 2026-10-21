@@ -13,6 +13,9 @@ tracing-subscriber = { workspace = true }
 tracing-appender = { workspace = true }
 directories = { workspace = true }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Console"] }
+
 [dev-dependencies]
 oxyd-protocol = { workspace = true, features = ["server"] }
 tokio = { workspace = true }

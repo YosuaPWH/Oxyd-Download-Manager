@@ -154,6 +154,9 @@ fn launch_app() -> io::Result<()> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        // Child processes inherit every inheritable handle; the app must not keep the
+        // browser's stdio pipes open or the browser never sees the bridge exit.
+        disinherit_std_handles();
         const DETACHED_PROCESS: u32 = 0x0000_0008;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
@@ -167,10 +170,30 @@ fn launch_app() -> io::Result<()> {
     cmd.spawn().map(|_| ())
 }
 
+#[cfg(windows)]
+fn disinherit_std_handles() {
+    use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE_FLAG_INHERIT};
+    use windows_sys::Win32::System::Console::{
+        GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    };
+    for which in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        // SAFETY: plain Win32 calls on this process's own standard handles.
+        unsafe {
+            let h = GetStdHandle(which);
+            if !h.is_null() && h as isize != -1 {
+                SetHandleInformation(h, HANDLE_FLAG_INHERIT, 0);
+            }
+        }
+    }
+}
+
 fn init_logging() {
-    let dir = directories::BaseDirs::new()
-        .map(|b| b.data_local_dir().join("Oxyd").join("logs"))
-        .unwrap_or_else(|| std::env::temp_dir().join("Oxyd").join("logs"));
+    let data = std::env::var_os("OXYD_DATA_DIR")
+        .filter(|d| !d.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| directories::BaseDirs::new().map(|b| b.data_local_dir().join("Oxyd")))
+        .unwrap_or_else(|| std::env::temp_dir().join("Oxyd"));
+    let dir = data.join("logs");
     if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
