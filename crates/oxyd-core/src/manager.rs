@@ -534,6 +534,13 @@ impl Manager {
 
     /// Start queued downloads while there is room.
     pub fn schedule(&self) {
+        self.schedule_after(false);
+    }
+
+    /// `natural` is true when a download just completed or failed on its own. Only then
+    /// may an empty queue count as finished: stopping downloads by hand (pause all,
+    /// cancel, remove) must never trigger the after-queue action (sleep/shutdown).
+    fn schedule_after(&self, natural: bool) {
         if self.shutting_down.load(Ordering::SeqCst) {
             return;
         }
@@ -595,6 +602,13 @@ impl Manager {
         let idle = tasks.is_empty();
         drop(tasks);
         let nothing_queued = queued.is_empty();
+        if !natural {
+            // Something was stopped by hand: this run of the queue does not count.
+            if idle && nothing_queued {
+                self.ran_any.store(false, Ordering::SeqCst);
+            }
+            return;
+        }
         if idle && nothing_queued && self.ran_any.swap(false, Ordering::SeqCst) {
             self.emit(Event::QueueFinished);
         }
@@ -605,6 +619,8 @@ impl Manager {
         let stop = handle
             .map(|h| Stop::from_u8(h.stop.load(Ordering::SeqCst)))
             .unwrap_or(Stop::None);
+        let natural =
+            stop == Stop::None && matches!(outcome, Outcome::Completed(_) | Outcome::Failed(..));
         let result = match outcome {
             Outcome::Completed(r) => {
                 let info = self.info(r);
@@ -638,7 +654,7 @@ impl Manager {
         if let Err(e) = result {
             tracing::error!(id, "saving download state failed: {e}");
         }
-        self.schedule();
+        self.schedule_after(natural);
     }
 
     fn apply_stop(&self, mut r: DownloadRecord, stop: Stop) -> Result<()> {

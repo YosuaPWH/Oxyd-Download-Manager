@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use oxyd_core::store::Store;
-use oxyd_core::{DownloadInfo, Manager, NewDownload, RequestHeaders, Settings, Status};
+use oxyd_core::{DownloadInfo, Event, Manager, NewDownload, RequestHeaders, Settings, Status};
 
 const MB: u64 = 1024 * 1024;
 
@@ -407,4 +407,51 @@ async fn sends_custom_headers_and_checksum() {
         .unwrap();
     let info = wait(&m, &bad.record.id).await;
     assert_eq!(info.record.status, Status::Failed);
+}
+
+fn saw_queue_finished(rx: &mut tokio::sync::broadcast::Receiver<Event>) -> bool {
+    let mut seen = false;
+    while let Ok(ev) = rx.try_recv() {
+        seen |= matches!(ev, Event::QueueFinished);
+    }
+    seen
+}
+
+#[tokio::test]
+async fn queue_finished_only_after_real_completion() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+
+    // Pausing everything must not look like a finished queue (after-queue shutdown!).
+    let mut rx = m.subscribe();
+    let id = add(&m, format!("{base}/file/{}?rate=1048576", 4 * MB), 2);
+    wait_progress(&m, &id, 1).await;
+    m.pause_all().unwrap();
+    wait(&m, &id).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        !saw_queue_finished(&mut rx),
+        "pause must not finish the queue"
+    );
+
+    // Cancelling must not either.
+    m.start(&id).unwrap();
+    wait_progress(&m, &id, 1).await;
+    m.cancel(&id).unwrap();
+    wait(&m, &id).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        !saw_queue_finished(&mut rx),
+        "cancel must not finish the queue"
+    );
+
+    // A download that completes on its own does.
+    let id = add(&m, format!("{base}/file/{MB}"), 2);
+    assert_completed(&wait(&m, &id).await, MB);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        saw_queue_finished(&mut rx),
+        "completion must finish the queue"
+    );
 }
