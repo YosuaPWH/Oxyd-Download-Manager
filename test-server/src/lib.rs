@@ -37,10 +37,27 @@ pub fn byte_at(offset: u64) -> u8 {
     (offset % 251) as u8 ^ ((offset >> 12) as u8)
 }
 
-/// Fill `buf` with the test file content starting at `offset`.
+/// Fill `buf` with the test file content starting at `offset` (same as [`byte_at`] for
+/// every byte, without a division per byte so the server is never the bottleneck).
 pub fn fill(offset: u64, buf: &mut [u8]) {
-    for (i, b) in buf.iter_mut().enumerate() {
-        *b = byte_at(offset + i as u64);
+    let mut m = (offset % 251) as u8;
+    let mut pos = offset;
+    for b in buf.iter_mut() {
+        *b = m ^ ((pos >> 12) as u8);
+        pos += 1;
+        m = if m == 250 { 0 } else { m + 1 };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn fill_matches_byte_at() {
+        let mut buf = vec![0u8; 20_000];
+        super::fill(123_456_789, &mut buf);
+        for (i, b) in buf.iter().enumerate() {
+            assert_eq!(*b, super::byte_at(123_456_789 + i as u64));
+        }
     }
 }
 

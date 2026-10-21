@@ -3,6 +3,11 @@
 //! ```text
 //! cargo run --release -p oxyd-core --example bench -- [download dir] [scenario filter]
 //! ```
+//!
+//! Set `OXYD_BENCH_SERVER=http://127.0.0.1:8787` to use a separately started test server.
+//!
+//! ```text
+//! ```
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -121,10 +126,16 @@ async fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir().join("oxyd-bench"));
     let filter = args.next().unwrap_or_default();
-    let addr = test_server::spawn(SocketAddr::from(([127, 0, 0, 1], 0)))
-        .await
-        .unwrap();
-    let base = format!("http://{addr}");
+    // A server in another process keeps it from competing with the engine for threads.
+    let base = match std::env::var("OXYD_BENCH_SERVER") {
+        Ok(url) => url,
+        Err(_) => {
+            let addr = test_server::spawn(SocketAddr::from(([127, 0, 0, 1], 0)))
+                .await
+                .unwrap();
+            format!("http://{addr}")
+        }
+    };
     println!("{:<32} {:>9} {:>11}", "scenario", "seconds", "MiB/s");
     for s in SCENARIOS.iter().filter(|s| s.name.contains(&filter)) {
         let mut total = Duration::ZERO;
