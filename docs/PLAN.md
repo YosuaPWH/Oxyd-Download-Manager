@@ -12,6 +12,10 @@ otomatis. Alur bridge → named pipe → aplikasi → download sudah diuji end-t
 installer NSIS berukuran ±5 MB. Yang masih terbuka: uji manual di Chrome/Edge dan Windows bersih, uji end-to-end
 dengan situs nyata, pengukuran metrik PRD §11, dan rilis `v0.1.0`.
 
+Optimasi kecepatan dan memori (segmentasi sadar kecepatan, probe yang langsung menjadi
+segmen pertama, file sparse, aplikasi tray tanpa WebView) beserta hasil benchmark-nya dicatat
+di README bagian *Performa*.
+
 Catatan perbedaan dari rencana awal:
 
 - Probe memakai `GET Range: bytes=0-0` lebih dulu (sekaligus menguji dukungan range) dan

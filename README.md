@@ -130,6 +130,45 @@ menghapus semuanya saat uninstall.
 `OXYD_DATA_DIR` mengganti folder data (mode portable/pengujian), `OXYD_LOG` mengatur level
 log (mis. `debug`), `OXYD_PIPE` mengganti nama pipe.
 
+## Performa
+
+Benchmark terhadap server uji lokal (release build, Ryzen 5 220, NVMe):
+
+```bash
+cargo run --release -p oxyd-core --example bench -- <folder sementara> [filter]
+```
+
+| Skenario | Sebelum optimasi | Sesudah |
+|---|---|---|
+| 64 MiB, 8 koneksi dengan kecepatan acak 0,5–4 MiB/s | 6,1–7,0 dtk | 4,4–4,6 dtk |
+| 60 file × 512 KiB, latensi 30 ms | 1,87 dtk | 0,94 dtk |
+| 64 MiB, 8 koneksi × 2 MiB/s (ideal 4,0 dtk) | 4,03 dtk | 4,03 dtk |
+| Tulisan pertama di offset 1,75 GiB file 2 GiB (NTFS) | 1,06 dtk tertahan | tanpa jeda (file sparse) |
+
+Yang membuatnya lebih cepat:
+
+- **Segmentasi sadar kecepatan**: koneksi yang menganggur membantu segmen yang paling lama
+  selesai (bukan yang sisa byte-nya terbesar), dan koneksi lambat hanya menyimpan porsi
+  sebanding kecepatannya.
+- **Probe sekaligus download**: respons probe (`Range: bytes=0-`) langsung menjadi koneksi
+  segmen pertama, jadi file kecil cukup satu request. Koneksi probe dari dialog dikembalikan
+  ke pool sehingga download berikutnya tidak perlu handshake TCP/TLS lagi.
+- **File `.oxydpart` sparse**: NTFS tidak lagi mengisi nol seluruh file sebelum segmen di
+  belakang bisa menulis, dan setiap byte tidak ditulis dua kali ke disk.
+- **Baca jaringan dan tulis disk bertumpuk**: satu blok ditulis sambil blok berikutnya diterima.
+- **Throttle cerdas**: saat server membalas 429/503 koneksi dikurangi saat itu juga, lalu
+  ditambah lagi bertahap.
+
+Pemakaian memori aplikasi (working set):
+
+| Kondisi | Sebelum | Sesudah |
+|---|---|---|
+| Berjalan di tray (`--background`, autostart, dibuka bridge) | 367 MB (7 proses) | 21 MB (1 proses) |
+| Setelah jendela ditutup | 391 MB | 35 MB |
+| Jendela terbuka | ±370–390 MB | ±370–390 MB (WebView2) |
+
+Jendela baru dibuat saat dibuka dan dihancurkan saat ditutup; membukanya lagi ±0,1–0,2 dtk.
+
 ## Pengujian ketahanan
 
 ```bash
