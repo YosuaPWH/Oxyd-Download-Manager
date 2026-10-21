@@ -25,6 +25,7 @@ function dl(p: Partial<DownloadInfo> & Pick<DownloadInfo, "id" | "filename">): D
     speedLimit: null,
     checksum: null,
     error: null,
+    errorCode: null,
     position: 1,
     createdAt: now - 600,
     updatedAt: now,
@@ -33,6 +34,7 @@ function dl(p: Partial<DownloadInfo> & Pick<DownloadInfo, "id" | "filename">): D
     eta: null,
     activeConnections: 0,
     segments: [],
+    retryAt: null,
     ...p,
   };
 }
@@ -86,7 +88,9 @@ const downloads: DownloadInfo[] = [
     category: "document",
     totalSize: 12 * MB,
     status: "failed",
-    error: "link expired or access denied (HTTP 403); refresh the link and resume",
+    error: "network error: error sending request for url (https://example.com/files/laporan.pdf)",
+    errorCode: "network",
+    retryAt: now + 45,
     position: 4,
   }),
   dl({ id: "e", filename: "podcast-ep42.mp3", category: "music", totalSize: 64 * MB, position: 5 }),

@@ -4,6 +4,9 @@ import type { Category, DownloadInfo, EngineEvent, PendingAdd, Settings, Status 
 
 export type View = "all" | "active" | "unfinished" | "completed" | Category;
 
+/** Ticks every second for countdowns. */
+export const clock = $state({ now: Math.floor(Date.now() / 1000) });
+
 export const app = $state({
   downloads: [] as DownloadInfo[],
   settings: null as Settings | null,
@@ -98,6 +101,7 @@ export async function saveSettings(s: Settings) {
 }
 
 export async function init() {
+  setInterval(() => (clock.now = Math.floor(Date.now() / 1000)), 1000);
   await Promise.all([
     onEngineEvent(apply),
     onPending((p) => {

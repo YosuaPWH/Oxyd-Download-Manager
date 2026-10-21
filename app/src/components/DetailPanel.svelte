@@ -1,8 +1,8 @@
 <script lang="ts">
   import { api } from "../lib/api";
   import * as fmt from "../lib/format";
-  import { t } from "../lib/i18n.svelte";
-  import { run, selected } from "../lib/store.svelte";
+  import { errorText, t } from "../lib/i18n.svelte";
+  import { clock, run, selected } from "../lib/store.svelte";
   import SegmentBar from "./SegmentBar.svelte";
 
   const d = $derived(selected());
@@ -62,7 +62,15 @@
       </dd>
       {#if d.error}
         <dt>{t("detail.error")}</dt>
-        <dd class="error">{d.error}</dd>
+        <dd class="error">
+          {errorText(d.errorCode) ?? d.error}
+          {#if d.status === "failed" && d.retryAt}
+            <span class="retry">
+              {t("retry.in")} {fmt.duration(fmt.until(d.retryAt, clock.now)) || "0s"}
+            </span>
+          {/if}
+          {#if errorText(d.errorCode)}<span class="raw muted mono">{d.error}</span>{/if}
+        </dd>
       {/if}
     </dl>
     {#if d.status !== "completed"}
@@ -112,6 +120,15 @@
   }
   .error {
     color: var(--danger);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .retry {
+    color: var(--warn);
+  }
+  .raw {
+    font-size: 11px;
   }
   .forms {
     display: flex;

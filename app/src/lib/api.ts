@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { errorText } from "./i18n.svelte";
 import type {
   DownloadInfo,
   DuplicatePolicy,
@@ -66,6 +67,9 @@ export function onResync(cb: () => void): Promise<UnlistenFn> {
 }
 
 export function errorMessage(e: unknown): string {
-  if (e && typeof e === "object" && "message" in e) return String((e as { message: unknown }).message);
+  if (e && typeof e === "object" && "message" in e) {
+    const err = e as { code?: string; message: unknown };
+    return errorText(err.code) ?? String(err.message);
+  }
   return String(e);
 }

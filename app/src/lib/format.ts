@@ -25,6 +25,11 @@ export function duration(secs: number | null | undefined): string {
   return `${Math.floor(h / 24)}d ${h % 24}h`;
 }
 
+/** Seconds until `unix`, never negative. */
+export function until(unix: number, now: number): number {
+  return Math.max(0, unix - now);
+}
+
 export function percent(done: number, total: number | null): number | null {
   if (!total) return null;
   return Math.min(100, (done / total) * 100);

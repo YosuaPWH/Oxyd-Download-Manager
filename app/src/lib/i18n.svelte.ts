@@ -123,6 +123,23 @@ const id = {
   "clip.download": "Download",
   "clip.dismiss": "Abaikan",
   "err.title": "Terjadi kesalahan",
+  "err.network": "Koneksi jaringan terputus atau server tidak dapat dihubungi.",
+  "err.server": "Server sedang sibuk atau bermasalah.",
+  "err.retries": "Koneksi berulang kali gagal.",
+  "err.link_expired": "Link kedaluwarsa atau akses ditolak. Perbarui link lalu lanjutkan.",
+  "err.not_found": "File tidak ditemukan di server (404).",
+  "err.http": "Server menolak permintaan.",
+  "err.disk_full": "Ruang disk tidak cukup.",
+  "err.checksum": "Checksum tidak cocok; file mungkin rusak.",
+  "err.remote_changed": "File di server sudah berubah. Mulai ulang download.",
+  "err.range_unsupported": "Server tidak mendukung download bertahap.",
+  "err.refresh_mismatch": "Link baru menunjuk ke file yang berbeda.",
+  "err.invalid_url": "URL tidak valid.",
+  "err.io": "Gagal menulis file. Periksa folder tujuan.",
+  "err.missing": "Download tidak ditemukan.",
+  "err.invalid_state": "Aksi tidak bisa dilakukan sekarang.",
+  "retry.in": "Mencoba lagi otomatis dalam",
+  "retry.waiting": "menunggu",
   "status.active": "aktif",
   "status.total": "total",
 } as const;
@@ -254,6 +271,23 @@ const en: Record<Key, string> = {
   "clip.download": "Download",
   "clip.dismiss": "Dismiss",
   "err.title": "Something went wrong",
+  "err.network": "Network connection lost or server unreachable.",
+  "err.server": "The server is busy or failing.",
+  "err.retries": "The connection failed repeatedly.",
+  "err.link_expired": "The link expired or access was denied. Refresh the link and resume.",
+  "err.not_found": "File not found on the server (404).",
+  "err.http": "The server refused the request.",
+  "err.disk_full": "Not enough disk space.",
+  "err.checksum": "Checksum mismatch; the file may be corrupt.",
+  "err.remote_changed": "The file on the server changed. Restart the download.",
+  "err.range_unsupported": "The server does not support partial downloads.",
+  "err.refresh_mismatch": "The new link points to a different file.",
+  "err.invalid_url": "Invalid URL.",
+  "err.io": "Could not write the file. Check the destination folder.",
+  "err.missing": "Download not found.",
+  "err.invalid_state": "That action is not possible right now.",
+  "retry.in": "Retrying automatically in",
+  "retry.waiting": "waiting",
   "status.active": "active",
   "status.total": "total",
 };
@@ -262,4 +296,10 @@ export const i18n = $state({ lang: "id" as "id" | "en" });
 
 export function t(key: Key): string {
   return i18n.lang === "en" ? en[key] : id[key];
+}
+
+/** Localized text for an engine error code, if known. */
+export function errorText(code: string | null | undefined): string | null {
+  const key = `err.${code}` as Key;
+  return code && key in id ? t(key) : null;
 }

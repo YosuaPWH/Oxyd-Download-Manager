@@ -2,8 +2,8 @@
   import { api } from "../lib/api";
   import { askRemove, canPause, canStart, primaryAction } from "../lib/actions";
   import * as fmt from "../lib/format";
-  import { t, type Key } from "../lib/i18n.svelte";
-  import { app, run, visible } from "../lib/store.svelte";
+  import { errorText, t, type Key } from "../lib/i18n.svelte";
+  import { app, clock, run, visible } from "../lib/store.svelte";
   import type { DownloadInfo } from "../lib/types";
   import Icon from "./Icon.svelte";
 
@@ -128,8 +128,11 @@
         </div>
         <div role="gridcell" class="num">{d.status === "downloading" ? fmt.speed(d.speed) : ""}</div>
         <div role="gridcell" class="num">{d.status === "downloading" ? fmt.duration(d.eta) : ""}</div>
-        <div role="gridcell" class="st {statusClass[d.status]}" title={d.error ?? ""}>
+        <div role="gridcell" class="st {statusClass[d.status]}" title={errorText(d.errorCode) ?? d.error ?? ""}>
           {t(`st.${d.status}` as Key)}
+          {#if d.status === "failed" && d.retryAt}
+            <span class="muted">· ↻ {fmt.duration(fmt.until(d.retryAt, clock.now))}</span>
+          {/if}
           {#if d.status === "downloading" && d.activeConnections > 0}
             <span class="muted">· {d.activeConnections}×</span>
           {/if}

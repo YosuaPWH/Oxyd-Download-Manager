@@ -34,6 +34,8 @@ export interface DownloadInfo {
   speedLimit: number | null;
   checksum: string | null;
   error: string | null;
+  /** Machine readable code of `error`, e.g. "network" or "link_expired". */
+  errorCode: string | null;
   position: number;
   createdAt: number;
   updatedAt: number;
@@ -42,6 +44,8 @@ export interface DownloadInfo {
   eta: number | null;
   activeConnections: number;
   segments: Segment[];
+  /** Unix time of the next automatic retry after a temporary failure. */
+  retryAt: number | null;
 }
 
 export interface ProbeInfo {
