@@ -481,3 +481,17 @@ async fn changes_made_while_running_survive() {
     assert_eq!(ra.speed_limit, Some(3 * MB));
     assert!(rb.position < ra.position);
 }
+
+#[tokio::test]
+async fn handles_empty_files() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    for (i, q) in ["", "?range=0", "?range=0&nolen=1"].iter().enumerate() {
+        let sep = if q.is_empty() { "?" } else { "&" };
+        let id = add(&m, format!("{base}/file/0{q}{sep}name=empty{i}.txt"), 4);
+        let info = wait(&m, &id).await;
+        assert_completed(&info, 0);
+        assert_eq!(info.record.total_size, Some(0));
+    }
+}

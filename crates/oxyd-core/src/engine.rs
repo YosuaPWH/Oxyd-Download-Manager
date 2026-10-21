@@ -109,7 +109,10 @@ async fn worker(job: Arc<Job>, idx: usize) -> Result<(), WorkerError> {
         if job.cancel.is_cancelled() {
             return Err(WorkerError::Cancelled);
         }
-        let seg = job.shared.segments()[idx];
+        // An empty body of unknown length leaves no segments at all.
+        let Some(seg) = job.shared.segments().get(idx).copied() else {
+            return Ok(());
+        };
         if seg.is_done() {
             return Ok(());
         }
@@ -282,7 +285,11 @@ async fn fetch(job: &Job, idx: usize, from: u64, end: u64) -> Result<(), Attempt
     let s = &mut segs[idx];
     if s.end == UNKNOWN_END {
         // Stream of unknown length: the end of the body is the end of the file.
-        s.end = s.start + s.downloaded - 1;
+        if s.downloaded == 0 {
+            segs.clear();
+        } else {
+            s.end = s.start + s.downloaded - 1;
+        }
         return Ok(());
     }
     if s.is_done() {
