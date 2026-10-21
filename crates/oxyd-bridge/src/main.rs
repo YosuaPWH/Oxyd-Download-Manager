@@ -1,1 +1,183 @@
-fn main() {}
+//! `oxyd-bridge` — Chrome/Edge native messaging host.
+//!
+//! Reads length-prefixed JSON from stdin, forwards each message to the app over the named
+//! pipe (starting the app when a download arrives and it is not running) and writes the
+//! reply to stdout. Nothing but protocol frames may ever be written to stdout; logs go to
+//! `%LOCALAPPDATA%\Oxyd\logs\bridge.log`.
+
+use std::fs::File;
+use std::io::{self, Write};
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
+use oxyd_protocol::{
+    decode, read_frame, read_message, write_message, Ack, AckStatus, Message, ProtocolError,
+};
+
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
+fn main() {
+    init_logging();
+    // Chrome passes the caller origin as the first argument.
+    tracing::info!(args = ?std::env::args().skip(1).collect::<Vec<_>>(), "bridge started");
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    if let Err(e) = run(&mut stdin.lock(), &mut stdout.lock()) {
+        tracing::error!("bridge stopped: {e}");
+    }
+}
+
+fn run(input: &mut impl io::Read, output: &mut impl Write) -> Result<(), ProtocolError> {
+    let mut bridge = Bridge::default();
+    loop {
+        let frame = match read_frame(input) {
+            Ok(Some(f)) => f,
+            Ok(None) => return Ok(()), // browser closed stdin
+            Err(e) => {
+                write_message(output, &Ack::new("", AckStatus::Error, Some(e.to_string())))?;
+                return Err(e);
+            }
+        };
+        let reply = match decode(&frame) {
+            Ok(msg) => bridge.forward(&msg),
+            Err(e) => {
+                tracing::warn!("rejected message: {e}");
+                Ack::new(peek_id(&frame), AckStatus::Error, Some(e.to_string()))
+            }
+        };
+        write_message(output, &reply)?;
+    }
+}
+
+/// Best effort extraction of `id` from an invalid message so the extension can match it.
+fn peek_id(frame: &[u8]) -> String {
+    serde_json::from_slice::<serde_json::Value>(frame)
+        .ok()
+        .and_then(|v| v.get("id")?.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+#[derive(Default)]
+struct Bridge {
+    pipe: Option<File>,
+}
+
+impl Bridge {
+    fn forward(&mut self, msg: &Message) -> Message {
+        let launch = matches!(msg, Message::AddDownload(_));
+        let mut last_err = String::new();
+        for _ in 0..2 {
+            match self.exchange(msg, launch) {
+                Ok(reply) => return reply,
+                Err(e) => {
+                    tracing::warn!("pipe exchange failed: {e}");
+                    last_err = e.to_string();
+                    self.pipe = None;
+                }
+            }
+        }
+        let id = match msg {
+            Message::AddDownload(a) => a.id.clone(),
+            _ => String::new(),
+        };
+        Ack::new(
+            id,
+            AckStatus::Error,
+            Some(format!("Oxyd is not reachable: {last_err}")),
+        )
+    }
+
+    fn exchange(&mut self, msg: &Message, launch: bool) -> Result<Message, ProtocolError> {
+        if self.pipe.is_none() {
+            self.pipe = Some(connect(launch)?);
+        }
+        let pipe = self.pipe.as_mut().expect("connected above");
+        write_message(pipe, msg)?;
+        read_message(pipe)?.ok_or_else(|| io::Error::from(io::ErrorKind::UnexpectedEof).into())
+    }
+}
+
+fn open_pipe() -> io::Result<File> {
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(oxyd_protocol::pipe_name())
+}
+
+/// Connect to the app, starting it first if `launch` and it is not running.
+fn connect(launch: bool) -> io::Result<File> {
+    match open_pipe() {
+        Ok(f) => return Ok(f),
+        Err(e) if !launch => return Err(e),
+        Err(_) => {}
+    }
+    let mut launched = false;
+    let deadline = Instant::now() + CONNECT_TIMEOUT;
+    loop {
+        match open_pipe() {
+            Ok(f) => return Ok(f),
+            Err(e) => {
+                if !launched {
+                    launch_app()?;
+                    launched = true;
+                }
+                if Instant::now() >= deadline {
+                    return Err(e);
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+    }
+}
+
+fn app_path() -> PathBuf {
+    if let Some(p) = std::env::var_os("OXYD_APP") {
+        return PathBuf::from(p);
+    }
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("Oxyd.exe")))
+        .unwrap_or_else(|| PathBuf::from("Oxyd.exe"))
+}
+
+fn launch_app() -> io::Result<()> {
+    let path = app_path();
+    tracing::info!(path = %path.display(), "starting app");
+    let mut cmd = std::process::Command::new(&path);
+    cmd.arg("--background")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+        // Leave the browser's job object so the app survives the bridge exiting.
+        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB);
+        if cmd.spawn().is_ok() {
+            return Ok(());
+        }
+        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+    }
+    cmd.spawn().map(|_| ())
+}
+
+fn init_logging() {
+    let dir = directories::BaseDirs::new()
+        .map(|b| b.data_local_dir().join("Oxyd").join("logs"))
+        .unwrap_or_else(|| std::env::temp_dir().join("Oxyd").join("logs"));
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let writer = tracing_appender::rolling::never(dir, "bridge.log");
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_env("OXYD_LOG")
+                .unwrap_or_else(|_| "info".into()),
+        )
+        .with_ansi(false)
+        .with_writer(writer)
+        .try_init();
+}

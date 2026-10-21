@@ -3,5 +3,16 @@ name = "oxyd-bridge"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Native messaging host connecting the Oxyd browser extension to the app"
 
 [dependencies]
+oxyd-protocol = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+directories = { workspace = true }
+
+[dev-dependencies]
+oxyd-protocol = { workspace = true, features = ["server"] }
+tokio = { workspace = true }
