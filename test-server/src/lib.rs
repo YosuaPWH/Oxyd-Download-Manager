@@ -11,6 +11,8 @@
 //! - `name=S` filename sent via `Content-Disposition`
 //! - `nolen=1` omit `Content-Length` (chunked)
 //! - `maxconn=N` answer 429 while N bodies are already being sent
+//! - `jitter=1` give each connection a random rate between 1/4 and 2x `rate`
+//! - `latency=MS` wait MS milliseconds before answering (network round trip)
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -53,6 +55,8 @@ pub struct Opts {
     name: Option<String>,
     nolen: Option<u8>,
     maxconn: Option<usize>,
+    jitter: Option<u8>,
+    latency: Option<u64>,
 }
 
 /// Counters shared by all requests of one server.
@@ -113,6 +117,9 @@ async fn serve_file(
     Query(o): Query<Opts>,
     headers: HeaderMap,
 ) -> Response {
+    if let Some(ms) = o.latency {
+        tokio::time::sleep(Duration::from_millis(ms)).await;
+    }
     if let Some(s) = o.status {
         return StatusCode::from_u16(s)
             .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
@@ -172,8 +179,14 @@ async fn serve_file(
     }
     stats.peak.fetch_max(active, Ordering::SeqCst);
 
-    let rate = o.rate;
+    let rate = match (o.rate, o.jitter.unwrap_or(0) != 0) {
+        (Some(r), true) => Some((r as f64 * rand::thread_rng().gen_range(0.25..2.0)) as u64),
+        (r, _) => r,
+    };
     let drop = o.drop.unwrap_or(0.0).clamp(0.0, 1.0);
+    // Pace against the start time, not per chunk: Windows timers round short sleeps up
+    // to ~15 ms, which would silently halve the configured rate.
+    let began = tokio::time::Instant::now();
     let body = stream::unfold((start, len, slot), move |(pos, left, slot)| async move {
         if left == 0 {
             return None;
@@ -183,8 +196,9 @@ async fn serve_file(
         }
         let n = (left as usize).min(CHUNK);
         if let Some(rate) = rate {
-            let secs = n as f64 / rate.max(1) as f64;
-            tokio::time::sleep(Duration::from_secs_f64(secs)).await;
+            let sent = pos - start + n as u64;
+            let due = began + Duration::from_secs_f64(sent as f64 / rate.max(1) as f64);
+            tokio::time::sleep_until(due).await;
         }
         let mut buf = vec![0u8; n];
         fill(pos, &mut buf);
