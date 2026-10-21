@@ -1,4 +1,4 @@
-# PRD: RustDM — Download Manager Desktop Berbasis Rust
+# PRD: Oxyd Download Manager — Desktop Berbasis Rust
 
 | | |
 |---|---|
@@ -6,13 +6,13 @@
 | **Tanggal** | 21 Oktober 2026 |
 | **Platform awal** | Windows 10/11 (64-bit) |
 | **Browser** | Google Chrome, Microsoft Edge (Chromium) |
-| **Nama** | RustDM (nama sementara) |
+| **Nama** | Oxyd Download Manager (Oxyd) |
 
 ---
 
 ## 1. Ringkasan
 
-RustDM adalah aplikasi download manager desktop yang mirip Internet Download Manager (IDM). Aplikasi ini mempercepat download dengan memecah file menjadi beberapa segmen yang diunduh paralel, mendukung pause/resume, dan terintegrasi dengan Chrome serta Edge melalui ekstensi browser sehingga download otomatis ditangkap oleh aplikasi.
+Oxyd adalah aplikasi download manager desktop yang mirip Internet Download Manager (IDM). Aplikasi ini mempercepat download dengan memecah file menjadi beberapa segmen yang diunduh paralel, mendukung pause/resume, dan terintegrasi dengan Chrome serta Edge melalui ekstensi browser sehingga download otomatis ditangkap oleh aplikasi.
 
 Aplikasi dibangun dengan **Rust** (mesin download dan backend), **Tauri** (antarmuka desktop), dan **ekstensi Manifest V3** yang terhubung lewat **Native Messaging**.
 
@@ -27,7 +27,7 @@ Aplikasi dibangun dengan **Rust** (mesin download dan backend), **Tauri** (antar
 
 1. Download lebih cepat daripada browser untuk server yang mendukung HTTP Range, melalui segmented download paralel.
 2. Download tahan gangguan: bisa di-pause, di-resume, dan otomatis melanjutkan setelah koneksi putus atau aplikasi ditutup.
-3. Integrasi mulus dengan Chrome dan Edge: klik link download di browser langsung tertangkap oleh RustDM.
+3. Integrasi mulus dengan Chrome dan Edge: klik link download di browser langsung tertangkap oleh Oxyd.
 4. Aplikasi ringan: memakai sumber daya kecil saat berjalan di background.
 
 ## 4. Non-Goals (Bukan Cakupan v1)
@@ -48,7 +48,7 @@ Aplikasi dibangun dengan **Rust** (mesin download dan backend), **Tauri** (antar
 
 | ID | Sebagai... | Saya ingin... | Supaya... |
 |---|---|---|---|
-| US-01 | Pengguna | klik link download di Chrome/Edge dan otomatis ditangkap RustDM | tidak perlu menyalin link secara manual |
+| US-01 | Pengguna | klik link download di Chrome/Edge dan otomatis ditangkap Oxyd | tidak perlu menyalin link secara manual |
 | US-02 | Pengguna | melihat dialog konfirmasi berisi nama file, ukuran, dan folder tujuan | bisa mengubah lokasi simpan sebelum mulai |
 | US-03 | Pengguna | download berjalan dengan banyak koneksi paralel | download selesai lebih cepat |
 | US-04 | Pengguna | pause dan resume download kapan saja | bisa mengatur pemakaian bandwidth |
@@ -58,7 +58,7 @@ Aplikasi dibangun dengan **Rust** (mesin download dan backend), **Tauri** (antar
 | US-08 | Pengguna | mengatur antrean dan jumlah download bersamaan | koneksi tidak kewalahan |
 | US-09 | Pengguna | membatasi kecepatan download | tetap bisa browsing atau video call |
 | US-10 | Pengguna | file otomatis dikelompokkan ke folder sesuai jenisnya | folder Downloads tetap rapi |
-| US-11 | Pengguna | menekan tombol pintas agar satu download tidak ditangkap RustDM | file kecil tetap diunduh browser |
+| US-11 | Pengguna | menekan tombol pintas agar satu download tidak ditangkap Oxyd | file kecil tetap diunduh browser |
 | US-12 | Pengguna | memperbarui link yang kedaluwarsa tanpa kehilangan progres | download dari link bertoken tetap bisa dilanjutkan |
 
 ## 7. Kebutuhan Fungsional
@@ -88,7 +88,7 @@ Aplikasi dibangun dengan **Rust** (mesin download dan backend), **Tauri** (antar
 | F-PERS-02 | State disimpan berkala (misalnya tiap 1 detik) dan saat pause/keluar | P0 |
 | F-PERS-03 | Saat aplikasi dibuka kembali, download yang belum selesai dipulihkan | P0 |
 | F-PERS-04 | Fitur "Refresh link": mengganti URL download tanpa menghapus progres, setelah validasi ukuran sama | P1 |
-| F-PERS-05 | File sementara memakai ekstensi `.rdmpart` dan di-rename setelah selesai | P0 |
+| F-PERS-05 | File sementara memakai ekstensi `.oxydpart` dan di-rename setelah selesai | P0 |
 
 ### 7.3 Antrean dan Penjadwalan
 
@@ -104,11 +104,11 @@ Aplikasi dibangun dengan **Rust** (mesin download dan backend), **Tauri** (antar
 | ID | Kebutuhan | Prioritas |
 |---|---|---|
 | F-EXT-01 | Satu kode ekstensi Manifest V3 yang berjalan di Chrome dan Edge | P0 |
-| F-EXT-02 | Menangkap download lewat `chrome.downloads.onCreated`, membatalkan download browser, dan meneruskan ke RustDM | P0 |
+| F-EXT-02 | Menangkap download lewat `chrome.downloads.onCreated`, membatalkan download browser, dan meneruskan ke Oxyd | P0 |
 | F-EXT-03 | Mengirim URL, nama file, ukuran, MIME, Referer, User-Agent, dan cookie domain terkait | P0 |
 | F-EXT-04 | Filter berdasarkan ekstensi file dan ukuran minimum (bisa diatur di popup ekstensi) | P0 |
-| F-EXT-05 | Fallback: jika RustDM tidak merespons dalam 3 detik, download dibiarkan di browser | P0 |
-| F-EXT-06 | Menu klik kanan "Download dengan RustDM" pada link | P1 |
+| F-EXT-05 | Fallback: jika Oxyd tidak merespons dalam 3 detik, download dibiarkan di browser | P0 |
+| F-EXT-06 | Menu klik kanan "Download dengan Oxyd" pada link | P1 |
 | F-EXT-07 | Tombol on/off penangkapan dan daftar domain yang dikecualikan | P1 |
 | F-EXT-08 | Popup ekstensi menampilkan status koneksi ke aplikasi | P1 |
 | F-EXT-09 | Tombol pintas untuk melewati penangkapan pada satu download | P2 |
@@ -117,8 +117,8 @@ Aplikasi dibangun dengan **Rust** (mesin download dan backend), **Tauri** (antar
 
 | ID | Kebutuhan | Prioritas |
 |---|---|---|
-| F-BRG-01 | Executable terpisah (`rdm-bridge.exe`) yang berkomunikasi dengan ekstensi melalui stdin/stdout (pesan JSON dengan prefix panjang 4 byte little-endian) | P0 |
-| F-BRG-02 | Meneruskan pesan ke aplikasi utama melalui named pipe `\\.\pipe\rustdm` | P0 |
+| F-BRG-01 | Executable terpisah (`oxyd-bridge.exe`) yang berkomunikasi dengan ekstensi melalui stdin/stdout (pesan JSON dengan prefix panjang 4 byte little-endian) | P0 |
+| F-BRG-02 | Meneruskan pesan ke aplikasi utama melalui named pipe `\\.\pipe\oxyd` | P0 |
 | F-BRG-03 | Menjalankan aplikasi utama jika belum berjalan, lalu mencoba ulang koneksi | P0 |
 | F-BRG-04 | Membalas ekstensi dengan status `accepted`, `rejected`, atau `error` | P0 |
 | F-BRG-05 | Validasi ukuran pesan (maks 1 MB dari browser) dan skema JSON | P0 |
@@ -143,7 +143,7 @@ Aplikasi dibangun dengan **Rust** (mesin download dan backend), **Tauri** (antar
 
 | ID | Kebutuhan | Prioritas |
 |---|---|---|
-| F-INST-01 | Installer Windows (NSIS via Tauri bundler) yang memasang aplikasi dan `rdm-bridge.exe` | P0 |
+| F-INST-01 | Installer Windows (NSIS via Tauri bundler) yang memasang aplikasi dan `oxyd-bridge.exe` | P0 |
 | F-INST-02 | Installer menulis manifest native host dan registry key untuk Chrome dan Edge (HKCU) | P0 |
 | F-INST-03 | Uninstaller menghapus registry key dan manifest | P0 |
 | F-INST-04 | Pilihan "Jalankan saat Windows mulai" | P1 |
@@ -166,10 +166,10 @@ Aplikasi dibangun dengan **Rust** (mesin download dan backend), **Tauri** (antar
 
 ```
 ┌──────────────────┐   stdio (JSON)   ┌──────────────┐   named pipe   ┌──────────────────────┐
-│ Ekstensi MV3     │ ───────────────▶ │ rdm-bridge   │ ─────────────▶ │ Aplikasi Tauri       │
+│ Ekstensi MV3     │ ───────────────▶ │ oxyd-bridge   │ ─────────────▶ │ Aplikasi Tauri       │
 │ (Chrome / Edge)  │ ◀─────────────── │ (Rust)       │ ◀───────────── │  ├─ UI (WebView)     │
 └──────────────────┘                  └──────────────┘                │  ├─ Queue manager    │
-                                                                      │  └─ rdm-core engine  │
+                                                                      │  └─ oxyd-core engine  │
                                                                       │        │             │
                                                                       │     SQLite + Disk    │
                                                                       └──────────────────────┘
@@ -179,8 +179,8 @@ Aplikasi dibangun dengan **Rust** (mesin download dan backend), **Tauri** (antar
 
 | Komponen | Teknologi | Tanggung Jawab |
 |---|---|---|
-| `rdm-core` | Rust, tokio, reqwest, rusqlite | Probe, segmentasi, download, retry, persistensi, speed limit |
-| `rdm-bridge` | Rust, interprocess, serde_json | Native messaging host, meneruskan pesan ke aplikasi |
+| `oxyd-core` | Rust, tokio, reqwest, rusqlite | Probe, segmentasi, download, retry, persistensi, speed limit |
+| `oxyd-bridge` | Rust, interprocess, serde_json | Native messaging host, meneruskan pesan ke aplikasi |
 | `app` | Tauri 2, TypeScript + framework UI ringan (Svelte/Solid) | UI, tray, notifikasi, server named pipe, queue manager |
 | `extension` | TypeScript, Manifest V3 | Menangkap download, mengumpulkan cookie/header, UI popup |
 | Installer | Tauri bundler (NSIS) + hook | Instalasi aplikasi, bridge, dan registrasi registry |
@@ -219,10 +219,10 @@ Dibalas `{ "v": 1, "type": "pong", "appVersion": "0.1.0" }`.
 
 ### 9.3 Registrasi Native Messaging (Windows)
 
-- Nama host: `com.rustdm.bridge`
-- Manifest: `%LOCALAPPDATA%\RustDM\native-host\com.rustdm.bridge.json`
-- Registry Chrome: `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.rustdm.bridge`
-- Registry Edge: `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.rustdm.bridge`
+- Nama host: `com.oxyd.bridge`
+- Manifest: `%LOCALAPPDATA%\Oxyd\native-host\com.oxyd.bridge.json`
+- Registry Chrome: `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.oxyd.bridge`
+- Registry Edge: `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.oxyd.bridge`
 - `allowed_origins` berisi ID ekstensi Chrome Web Store, ID Edge Add-ons, dan ID development (dipatok dengan field `key` di `manifest.json`).
 
 ### 9.4 Model Data (SQLite)
@@ -265,10 +265,10 @@ Dibalas `{ "v": 1, "type": "pong", "appVersion": "0.1.0" }`.
 1. Pengguna klik link download di Chrome/Edge.
 2. Ekstensi menerima event `onCreated`, mencocokkan filter, membatalkan download browser.
 3. Ekstensi mengambil cookie dan header, lalu mengirim `add_download` ke native host.
-4. Browser menjalankan `rdm-bridge.exe`, bridge menghubungi aplikasi via named pipe (menjalankan aplikasi jika perlu).
+4. Browser menjalankan `oxyd-bridge.exe`, bridge menghubungi aplikasi via named pipe (menjalankan aplikasi jika perlu).
 5. Aplikasi menampilkan dialog "Download baru" dan membalas `ack: accepted`.
-6. Pengguna klik Mulai, `rdm-core` melakukan probe lalu download tersegmentasi.
-7. Selesai: file di-rename dari `.rdmpart`, notifikasi muncul, cookie dihapus dari database.
+6. Pengguna klik Mulai, `oxyd-core` melakukan probe lalu download tersegmentasi.
+7. Selesai: file di-rename dari `.oxydpart`, notifikasi muncul, cookie dihapus dari database.
 
 ### 10.2 Fallback
 Jika bridge atau aplikasi tidak merespons dalam 3 detik atau membalas `error`, ekstensi memulai ulang download di browser dengan `chrome.downloads.download()` dan menandai URL tersebut agar tidak ditangkap lagi.
@@ -288,7 +288,7 @@ Jika bridge atau aplikasi tidak merespons dalam 3 detik atau membalas `error`, e
 | Link bertoken kedaluwarsa saat resume | Resume gagal | Fitur Refresh link, deteksi 403/410 dan beri tahu pengguna |
 | Server membatasi jumlah koneksi atau memblokir banyak koneksi | Kecepatan turun atau error | Kurangi koneksi otomatis saat menerima 429/503 berulang |
 | Perubahan kebijakan Manifest V3 | Fitur ekstensi rusak | Hanya pakai API stabil (`downloads`, `nativeMessaging`, `cookies`) |
-| Antivirus menandai `rdm-bridge.exe` | Integrasi gagal | Code signing untuk rilis publik |
+| Antivirus menandai `oxyd-bridge.exe` | Integrasi gagal | Code signing untuk rilis publik |
 | Review Chrome Web Store/Edge Add-ons lama atau ditolak karena permission `<all_urls>` | Rilis tertunda | Justifikasi permission yang jelas, distribusi manual (load unpacked) untuk tahap awal |
 | WebView2 tidak tersedia di Windows lama | Aplikasi tidak bisa jalan | Installer Tauri dengan bootstrapper WebView2 |
 
