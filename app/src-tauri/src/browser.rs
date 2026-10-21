@@ -4,7 +4,9 @@ use oxyd_core::{NewDownload, RequestHeaders};
 use oxyd_protocol::{AckStatus, AddDownload, Message};
 use tauri::{AppHandle, Emitter, Manager as _};
 
-use crate::state::{AppState, PendingAdd};
+use serde::Serialize;
+
+use crate::state::{AppState, PendingAdd, PendingMatch};
 
 /// Serve the bridge pipe for the lifetime of the app.
 pub fn start_pipe_server(app: &AppHandle) {
@@ -52,13 +54,35 @@ fn accept(app: &AppHandle, a: AddDownload) -> Result<(), String> {
         "link from browser"
     );
     let headers = RequestHeaders {
-        cookie: a.cookies.filter(|c| !c.is_empty()),
+        cookie: a.cookies.clone().filter(|c| !c.is_empty()),
         referer: a.referrer.clone().filter(|r| !r.is_empty()),
-        user_agent: a.user_agent.filter(|u| !u.is_empty()),
+        user_agent: a.user_agent.clone().filter(|u| !u.is_empty()),
         ..Default::default()
     };
     let state = app.state::<AppState>();
+
+    // "Refresh link" is waiting: this click in the browser is the new link.
+    if let Some(id) = state.take_refresh() {
+        refresh_into(app, id, a, headers);
+        return Ok(());
+    }
+
+    let name = a
+        .filename
+        .clone()
+        .filter(|n| !n.trim().is_empty())
+        .or_else(|| oxyd_core::filename::from_url(&a.url));
+    let matched = name
+        .as_deref()
+        .and_then(|n| state.mgr.find_unfinished(n, a.size).ok().flatten());
+
     if !state.mgr.settings().confirm_new {
+        // Without a dialog, only continue an existing download when the size proves it is
+        // the same file.
+        if let Some(m) = matched.filter(|m| a.size.is_some() && m.record.total_size == a.size) {
+            refresh_into(app, m.record.id, a, headers);
+            return Ok(());
+        }
         state
             .mgr
             .add(NewDownload {
@@ -75,18 +99,69 @@ fn accept(app: &AppHandle, a: AddDownload) -> Result<(), String> {
     }
     queue_pending(
         app,
-        PendingAdd {
-            key: uuid::Uuid::new_v4().to_string(),
-            url: a.url,
-            filename: a.filename,
-            size: a.size,
-            mime: a.mime,
-            referrer: a.referrer,
-            source: a.source,
-            headers,
-        },
+        pending_from(a, headers, matched.as_ref().map(Into::into)),
     );
     Ok(())
+}
+
+fn pending_from(
+    a: AddDownload,
+    headers: RequestHeaders,
+    matched: Option<PendingMatch>,
+) -> PendingAdd {
+    PendingAdd {
+        key: uuid::Uuid::new_v4().to_string(),
+        url: a.url,
+        filename: a.filename,
+        size: a.size,
+        mime: a.mime,
+        referrer: a.referrer,
+        source: a.source,
+        matched,
+        headers,
+    }
+}
+
+/// Outcome of pointing an unfinished download at a new link.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RefreshResult {
+    id: String,
+    ok: bool,
+    code: Option<String>,
+    message: Option<String>,
+}
+
+/// Give download `id` the new link (with the browser's fresh cookies) and resume it. When
+/// that fails, e.g. the link is a different file, it is offered as a new download instead.
+fn refresh_into(app: &AppHandle, id: String, a: AddDownload, headers: RequestHeaders) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mgr = app.state::<AppState>().mgr.clone();
+        let result = match mgr.refresh_link(&id, &a.url, Some(headers.clone())).await {
+            Ok(_) => mgr.start(&id),
+            Err(e) => Err(e),
+        };
+        let event = match &result {
+            Ok(()) => RefreshResult {
+                id: id.clone(),
+                ok: true,
+                code: None,
+                message: None,
+            },
+            Err(e) => RefreshResult {
+                id: id.clone(),
+                ok: false,
+                code: Some(e.code().to_string()),
+                message: Some(e.to_string()),
+            },
+        };
+        let _ = app.emit("oxyd://refresh", event);
+        if let Err(e) = result {
+            tracing::warn!(id, "refreshing the link failed: {e}");
+            queue_pending(&app, pending_from(a, headers, None));
+        }
+    });
 }
 
 /// Show the "New download" dialog for `p`.
@@ -112,6 +187,7 @@ pub fn handle_args(app: &AppHandle, args: &[String]) {
                 mime: None,
                 referrer: None,
                 source: Some("cli".into()),
+                matched: None,
                 headers: RequestHeaders::default(),
             },
         );

@@ -217,6 +217,12 @@ pub fn run() {
             commands::probe_pending,
             commands::confirm_pending,
             commands::discard_pending,
+            commands::begin_refresh,
+            commands::cancel_refresh,
+            commands::refresh_target,
+            commands::find_unfinished,
+            commands::resume_pending,
+            commands::resume_with_url,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Oxyd");

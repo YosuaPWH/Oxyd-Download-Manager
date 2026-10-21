@@ -11,7 +11,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt as _;
 use tauri_plugin_dialog::DialogExt as _;
 use tauri_plugin_opener::OpenerExt as _;
 
-use crate::state::{AppState, PendingAdd};
+use crate::state::{AppState, PendingAdd, RefreshTarget};
 
 /// Error returned to the frontend.
 #[derive(Debug, Serialize)]
@@ -256,4 +256,92 @@ pub fn confirm_pending(
 #[tauri::command]
 pub fn discard_pending(state: State<'_, AppState>, key: String) {
     state.take_pending(&key);
+}
+
+/// Wait for the next link from the browser and use it for download `id` (IDM's "refresh
+/// download address"). Opens the page the download came from, when known.
+#[tauri::command]
+pub fn begin_refresh(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Res<Option<String>> {
+    let d = state.mgr.get(&id)?;
+    if d.record.status.is_active() {
+        return Err(CmdError::other("invalid_state", "pause the download first"));
+    }
+    state.set_refresh(Some(RefreshTarget {
+        id,
+        since: std::time::Instant::now(),
+    }));
+    let page = d
+        .record
+        .headers
+        .referer
+        .filter(|r| r.starts_with("http://") || r.starts_with("https://"));
+    if let Some(url) = &page {
+        if let Err(e) = app.opener().open_url(url, None::<&str>) {
+            tracing::warn!("cannot open the download page: {e}");
+        }
+    }
+    Ok(page)
+}
+
+#[tauri::command]
+pub fn cancel_refresh(state: State<'_, AppState>) {
+    state.set_refresh(None);
+}
+
+/// The download currently waiting for a new link.
+#[tauri::command]
+pub fn refresh_target(state: State<'_, AppState>) -> Option<String> {
+    state.refresh_target()
+}
+
+#[tauri::command]
+pub fn find_unfinished(
+    state: State<'_, AppState>,
+    filename: String,
+    size: Option<u64>,
+) -> Res<Option<DownloadInfo>> {
+    Ok(state.mgr.find_unfinished(&filename, size)?)
+}
+
+/// Continue download `id` with the pending browser link (and its cookies).
+#[tauri::command]
+pub async fn resume_pending(
+    state: State<'_, AppState>,
+    key: String,
+    id: String,
+) -> Res<DownloadInfo> {
+    let p = state
+        .take_pending(&key)
+        .ok_or_else(|| CmdError::other("missing", "link no longer pending"))?;
+    match state
+        .mgr
+        .refresh_link(&id, &p.url, Some(p.headers.clone()))
+        .await
+    {
+        Ok(_) => {
+            state.mgr.start(&id)?;
+            Ok(state.mgr.get(&id)?)
+        }
+        Err(e) => {
+            // Keep the link so the user can still download it as a new file.
+            state.pending().insert(0, p);
+            Err(e.into())
+        }
+    }
+}
+
+/// Continue download `id` with a URL typed in the New download dialog.
+#[tauri::command]
+pub async fn resume_with_url(
+    state: State<'_, AppState>,
+    id: String,
+    url: String,
+) -> Res<DownloadInfo> {
+    state.mgr.refresh_url(&id, &url).await?;
+    state.mgr.start(&id)?;
+    Ok(state.mgr.get(&id)?)
 }
