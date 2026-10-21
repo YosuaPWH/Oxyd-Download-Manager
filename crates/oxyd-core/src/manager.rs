@@ -12,7 +12,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::engine::{run_segments, Job, Shared, WorkerError};
-use crate::error::{Error, Result};
+use crate::error::{self, Error, Result};
 use crate::events::Event;
 use crate::filename::{self, part_path, Category};
 use crate::limiter::Limiter;
@@ -26,6 +26,10 @@ use crate::writer::{self, SharedFile};
 const TICK: Duration = Duration::from_millis(250);
 const CHECKPOINT_EVERY: u32 = 4; // ticks -> 1 second
 const NO_ETA: u64 = u64::MAX;
+/// Automatic retries after temporary failures (network down, server overloaded).
+const MAX_AUTO_RETRIES: u32 = 30;
+const DEFAULT_RETRY_BASE: Duration = Duration::from_secs(30);
+const MAX_RETRY_DELAY: Duration = Duration::from_secs(600);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -68,6 +72,15 @@ impl Handle {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+struct AutoRetry {
+    attempts: u32,
+    /// Unix time of the pending retry.
+    at: i64,
+    /// Bumped for every scheduled retry so stale timers do nothing.
+    generation: u64,
+}
+
 enum Outcome {
     Completed(DownloadRecord),
     Stopped(DownloadRecord),
@@ -82,6 +95,8 @@ pub struct Manager {
     tasks: Mutex<HashMap<String, Handle>>,
     global: Arc<Limiter>,
     ran_any: AtomicBool,
+    retries: Mutex<HashMap<String, AutoRetry>>,
+    retry_base_ms: AtomicU64,
     shutting_down: AtomicBool,
     rt: tokio::runtime::Handle,
     me: Weak<Manager>,
@@ -117,6 +132,8 @@ impl Manager {
             tasks: Mutex::new(HashMap::new()),
             global,
             ran_any: AtomicBool::new(false),
+            retries: Mutex::new(HashMap::new()),
+            retry_base_ms: AtomicU64::new(DEFAULT_RETRY_BASE.as_millis() as u64),
             shutting_down: AtomicBool::new(false),
             rt,
             me: me.clone(),
@@ -130,6 +147,18 @@ impl Manager {
     /// when `resume` is false).
     fn recover(&self, resume: bool) -> Result<()> {
         for mut r in self.store.list()? {
+            // Downloads that failed because the network was down resume after a restart.
+            let temporary = r.status == Status::Failed
+                && r.error_code
+                    .as_deref()
+                    .is_some_and(error::is_transient_code);
+            if resume && temporary {
+                r.status = Status::Queued;
+                r.error = None;
+                r.error_code = None;
+                self.store.update(&r)?;
+                continue;
+            }
             let interrupted = r.status.is_active() || r.status == Status::Queued;
             if interrupted && (r.status != Status::Queued || !resume) {
                 r.status = if resume {
@@ -202,10 +231,14 @@ impl Manager {
                     eta: (eta != NO_ETA).then_some(eta),
                     active_connections: h.shared.active_connections.load(Ordering::Relaxed),
                     segments,
+                    retry_at: None,
                 }
             }
             None => {
                 drop(tasks);
+                let retry_at = (record.status == Status::Failed)
+                    .then(|| self.retries().get(&record.id).map(|r| r.at))
+                    .flatten();
                 let segments = if record.status.is_finished() {
                     vec![]
                 } else {
@@ -217,6 +250,7 @@ impl Manager {
                     eta: None,
                     active_connections: 0,
                     segments,
+                    retry_at,
                 }
             }
         }
@@ -339,6 +373,7 @@ impl Manager {
             speed_limit: new.speed_limit.filter(|&l| l > 0),
             checksum: new.checksum.filter(|c| !c.trim().is_empty()),
             error: None,
+            error_code: None,
             position: self.store.next_position()?,
             created_at: ts,
             updated_at: ts,
@@ -353,8 +388,78 @@ impl Manager {
         Ok(info)
     }
 
+    fn retries(&self) -> std::sync::MutexGuard<'_, HashMap<String, AutoRetry>> {
+        self.retries.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Forget automatic retry state; the user took over.
+    fn clear_retry(&self, id: &str) {
+        self.retries().remove(id);
+    }
+
+    /// Base delay of automatic retries (doubles per attempt, max 10 minutes).
+    #[doc(hidden)]
+    pub fn set_retry_base(&self, base: Duration) {
+        self.retry_base_ms
+            .store(base.as_millis() as u64, Ordering::Relaxed);
+    }
+
+    /// Retry `id` later after a temporary failure. Returns false when giving up.
+    fn schedule_retry(&self, id: &str) -> bool {
+        let base = Duration::from_millis(self.retry_base_ms.load(Ordering::Relaxed));
+        let (generation, delay) = {
+            let mut retries = self.retries();
+            let r = retries.entry(id.to_string()).or_default();
+            if r.attempts >= MAX_AUTO_RETRIES {
+                return false;
+            }
+            r.attempts += 1;
+            let delay = base
+                .saturating_mul(1 << (r.attempts - 1).min(10))
+                .min(MAX_RETRY_DELAY);
+            r.at = now() + delay.as_secs().max(1) as i64;
+            r.generation += 1;
+            (r.generation, delay)
+        };
+        let me = self.me.clone();
+        let id = id.to_string();
+        self.rt.spawn(async move {
+            tokio::time::sleep(delay).await;
+            if let Some(m) = me.upgrade() {
+                m.fire_retry(&id, generation);
+            }
+        });
+        true
+    }
+
+    fn fire_retry(&self, id: &str, generation: u64) {
+        let current = self.retries().get(id).map(|r| r.generation);
+        if current != Some(generation) {
+            return;
+        }
+        match self.record(id) {
+            Ok(r) if r.status == Status::Failed => {
+                tracing::info!(id, "retrying after temporary failure");
+                if let Err(e) = self.queue(r) {
+                    tracing::warn!(id, "automatic retry failed: {e}");
+                }
+            }
+            _ => self.clear_retry(id),
+        }
+    }
+
+    fn queue(&self, mut r: DownloadRecord) -> Result<()> {
+        r.status = Status::Queued;
+        r.error = None;
+        r.error_code = None;
+        self.save_and_emit(&r)?;
+        self.schedule();
+        Ok(())
+    }
+
     /// Queue a paused, failed or cancelled download (resume).
     pub fn start(&self, id: &str) -> Result<()> {
+        self.clear_retry(id);
         let mut r = self.record(id)?;
         match r.status {
             Status::Completed => return Err(Error::InvalidState("already completed".into())),
@@ -364,6 +469,7 @@ impl Manager {
         }
         r.status = Status::Queued;
         r.error = None;
+        r.error_code = None;
         self.save_and_emit(&r)?;
         self.schedule();
         Ok(())
@@ -371,6 +477,7 @@ impl Manager {
 
     /// Discard progress and download again from scratch.
     pub fn restart(&self, id: &str) -> Result<()> {
+        self.clear_retry(id);
         if self.tasks().contains_key(id) {
             return Err(Error::InvalidState("pause the download first".into()));
         }
@@ -378,6 +485,7 @@ impl Manager {
         reset_progress(&self.store, &mut r)?;
         r.status = Status::Queued;
         r.error = None;
+        r.error_code = None;
         r.completed_at = None;
         self.save_and_emit(&r)?;
         self.schedule();
@@ -385,6 +493,7 @@ impl Manager {
     }
 
     pub fn pause(&self, id: &str) -> Result<()> {
+        self.clear_retry(id);
         if let Some(h) = self.tasks().get(id) {
             h.request_stop(Stop::Pause);
             return Ok(());
@@ -401,6 +510,9 @@ impl Manager {
         for r in self.store.list()? {
             if matches!(r.status, Status::Queued) || r.status.is_active() {
                 self.pause(&r.id)?;
+            } else if r.status == Status::Failed {
+                // No automatic retries while everything is paused.
+                self.clear_retry(&r.id);
             }
         }
         Ok(())
@@ -416,6 +528,7 @@ impl Manager {
     }
 
     pub fn cancel(&self, id: &str) -> Result<()> {
+        self.clear_retry(id);
         if let Some(h) = self.tasks().get(id) {
             h.request_stop(Stop::Cancel);
             return Ok(());
@@ -431,6 +544,7 @@ impl Manager {
 
     /// Remove from the list; `delete_file` also deletes the downloaded file.
     pub fn remove(&self, id: &str, delete_file: bool) -> Result<()> {
+        self.clear_retry(id);
         if let Some(h) = self.tasks().get(id) {
             h.request_stop(if delete_file {
                 Stop::RemoveWithFile
@@ -474,6 +588,7 @@ impl Manager {
         r.etag = info.etag;
         r.last_modified = info.last_modified;
         r.error = None;
+        r.error_code = None;
         if r.status == Status::Failed {
             r.status = Status::Paused;
         }
@@ -643,6 +758,7 @@ impl Manager {
             stop == Stop::None && matches!(outcome, Outcome::Completed(_) | Outcome::Failed(..));
         let result = match outcome {
             Outcome::Completed(r) => {
+                self.clear_retry(id);
                 let info = self.info(r);
                 self.emit(Event::Completed {
                     download: Box::new(info.clone()),
@@ -660,6 +776,10 @@ impl Manager {
                 tracing::warn!(id, "download failed: {e}");
                 r.status = Status::Failed;
                 r.error = Some(e.to_string());
+                r.error_code = Some(e.code().to_string());
+                if !(e.is_transient() && self.schedule_retry(id)) {
+                    self.clear_retry(id);
+                }
                 let res = self.save_task(&mut r, false);
                 let info = self.info(r);
                 self.emit(Event::Failed {
@@ -716,6 +836,7 @@ impl Manager {
     async fn run_inner(&self, rec: &mut DownloadRecord, ctx: &TaskCtx) -> Result<bool> {
         rec.status = Status::Probing;
         rec.error = None;
+        rec.error_code = None;
         self.save_task(rec, true)?;
 
         let client = self.client();
@@ -868,6 +989,7 @@ impl Manager {
         rec.status = Status::Completed;
         rec.completed_at = Some(now());
         rec.error = None;
+        rec.error_code = None;
         // Cookies and auth headers must not stay on disk after completion.
         rec.headers = RequestHeaders::default();
         self.save_task(rec, false)?;

@@ -54,6 +54,10 @@ impl Error {
         match self {
             Error::InvalidUrl(_) => "invalid_url",
             Error::Http { status: 404, .. } => "not_found",
+            Error::Http {
+                status: 408 | 429 | 500..=599,
+                ..
+            } => "server",
             Error::Http { .. } => "http",
             Error::LinkExpired(_) => "link_expired",
             Error::Network(_) => "network",
@@ -70,4 +74,13 @@ impl Error {
             Error::Json(_) => "json",
         }
     }
+
+    /// Temporary problems (network down, server overloaded) worth retrying automatically.
+    pub fn is_transient(&self) -> bool {
+        is_transient_code(self.code())
+    }
+}
+
+pub fn is_transient_code(code: &str) -> bool {
+    matches!(code, "network" | "server" | "retries")
 }

@@ -118,6 +118,8 @@ pub struct DownloadRecord {
     /// Optional `algo:hex` checksum verified after completion.
     pub checksum: Option<String>,
     pub error: Option<String>,
+    /// Code of `error` (see `Error::code`), e.g. `network` or `link_expired`.
+    pub error_code: Option<String>,
     pub position: i64,
     pub created_at: i64,
     pub updated_at: i64,
@@ -136,6 +138,8 @@ pub struct DownloadInfo {
     pub eta: Option<u64>,
     pub active_connections: u32,
     pub segments: Vec<Segment>,
+    /// Unix time of the next automatic retry after a temporary failure.
+    pub retry_at: Option<i64>,
 }
 
 /// Request to add a new download.

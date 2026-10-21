@@ -495,3 +495,84 @@ async fn handles_empty_files() {
         assert_eq!(info.record.total_size, Some(0));
     }
 }
+
+#[tokio::test]
+async fn retries_automatically_when_the_network_returns() {
+    // Reserve a port, then free it: connecting fails like an offline network.
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    m.set_retry_base(Duration::from_millis(300));
+    let id = add(
+        &m,
+        format!("http://127.0.0.1:{port}/file/{}?name=net.bin", 2 * MB),
+        4,
+    );
+
+    let failed = wait(&m, &id).await;
+    assert_eq!(failed.record.status, Status::Failed);
+    assert_eq!(failed.record.error_code.as_deref(), Some("network"));
+    assert!(failed.retry_at.is_some(), "a retry must be scheduled");
+
+    // "Network is back": the server comes up on the same port.
+    test_server::spawn(SocketAddr::from(([127, 0, 0, 1], port)))
+        .await
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let info = m.get(&id).unwrap();
+        if info.record.status == Status::Completed {
+            assert_completed(&info, 2 * MB);
+            assert!(info.retry_at.is_none());
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no automatic retry: {:?}",
+            info.record
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+#[tokio::test]
+async fn permanent_errors_are_not_retried() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    m.set_retry_base(Duration::from_millis(100));
+    let id = add(&m, format!("{base}/file/10?status=404"), 1);
+    let info = wait(&m, &id).await;
+    assert_eq!(info.record.error_code.as_deref(), Some("not_found"));
+    assert!(info.retry_at.is_none());
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(m.get(&id).unwrap().record.status, Status::Failed);
+}
+
+#[tokio::test]
+async fn temporary_failures_resume_after_app_restart() {
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("oxyd.db");
+    let id;
+    {
+        let m = Manager::open(&db).await.unwrap();
+        m.set_settings(settings(dir.path())).unwrap();
+        id = add(&m, format!("http://127.0.0.1:{port}/file/{MB}"), 2);
+        assert_eq!(wait(&m, &id).await.record.status, Status::Failed);
+        m.shutdown().await;
+    }
+    test_server::spawn(SocketAddr::from(([127, 0, 0, 1], port)))
+        .await
+        .unwrap();
+    let m = Manager::open(&db).await.unwrap();
+    assert_completed(&wait(&m, &id).await, MB);
+}

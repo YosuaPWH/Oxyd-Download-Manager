@@ -11,7 +11,7 @@ use crate::segment::{Segment, UNKNOWN_END};
 use crate::settings::Settings;
 use crate::types::{now, DownloadRecord, RequestHeaders, Status};
 
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE downloads (
@@ -53,6 +53,10 @@ CREATE TABLE settings (
 );
 "#;
 
+/// Machine readable code of the last error (see `Error::code`), used for localized
+/// messages and automatic retries.
+const MIGRATION_2: &str = "ALTER TABLE downloads ADD COLUMN error_code TEXT;";
+
 #[derive(Debug)]
 pub struct Store {
     conn: Mutex<Connection>,
@@ -60,7 +64,7 @@ pub struct Store {
 
 const COLUMNS: &str = "id, url, final_url, filename, dir, save_path, total_size, downloaded, \
     status, resumable, etag, last_modified, mime, headers_json, category, connections, \
-    speed_limit, checksum, error, position, created_at, updated_at, completed_at";
+    speed_limit, checksum, error, position, created_at, updated_at, completed_at, error_code";
 
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
@@ -83,6 +87,9 @@ impl Store {
         if version < 1 {
             conn.execute_batch(MIGRATION_1)?;
         }
+        if version < 2 {
+            conn.execute_batch(MIGRATION_2)?;
+        }
         if version < SCHEMA_VERSION {
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
@@ -100,7 +107,7 @@ impl Store {
         c.execute(
             &format!(
                 "INSERT INTO downloads ({COLUMNS}) VALUES \
-                 (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)"
+                 (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24)"
             ),
             params![
                 r.id,
@@ -126,6 +133,7 @@ impl Store {
                 r.created_at,
                 r.updated_at,
                 r.completed_at,
+                r.error_code,
             ],
         )?;
         Ok(())
@@ -138,7 +146,7 @@ impl Store {
             "UPDATE downloads SET url=?2, final_url=?3, filename=?4, dir=?5, save_path=?6, \
              total_size=?7, downloaded=?8, status=?9, resumable=?10, etag=?11, last_modified=?12, \
              mime=?13, headers_json=?14, category=?15, connections=?16, speed_limit=?17, \
-             checksum=?18, error=?19, position=?20, updated_at=?21, completed_at=?22 WHERE id=?1",
+             checksum=?18, error=?19, position=?20, updated_at=?21, completed_at=?22,              error_code=?23 WHERE id=?1",
             params![
                 r.id,
                 r.url,
@@ -162,6 +170,7 @@ impl Store {
                 r.position,
                 now(),
                 r.completed_at,
+                r.error_code,
             ],
         )?;
         Ok(())
@@ -172,7 +181,10 @@ impl Store {
     pub fn update_task(&self, r: &DownloadRecord) -> Result<()> {
         let c = self.conn();
         c.execute(
-            "UPDATE downloads SET url=?2, final_url=?3, filename=?4, dir=?5, save_path=?6,              total_size=?7, downloaded=?8, status=?9, resumable=?10, etag=?11, last_modified=?12,              mime=?13, headers_json=?14, category=?15, connections=?16, checksum=?17, error=?18,              updated_at=?19, completed_at=?20 WHERE id=?1",
+            "UPDATE downloads SET url=?2, final_url=?3, filename=?4, dir=?5, save_path=?6, \
+             total_size=?7, downloaded=?8, status=?9, resumable=?10, etag=?11, last_modified=?12, \
+             mime=?13, headers_json=?14, category=?15, connections=?16, checksum=?17, error=?18, \
+             updated_at=?19, completed_at=?20, error_code=?21 WHERE id=?1",
             params![
                 r.id,
                 r.url,
@@ -194,6 +206,7 @@ impl Store {
                 r.error,
                 now(),
                 r.completed_at,
+                r.error_code,
             ],
         )?;
         Ok(())
@@ -370,6 +383,7 @@ fn row_to_record(r: &Row<'_>) -> rusqlite::Result<DownloadRecord> {
         created_at: r.get(20)?,
         updated_at: r.get(21)?,
         completed_at: r.get(22)?,
+        error_code: r.get(23)?,
     })
 }
 
@@ -401,6 +415,7 @@ mod tests {
             speed_limit: None,
             checksum: None,
             error: None,
+            error_code: None,
             position: 1,
             created_at: 1,
             updated_at: 1,
