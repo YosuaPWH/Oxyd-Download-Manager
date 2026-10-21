@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use oxyd_protocol::{
-    decode, read_frame, read_message, write_message, Ack, AckStatus, Message, ProtocolError,
+    decode, read_frame, read_message, write_message, AckStatus, Message, ProtocolError,
 };
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -34,7 +34,10 @@ fn run(input: &mut impl io::Read, output: &mut impl Write) -> Result<(), Protoco
             Ok(Some(f)) => f,
             Ok(None) => return Ok(()), // browser closed stdin
             Err(e) => {
-                write_message(output, &Ack::new("", AckStatus::Error, Some(e.to_string())))?;
+                write_message(
+                    output,
+                    &Message::ack("", AckStatus::Error, Some(e.to_string())),
+                )?;
                 return Err(e);
             }
         };
@@ -42,7 +45,7 @@ fn run(input: &mut impl io::Read, output: &mut impl Write) -> Result<(), Protoco
             Ok(msg) => bridge.forward(&msg),
             Err(e) => {
                 tracing::warn!("rejected message: {e}");
-                Ack::new(peek_id(&frame), AckStatus::Error, Some(e.to_string()))
+                Message::ack(peek_id(&frame), AckStatus::Error, Some(e.to_string()))
             }
         };
         write_message(output, &reply)?;
@@ -80,7 +83,7 @@ impl Bridge {
             Message::AddDownload(a) => a.id.clone(),
             _ => String::new(),
         };
-        Ack::new(
+        Message::ack(
             id,
             AckStatus::Error,
             Some(format!("Oxyd is not reachable: {last_err}")),

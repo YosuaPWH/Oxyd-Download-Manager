@@ -9,7 +9,7 @@ use std::io;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 
-use crate::{decode, encode, Ack, AckStatus, Message, ProtocolError, MAX_MESSAGE};
+use crate::{decode, encode, AckStatus, Message, ProtocolError, MAX_MESSAGE};
 
 /// Owner rights + SYSTEM, protected from inheritance.
 const SDDL: &str = "D:P(A;;GA;;;OW)(A;;GA;;;SY)";
@@ -108,7 +108,7 @@ where
     while let Some(frame) = read_frame_async(&mut stream).await? {
         let reply = match decode(&frame) {
             Ok(msg) => handler(msg).await,
-            Err(e) => Ack::new("", AckStatus::Error, Some(e.to_string())),
+            Err(e) => Message::ack("", AckStatus::Error, Some(e.to_string())),
         };
         write_frame_async(&mut stream, &encode(&reply)).await?;
     }
@@ -147,7 +147,7 @@ pub async fn write_frame_async<W: AsyncWrite + Unpin>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{read_message, write_message};
+    use crate::{read_message, write_message, Ack};
 
     #[tokio::test]
     async fn serves_sync_clients() {
@@ -159,7 +159,7 @@ mod tests {
                 Message::Ping => Message::Pong {
                     app_version: "test".into(),
                 },
-                Message::AddDownload(a) => Ack::new(a.id, AckStatus::Accepted, None),
+                Message::AddDownload(a) => Message::ack(a.id, AckStatus::Accepted, None),
                 other => other,
             }
         }));

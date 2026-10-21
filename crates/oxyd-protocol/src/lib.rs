@@ -77,8 +77,9 @@ pub struct Ack {
     pub message: Option<String>,
 }
 
-impl Ack {
-    pub fn new(id: impl Into<String>, status: AckStatus, message: Option<String>) -> Message {
+impl Message {
+    /// Build an [`Ack`] reply.
+    pub fn ack(id: impl Into<String>, status: AckStatus, message: Option<String>) -> Message {
         Message::Ack(Ack {
             id: id.into(),
             status,
@@ -206,7 +207,8 @@ mod tests {
         assert_eq!(a.size, Some(104857600));
         assert_eq!(a.user_agent.as_deref(), Some("Mozilla/5.0"));
 
-        let ack = String::from_utf8(encode(&Ack::new("abc", AckStatus::Accepted, None))).unwrap();
+        let ack =
+            String::from_utf8(encode(&Message::ack("abc", AckStatus::Accepted, None))).unwrap();
         assert_eq!(
             ack,
             r#"{"v":1,"type":"ack","id":"abc","status":"accepted"}"#
@@ -240,7 +242,11 @@ mod tests {
     fn frames_round_trip() {
         let mut buf = Vec::new();
         write_message(&mut buf, &Message::Ping).unwrap();
-        write_message(&mut buf, &Ack::new("1", AckStatus::Error, Some("x".into()))).unwrap();
+        write_message(
+            &mut buf,
+            &Message::ack("1", AckStatus::Error, Some("x".into())),
+        )
+        .unwrap();
         let mut r = &buf[..];
         assert_eq!(read_message(&mut r).unwrap(), Some(Message::Ping));
         assert!(matches!(

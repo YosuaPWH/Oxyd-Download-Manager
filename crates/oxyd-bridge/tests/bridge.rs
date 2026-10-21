@@ -38,8 +38,8 @@ async fn forwards_messages_to_the_app() {
                 Message::Ping => Message::Pong {
                     app_version: "9.9.9".into(),
                 },
-                Message::AddDownload(a) => Ack::new(a.id, AckStatus::Accepted, None),
-                _ => Ack::new("", AckStatus::Rejected, None),
+                Message::AddDownload(a) => Message::ack(a.id, AckStatus::Accepted, None),
+                _ => Message::ack("", AckStatus::Rejected, None),
             }
         },
     ));
@@ -73,7 +73,7 @@ async fn forwards_messages_to_the_app() {
     );
     assert_eq!(
         read_message(&mut r).unwrap(),
-        Some(Ack::new("dl-1", AckStatus::Accepted, None))
+        Some(Message::ack("dl-1", AckStatus::Accepted, None))
     );
     for expected_id in ["bad", ""] {
         match read_message(&mut r).unwrap() {
