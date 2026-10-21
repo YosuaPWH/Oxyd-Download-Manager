@@ -276,7 +276,7 @@ async fn fetch(job: &Job, idx: usize, from: u64, end: u64) -> Result<(), Attempt
                 out.submit(&mut buf).await?;
                 out.settle().await?;
                 return Err(Attempt::Retry {
-                    reason: e.without_url().to_string(),
+                    reason: crate::error::describe(&e.without_url()),
                     after: None,
                     progressed: out.progressed,
                 });
@@ -361,7 +361,7 @@ async fn request(job: &Job, from: u64, end: u64) -> Result<reqwest::Response, At
         r = rb.send() => r,
     };
     let resp = resp.map_err(|e| Attempt::Retry {
-        reason: e.without_url().to_string(),
+        reason: crate::error::describe(&e.without_url()),
         after: None,
         progressed: false,
     })?;

@@ -47,8 +47,24 @@ impl From<reqwest::Error> for Error {
                 message: e.to_string(),
             };
         }
-        Error::Network(e.to_string())
+        Error::Network(describe(&e))
     }
+}
+
+/// `err` followed by its causes ("error sending request: connection refused ..."):
+/// reqwest's own message alone does not say what went wrong.
+pub(crate) fn describe(err: &dyn std::error::Error) -> String {
+    let mut msg = err.to_string();
+    let mut source = err.source();
+    while let Some(s) = source {
+        let part = s.to_string();
+        if !msg.contains(&part) {
+            msg.push_str(": ");
+            msg.push_str(&part);
+        }
+        source = s.source();
+    }
+    msg
 }
 
 impl Error {
