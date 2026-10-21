@@ -29,7 +29,8 @@
     "nativeMessaging",
     "cookies",
     "contextMenus",
-    "storage"
+    "storage",
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>"
