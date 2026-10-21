@@ -27,8 +27,14 @@ Ekstensi MV3 ──stdio──▶ oxyd-bridge.exe ──\\.\pipe\oxyd──▶ O
   server tenang.
 - Saat internet putus atau server sibuk, download dicoba ulang otomatis (30 detik, berlipat
   sampai 10 menit) dan otomatis masuk antrean lagi saat aplikasi dibuka ulang.
-- Validasi ETag/Last-Modified/ukuran saat resume; fitur **Perbarui link** untuk link bertoken
-  yang kedaluwarsa tanpa kehilangan progres.
+- Validasi ETag/Last-Modified/ukuran saat resume.
+- **Perbarui link seperti IDM**: pilih *Ambil link baru dari browser* pada download yang
+  berhenti atau link-nya kedaluwarsa, buka lagi halaman download-nya dan klik link-nya. Oxyd
+  memakai link baru itu (beserta cookie sesi yang baru) untuk download yang sama dan
+  melanjutkan dari progres terakhir. URL baru juga bisa ditempel manual.
+- Link dari browser yang nama dan ukurannya sama dengan download yang belum selesai
+  (termasuk yang masih mencoba ulang) ditawarkan untuk **dilanjutkan**, bukan diunduh ulang
+  sebagai `file (1)`. Kalau dialog konfirmasi dimatikan, download itu langsung dilanjutkan.
 - Antrean dengan batas download bersamaan, urutan bisa diubah, speed limit global dan per
   download (bisa diubah saat berjalan), jadwal mulai/jeda, aksi setelah antrean selesai
   (sleep/shutdown).
@@ -39,6 +45,8 @@ Ekstensi MV3 ──stdio──▶ oxyd-bridge.exe ──\\.\pipe\oxyd──▶ O
   filter jenis file/ukuran/domain, menu klik kanan **Download dengan Oxyd**, `Alt+Shift+O`
   untuk melewatkan satu download, fallback ke browser bila aplikasi tidak menjawab dalam 3
   detik.
+- Pencarian (Ctrl+F), bersihkan daftar download selesai (file tetap ada), checksum opsional
+  di dialog download baru.
 - System tray, notifikasi Windows, mulai bersama Windows, pemantau clipboard, tema
   terang/gelap, Bahasa Indonesia/Inggris (termasuk pesan error).
 - Cookie dan header otorisasi disimpan terenkripsi DPAPI (per user Windows) dan dihapus
