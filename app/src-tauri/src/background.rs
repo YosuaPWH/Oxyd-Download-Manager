@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use chrono::{Datelike, Local, Timelike};
-use oxyd_core::{AfterQueue, Event};
+use oxyd_core::{AfterQueue, Event, Manager, Status};
 use tauri::{AppHandle, Emitter, Manager as _};
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
 use tauri_plugin_notification::NotificationExt as _;
@@ -82,6 +82,8 @@ pub fn scheduler(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let mut last_fired: Option<(u32, u32, &'static str)> = None;
+        // Downloads the schedule paused; only these (and never-started ones) resume.
+        let mut paused_by_schedule: Vec<String> = Vec::new();
         let mut tick = tokio::time::interval(Duration::from_secs(15));
         loop {
             tick.tick().await;
@@ -102,9 +104,9 @@ pub fn scheduler(app: &AppHandle) {
                 last_fired = Some((now.year() as u32, minute, what));
                 tracing::info!(what, "schedule fired");
                 let r = if what == "start" {
-                    state.mgr.resume_all()
+                    start_scheduled(&state.mgr, &std::mem::take(&mut paused_by_schedule))
                 } else {
-                    state.mgr.pause_all()
+                    stop_scheduled(&state.mgr).map(|ids| paused_by_schedule.extend(ids))
                 };
                 if let Err(e) = r {
                     tracing::warn!("schedule action failed: {e}");
@@ -112,6 +114,31 @@ pub fn scheduler(app: &AppHandle) {
             }
         }
     });
+}
+
+/// Pause everything that runs or waits and return what was paused.
+fn stop_scheduled(mgr: &Manager) -> oxyd_core::Result<Vec<String>> {
+    let ids: Vec<String> = mgr
+        .list()?
+        .into_iter()
+        .filter(|d| d.record.status == Status::Queued || d.record.status.is_active())
+        .map(|d| d.record.id)
+        .collect();
+    mgr.pause_all()?;
+    Ok(ids)
+}
+
+/// Resume what the schedule paused plus downloads added for later that never started.
+/// Downloads the user paused by hand stay paused.
+fn start_scheduled(mgr: &Manager, paused: &[String]) -> oxyd_core::Result<()> {
+    for d in mgr.list()? {
+        let r = &d.record;
+        let later = r.downloaded == 0;
+        if r.status == Status::Paused && (later || paused.contains(&r.id)) {
+            mgr.start(&r.id)?;
+        }
+    }
+    Ok(())
 }
 
 /// Offer downloads for file links copied to the clipboard.
