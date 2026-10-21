@@ -6,3 +6,4 @@ app/src-tauri/gen/
 *.oxydpart
 .DS_Store
 .claude/settings.local.json
+app/src-tauri/binaries/

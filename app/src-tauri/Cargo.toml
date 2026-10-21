@@ -34,3 +34,6 @@ tracing-subscriber = { workspace = true }
 tracing-appender = { workspace = true }
 uuid = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "externalBin": ["binaries/oxyd-bridge"],
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "../../installer/nsis-hooks.nsh",
+        "languages": ["English", "Indonesian"],
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}

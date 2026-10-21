@@ -1,0 +1,9 @@
+{
+  "name": "com.oxyd.bridge",
+  "description": "Oxyd native messaging bridge",
+  "path": "__BRIDGE_PATH__",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://gnihamodjbioaennpopmldmjdecbmfpl/"
+  ]
+}

@@ -20,6 +20,25 @@ pub const PIPE_NAME: &str = r"\\.\pipe\oxyd";
 pub const PIPE_ENV: &str = "OXYD_PIPE";
 /// Maximum size of a message coming from the browser (and of any frame).
 pub const MAX_MESSAGE: usize = 1024 * 1024;
+/// Extension IDs allowed to talk to the bridge. The first one is the development ID
+/// fixed by the `key` in `extension/static/manifest.json`; add store IDs once published.
+pub const EXTENSION_IDS: &[&str] = &["gnihamodjbioaennpopmldmjdecbmfpl"];
+
+/// Native messaging host manifest for Chrome and Edge pointing at `bridge_path`.
+pub fn host_manifest(bridge_path: &str) -> String {
+    let origins: Vec<String> = EXTENSION_IDS
+        .iter()
+        .map(|id| format!("chrome-extension://{id}/"))
+        .collect();
+    let manifest = serde_json::json!({
+        "name": HOST_NAME,
+        "description": "Oxyd native messaging bridge",
+        "path": bridge_path,
+        "type": "stdio",
+        "allowed_origins": origins,
+    });
+    serde_json::to_string_pretty(&manifest).expect("manifest serializes")
+}
 
 pub fn pipe_name() -> String {
     std::env::var(PIPE_ENV).unwrap_or_else(|_| PIPE_NAME.to_string())
@@ -219,6 +238,18 @@ mod tests {
         .unwrap();
         assert_eq!(pong, r#"{"v":1,"type":"pong","appVersion":"0.1.0"}"#);
         assert_eq!(decode(br#"{"v":1,"type":"ping"}"#).unwrap(), Message::Ping);
+    }
+
+    #[test]
+    fn builds_host_manifest() {
+        let m: serde_json::Value =
+            serde_json::from_str(&host_manifest(r"C:\Program Files\Oxyd\oxyd-bridge.exe")).unwrap();
+        assert_eq!(m["name"], HOST_NAME);
+        assert_eq!(m["path"], r"C:\Program Files\Oxyd\oxyd-bridge.exe");
+        assert_eq!(
+            m["allowed_origins"][0],
+            "chrome-extension://gnihamodjbioaennpopmldmjdecbmfpl/"
+        );
     }
 
     #[test]

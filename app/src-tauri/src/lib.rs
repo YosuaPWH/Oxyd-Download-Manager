@@ -4,6 +4,7 @@ mod background;
 mod browser;
 mod commands;
 mod i18n;
+mod native_host;
 mod state;
 
 use std::sync::OnceLock;
@@ -137,6 +138,7 @@ pub fn run() {
             background::scheduler(&handle);
             background::clipboard_monitor(&handle);
             browser::start_pipe_server(&handle);
+            native_host::register();
 
             let args: Vec<String> = std::env::args().collect();
             if !args.iter().any(|a| a == "--background") {

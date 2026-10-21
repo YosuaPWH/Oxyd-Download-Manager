@@ -3068,6 +3068,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "uuid",
+ "winreg",
 ]
 
 [[package]]
