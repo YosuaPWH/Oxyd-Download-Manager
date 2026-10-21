@@ -38,6 +38,9 @@ pub enum Error {
 
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {
+        // reqwest puts the full URL (with signed-link tokens) in its messages; errors end
+        // up in logs and the database, so drop it.
+        let e = e.without_url();
         if let Some(s) = e.status() {
             return Error::Http {
                 status: s.as_u16(),

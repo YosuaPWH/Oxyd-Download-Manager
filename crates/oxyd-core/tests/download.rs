@@ -516,6 +516,8 @@ async fn retries_automatically_when_the_network_returns() {
     let failed = wait(&m, &id).await;
     assert_eq!(failed.record.status, Status::Failed);
     assert_eq!(failed.record.error_code.as_deref(), Some("network"));
+    let msg = failed.record.error.clone().unwrap();
+    assert!(!msg.contains("net.bin"), "URL leaked into error: {msg}");
     assert!(failed.retry_at.is_some(), "a retry must be scheduled");
 
     // "Network is back": the server comes up on the same port.

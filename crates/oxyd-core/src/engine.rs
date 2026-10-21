@@ -222,7 +222,7 @@ async fn fetch(job: &Job, idx: usize, from: u64, end: u64) -> Result<(), Attempt
         r = rb.send() => r,
     };
     let resp = resp.map_err(|e| Attempt::Retry {
-        reason: e.to_string(),
+        reason: e.without_url().to_string(),
         after: None,
         progressed: false,
     })?;
@@ -298,7 +298,7 @@ async fn fetch(job: &Job, idx: usize, from: u64, end: u64) -> Result<(), Attempt
             Ok(Some(Err(e))) => {
                 flush(job, idx, &mut pos, &mut buf, &mut progressed).await?;
                 return Err(Attempt::Retry {
-                    reason: e.to_string(),
+                    reason: e.without_url().to_string(),
                     after: None,
                     progressed,
                 });
