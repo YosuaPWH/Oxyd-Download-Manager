@@ -757,6 +757,12 @@ impl Manager {
         let natural =
             stop == Stop::None && matches!(outcome, Outcome::Completed(_) | Outcome::Failed(..));
         let result = match outcome {
+            // The user removed the download while it was finishing: honour that.
+            Outcome::Completed(r) if matches!(stop, Stop::Remove | Stop::RemoveWithFile) => {
+                self.clear_retry(id);
+                self.purge(&r, stop == Stop::RemoveWithFile);
+                Ok(())
+            }
             Outcome::Completed(r) => {
                 self.clear_retry(id);
                 let info = self.info(r);
