@@ -1,0 +1,18 @@
+{
+  "name": "oxyd-extension",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.5",
+    "@types/node": "^22.20.5",
+    "esbuild": "^0.28.2",
+    "typescript": "~5.9.3"
+  }
+}

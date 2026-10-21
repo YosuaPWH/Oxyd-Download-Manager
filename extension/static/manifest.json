@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "Oxyd Download Manager",
+  "short_name": "Oxyd",
+  "version": "0.1.0",
+  "description": "Send downloads from Chrome and Edge to Oxyd Download Manager.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxqfktveGZKRVMvWwn1Q4eRZd6on+fuKolsbOrdhPStHTtyVtK6TsX/wPhXryd04ScoCJ1BDtQ5fNApxwXCabRAAOa+vDp+c82S3t5qNgSGv2utsCoO22buvkshlQVvicNBf7zE4iQoMZQlozgWB+U3oExJAr+8MBkvQBAu7539Z80o6OTYmtD10GZyvhJAQ6gjgzQxmS+N2raDpUfmM2ofTDJHPjIVI6JPewnYAEY7uswsoHZnU8LvCRswdZ5tcm+AqgS09yTlJtqL+4xJkt0F/6h86Lb5nH3O5QefUpsXFn64AF2OS+ujzfI8fAPqtLmrREisRumzP9OAAzlzxx4QIDAQAB",
+  "minimum_chrome_version": "116",
+  "icons": {
+    "16": "icons/16x16.png",
+    "32": "icons/32x32.png",
+    "48": "icons/48x48.png",
+    "128": "icons/128x128.png"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Oxyd Download Manager",
+    "default_icon": {
+      "16": "icons/16x16.png",
+      "32": "icons/32x32.png"
+    }
+  },
+  "permissions": [
+    "downloads",
+    "nativeMessaging",
+    "cookies",
+    "contextMenus",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "commands": {
+    "skip-next": {
+      "suggested_key": {
+        "default": "Alt+Shift+O"
+      },
+      "description": "Let the next download go to the browser"
+    }
+  }
+}

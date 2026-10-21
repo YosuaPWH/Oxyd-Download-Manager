@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>Oxyd</title>
+  </head>
+  <body>
+    <header>
+      <img src="icons/32x32.png" alt="" width="24" height="24" />
+      <h1>Oxyd</h1>
+      <span id="status" class="status checking"></span>
+    </header>
+
+    <label class="toggle">
+      <input type="checkbox" id="enabled" />
+      <span data-i18n="capture">Capture downloads</span>
+    </label>
+
+    <button id="skip" type="button" data-i18n="skip">Let the next download go to the browser</button>
+
+    <details>
+      <summary data-i18n="filters">Filters</summary>
+      <label for="minSize" data-i18n="minSize">Minimum size (MB)</label>
+      <input id="minSize" type="number" min="0" step="0.1" />
+      <label for="extensions" data-i18n="extensions">File types</label>
+      <textarea id="extensions" rows="4" spellcheck="false"></textarea>
+      <label for="excluded" data-i18n="excluded">Never capture from these domains</label>
+      <textarea id="excluded" rows="3" spellcheck="false" placeholder="example.com"></textarea>
+      <div class="row">
+        <button id="reset" type="button" data-i18n="reset">Reset</button>
+        <button id="save" type="button" class="primary" data-i18n="save">Save</button>
+      </div>
+    </details>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
