@@ -5,3 +5,4 @@ extension/build/
 app/src-tauri/gen/
 *.oxydpart
 .DS_Store
+.claude/settings.local.json
