@@ -47,11 +47,19 @@ export function selected(): DownloadInfo | undefined {
   return app.downloads.find((d) => d.id === app.selected);
 }
 
+const byQueueOrder = (a: DownloadInfo, b: DownloadInfo) =>
+  a.position - b.position || a.createdAt - b.createdAt;
+
 function upsert(d: DownloadInfo) {
   const i = app.downloads.findIndex((x) => x.id === d.id);
+  // Status updates are frequent; only re-sort when the queue order actually changed.
+  if (i >= 0 && app.downloads[i].position === d.position) {
+    app.downloads[i] = d;
+    return;
+  }
   if (i >= 0) app.downloads[i] = d;
   else app.downloads.push(d);
-  app.downloads.sort((a, b) => a.position - b.position || a.createdAt - b.createdAt);
+  app.downloads.sort(byQueueOrder);
 }
 
 function apply(e: EngineEvent) {
