@@ -6,6 +6,7 @@ members = [
     "crates/oxyd-protocol",
     "crates/oxyd-bridge",
     "test-server",
+    "app/src-tauri",
 ]
 
 [workspace.package]
