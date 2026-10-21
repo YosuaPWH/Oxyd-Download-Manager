@@ -4,6 +4,8 @@
 //! cargo run -p oxyd-bridge --example browser_sim -- ping
 //! cargo run -p oxyd-bridge --example browser_sim -- https://example.com/file.zip [filename]
 //! ```
+//!
+//! `OXYD_SIM_COOKIES` and `OXYD_SIM_SIZE` set the cookies and size the extension would send.
 
 use std::process::{Command, Stdio};
 
@@ -20,6 +22,10 @@ fn main() {
             url: target,
             filename: args.next(),
             source: Some("browser_sim".into()),
+            cookies: std::env::var("OXYD_SIM_COOKIES").ok(),
+            size: std::env::var("OXYD_SIM_SIZE")
+                .ok()
+                .and_then(|s| s.parse().ok()),
             user_agent: Some("browser_sim".into()),
             ..Default::default()
         })
