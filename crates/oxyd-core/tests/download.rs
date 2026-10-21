@@ -600,3 +600,22 @@ async fn backs_off_when_server_limits_connections() {
         "kept hammering the server: {rejected} rejections"
     );
 }
+
+#[tokio::test]
+async fn small_downloads_need_a_single_request() {
+    use std::sync::atomic::Ordering;
+    for query in ["", "range=0"] {
+        let (addr, stats) = test_server::spawn_with_stats(SocketAddr::from(([127, 0, 0, 1], 0)))
+            .await
+            .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let m = manager(dir.path()).await;
+        let id = add(&m, format!("http://{addr}/file/{}?{query}", 512 * 1024), 8);
+        assert_completed(&wait(&m, &id).await, 512 * 1024);
+        assert_eq!(
+            stats.requests.load(Ordering::SeqCst),
+            1,
+            "probe response should carry the data ({query:?})"
+        );
+    }
+}

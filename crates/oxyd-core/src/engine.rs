@@ -132,6 +132,8 @@ pub(crate) struct Job {
     pub cancel: CancellationToken,
     /// Several segments are fetched with Range requests.
     pub multi: bool,
+    /// Response of the probe, streaming the file from byte 0 (used once).
+    pub initial: Mutex<Option<reqwest::Response>>,
 }
 
 impl Job {
@@ -241,47 +243,17 @@ async fn worker(job: Arc<Job>, idx: usize) -> Result<(), WorkerError> {
 /// Returns `Ok` when the body ended (complete or not; the caller re-checks).
 async fn fetch(job: &Job, idx: usize, from: u64, end: u64) -> Result<(), Attempt> {
     job.shared.connection_started(idx);
-    let ranged = job.multi || from > 0;
-    let mut rb = job.headers.apply(job.client.get(&job.url));
-    if ranged {
-        let range = if end == UNKNOWN_END {
-            format!("bytes={from}-")
-        } else {
-            format!("bytes={from}-{end}")
-        };
-        rb = rb.header(header::RANGE, range);
-    }
-    let resp = tokio::select! {
-        _ = job.cancel.cancelled() => return Err(Attempt::Cancelled),
-        r = rb.send() => r,
+    // The probe's open response already streams the file from byte 0: use it for the
+    // first segment instead of a second request.
+    let opened = if from == 0 {
+        job.initial.lock().unwrap_or_else(|e| e.into_inner()).take()
+    } else {
+        None
     };
-    let resp = resp.map_err(|e| Attempt::Retry {
-        reason: e.without_url().to_string(),
-        after: None,
-        progressed: false,
-    })?;
-
-    let status = resp.status();
-    match status {
-        StatusCode::PARTIAL_CONTENT if ranged => {
-            if content_range_start(resp.headers()) != Some(from) {
-                return Err(Attempt::Range);
-            }
-        }
-        StatusCode::OK if !ranged => {}
-        s if s.is_success() => return Err(Attempt::Range),
-        StatusCode::TOO_MANY_REQUESTS | StatusCode::SERVICE_UNAVAILABLE => {
-            return Err(Attempt::Throttled(retry_after(resp.headers())));
-        }
-        s if s.is_server_error() || s == StatusCode::REQUEST_TIMEOUT => {
-            return Err(Attempt::Retry {
-                reason: format!("HTTP {}", s.as_u16()),
-                after: None,
-                progressed: false,
-            });
-        }
-        s => return Err(Attempt::Fatal(status_error(s))),
-    }
+    let resp = match opened {
+        Some(resp) => resp,
+        None => request(job, from, end).await?,
+    };
 
     let mut stream = resp.bytes_stream();
     let mut buf: Vec<u8> = Vec::with_capacity(WRITE_BUF);
@@ -370,6 +342,52 @@ async fn fetch(job: &Job, idx: usize, from: u64, end: u64) -> Result<(), Attempt
         after: None,
         progressed: out.progressed,
     })
+}
+
+/// Request `from..=end` and check that the answer can be used for it.
+async fn request(job: &Job, from: u64, end: u64) -> Result<reqwest::Response, Attempt> {
+    let ranged = job.multi || from > 0;
+    let mut rb = job.headers.apply(job.client.get(&job.url));
+    if ranged {
+        let range = if end == UNKNOWN_END {
+            format!("bytes={from}-")
+        } else {
+            format!("bytes={from}-{end}")
+        };
+        rb = rb.header(header::RANGE, range);
+    }
+    let resp = tokio::select! {
+        _ = job.cancel.cancelled() => return Err(Attempt::Cancelled),
+        r = rb.send() => r,
+    };
+    let resp = resp.map_err(|e| Attempt::Retry {
+        reason: e.without_url().to_string(),
+        after: None,
+        progressed: false,
+    })?;
+
+    let status = resp.status();
+    match status {
+        StatusCode::PARTIAL_CONTENT if ranged => {
+            if content_range_start(resp.headers()) != Some(from) {
+                return Err(Attempt::Range);
+            }
+        }
+        StatusCode::OK if !ranged => {}
+        s if s.is_success() => return Err(Attempt::Range),
+        StatusCode::TOO_MANY_REQUESTS | StatusCode::SERVICE_UNAVAILABLE => {
+            return Err(Attempt::Throttled(retry_after(resp.headers())));
+        }
+        s if s.is_server_error() || s == StatusCode::REQUEST_TIMEOUT => {
+            return Err(Attempt::Retry {
+                reason: format!("HTTP {}", s.as_u16()),
+                after: None,
+                progressed: false,
+            });
+        }
+        s => return Err(Attempt::Fatal(status_error(s))),
+    }
+    Ok(resp)
 }
 
 /// Writes a segment's data while the next block is still being received: at most one

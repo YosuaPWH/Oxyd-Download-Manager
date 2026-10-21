@@ -83,6 +83,8 @@ pub struct Stats {
     pub rejected: AtomicUsize,
     /// Highest number of bodies sent at the same time.
     pub peak: AtomicUsize,
+    /// Requests for `/file/...` (GET and HEAD).
+    pub requests: AtomicUsize,
 }
 
 /// Decrements `Stats::active` when the body is dropped.
@@ -132,6 +134,7 @@ async fn serve_file(
     Query(o): Query<Opts>,
     headers: HeaderMap,
 ) -> Response {
+    stats.requests.fetch_add(1, Ordering::SeqCst);
     if let Some(ms) = o.latency {
         tokio::time::sleep(Duration::from_millis(ms)).await;
     }

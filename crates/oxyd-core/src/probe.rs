@@ -100,12 +100,13 @@ pub async fn probe(client: &Client, url: &str, headers: &RequestHeaders) -> Resu
         .await?;
     let status = get.status();
     if status == StatusCode::PARTIAL_CONTENT || status.is_success() {
-        return Ok(from_response(
-            get.url().as_str(),
-            status,
-            get.headers(),
-            url,
-        ));
+        let info = from_response(get.url().as_str(), status, get.headers(), url);
+        if status == StatusCode::PARTIAL_CONTENT {
+            // Read the single byte so the connection goes back to the pool and the
+            // download that follows skips the TCP/TLS handshake.
+            let _ = tokio::time::timeout(Duration::from_secs(5), get.bytes()).await;
+        }
+        return Ok(info);
     }
     if status == StatusCode::RANGE_NOT_SATISFIABLE {
         // Typically an empty file.
@@ -124,12 +125,47 @@ pub async fn probe(client: &Client, url: &str, headers: &RequestHeaders) -> Resu
         return Err(status_error(status));
     }
     let mut info = from_response(head.url().as_str(), head.status(), head.headers(), url);
-    info.accept_ranges = head
-        .headers()
-        .get(header::ACCEPT_RANGES)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.eq_ignore_ascii_case("bytes"));
+    info.accept_ranges = advertises_ranges(head.headers());
     Ok(info)
+}
+
+/// Probe for a new download with `GET Range: bytes=0-` and hand back the open response:
+/// its body is the start of the file, so the first segment needs no request of its own.
+/// Falls back to [`probe`] (and no response) when the server refuses the request.
+pub async fn probe_open(
+    client: &Client,
+    url: &str,
+    headers: &RequestHeaders,
+) -> Result<(ProbeInfo, Option<reqwest::Response>)> {
+    check_url(url)?;
+    // No request timeout here: it would also cover reading the whole body.
+    let send = headers
+        .apply(client.get(url))
+        .header(header::RANGE, "bytes=0-")
+        .send();
+    let resp = tokio::time::timeout(Duration::from_secs(30), send)
+        .await
+        .map_err(|_| Error::Network("timed out waiting for the server".into()))??;
+    let status = resp.status();
+    if status == StatusCode::PARTIAL_CONTENT || status == StatusCode::OK {
+        let mut info = from_response(resp.url().as_str(), status, resp.headers(), url);
+        if status == StatusCode::OK && advertises_ranges(resp.headers()) {
+            // Some servers answer an open range with 200 but serve ranges fine.
+            info.accept_ranges = true;
+        }
+        if status == StatusCode::PARTIAL_CONTENT && content_range_start(resp.headers()) != Some(0) {
+            return Ok((info, None));
+        }
+        return Ok((info, Some(resp)));
+    }
+    drop(resp);
+    Ok((probe(client, url, headers).await?, None))
+}
+
+fn advertises_ranges(h: &HeaderMap) -> bool {
+    h.get(header::ACCEPT_RANGES)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.eq_ignore_ascii_case("bytes"))
 }
 
 fn content_range_total(h: &HeaderMap) -> Option<u64> {

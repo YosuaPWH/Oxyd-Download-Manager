@@ -843,15 +843,22 @@ impl Manager {
         self.save_task(rec, true)?;
 
         let client = self.client();
-        let info = tokio::select! {
-            _ = ctx.cancel.cancelled() => return Ok(false),
-            r = probe::probe(&client, &rec.url, &rec.headers) => r?,
-        };
-
         let mut segs = ctx.shared.snapshot();
         let part_exists =
             !rec.save_path.as_os_str().is_empty() && part_path(&rec.save_path).exists();
         let mut resuming = part_exists && segment::total_downloaded(&segs) > 0;
+        // A fresh download keeps the probe's response open and streams the first
+        // segment from it; a resume only needs the validators.
+        let (info, mut opened) = tokio::select! {
+            _ = ctx.cancel.cancelled() => return Ok(false),
+            r = async {
+                if resuming {
+                    probe::probe(&client, &rec.url, &rec.headers).await.map(|i| (i, None))
+                } else {
+                    probe::probe_open(&client, &rec.url, &rec.headers).await
+                }
+            } => r?,
+        };
         if resuming && !(rec.resumable && info.resumable()) {
             tracing::info!(id = %rec.id, "server cannot resume, restarting from zero");
             resuming = false;
@@ -930,6 +937,7 @@ impl Manager {
                 global: self.global.clone(),
                 cancel: ctx.cancel.child_token(),
                 multi,
+                initial: Mutex::new(opened.take()),
             });
             match run_segments(job).await {
                 Ok(()) => break Ok(true),
