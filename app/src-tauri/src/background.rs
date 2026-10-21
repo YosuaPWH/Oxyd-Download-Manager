@@ -28,7 +28,11 @@ pub fn forward_events(app: &AppHandle) {
                 }
                 Err(RecvError::Closed) => return,
             };
-            let _ = app.emit("oxyd://event", &ev);
+            // Without a window nobody listens: skip serializing every progress tick.
+            // The UI loads the full list when the window opens.
+            if app.get_webview_window("main").is_some() {
+                let _ = app.emit("oxyd://event", &ev);
+            }
             let settings = app.state::<AppState>().mgr.settings();
             let lang = settings.language.as_str();
             match &ev {
