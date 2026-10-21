@@ -13,6 +13,7 @@ pub mod limiter;
 mod manager;
 pub mod paths;
 pub mod probe;
+pub mod secret;
 pub mod segment;
 pub mod settings;
 pub mod store;

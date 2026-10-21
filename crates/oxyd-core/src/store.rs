@@ -123,7 +123,7 @@ impl Store {
                 r.etag,
                 r.last_modified,
                 r.mime,
-                serde_json::to_string(&r.headers)?,
+                encode_headers(&r.headers)?,
                 r.category.as_str(),
                 r.connections,
                 r.speed_limit.map(|s| s as i64),
@@ -161,7 +161,7 @@ impl Store {
                 r.etag,
                 r.last_modified,
                 r.mime,
-                serde_json::to_string(&r.headers)?,
+                encode_headers(&r.headers)?,
                 r.category.as_str(),
                 r.connections,
                 r.speed_limit.map(|s| s as i64),
@@ -199,7 +199,7 @@ impl Store {
                 r.etag,
                 r.last_modified,
                 r.mime,
-                serde_json::to_string(&r.headers)?,
+                encode_headers(&r.headers)?,
                 r.category.as_str(),
                 r.connections,
                 r.checksum,
@@ -353,6 +353,21 @@ impl Store {
     }
 }
 
+/// Headers hold cookies: empty ones stay plain `{}`, others are sealed (DPAPI on Windows).
+fn encode_headers(h: &RequestHeaders) -> Result<String> {
+    if h.is_empty() {
+        return Ok("{}".into());
+    }
+    crate::secret::seal(&serde_json::to_string(h)?)
+}
+
+fn decode_headers(stored: &str) -> RequestHeaders {
+    crate::secret::open(stored)
+        .ok()
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default()
+}
+
 fn path_str(p: &Path) -> String {
     p.to_string_lossy().into_owned()
 }
@@ -373,7 +388,7 @@ fn row_to_record(r: &Row<'_>) -> rusqlite::Result<DownloadRecord> {
         etag: r.get(10)?,
         last_modified: r.get(11)?,
         mime: r.get(12)?,
-        headers: serde_json::from_str::<RequestHeaders>(&headers).unwrap_or_default(),
+        headers: decode_headers(&headers),
         category: Category::parse(&r.get::<_, String>(14)?),
         connections: r.get(15)?,
         speed_limit: r.get::<_, Option<i64>>(16)?.map(|v| v as u64),
@@ -430,6 +445,15 @@ mod tests {
         s.insert(&r).unwrap();
         let got = s.get("a").unwrap().unwrap();
         assert_eq!(got.headers.cookie.as_deref(), Some("a=b"));
+        let raw: String = s
+            .conn()
+            .query_row("SELECT headers_json FROM downloads WHERE id='a'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        if cfg!(windows) {
+            assert!(!raw.contains("a=b"), "cookies stored in plain text: {raw}");
+        }
         assert_eq!(got.category, Category::Archive);
 
         let segs = vec![
