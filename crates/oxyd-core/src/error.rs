@@ -1,0 +1,73 @@
+use thiserror::Error;
+
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("invalid URL: {0}")]
+    InvalidUrl(String),
+    #[error("HTTP {status}: {message}")]
+    Http { status: u16, message: String },
+    #[error("link expired or access denied (HTTP {0}); refresh the link and resume")]
+    LinkExpired(u16),
+    #[error("network error: {0}")]
+    Network(String),
+    #[error("server does not honour Range requests")]
+    RangeUnsupported,
+    #[error("file on server changed since the download started; restart the download")]
+    RemoteChanged,
+    #[error("new link points to a different file (size {old:?} vs {new:?})")]
+    RefreshMismatch { old: Option<u64>, new: Option<u64> },
+    #[error("not enough disk space: need {needed} bytes, {available} available")]
+    DiskFull { needed: u64, available: u64 },
+    #[error("checksum mismatch: expected {expected}, got {actual}")]
+    Checksum { expected: String, actual: String },
+    #[error("download not found: {0}")]
+    NotFound(String),
+    #[error("invalid state: {0}")]
+    InvalidState(String),
+    #[error("too many retries: {0}")]
+    RetriesExhausted(String),
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("database error: {0}")]
+    Db(#[from] rusqlite::Error),
+    #[error("serialization error: {0}")]
+    Json(#[from] serde_json::Error),
+}
+
+impl From<reqwest::Error> for Error {
+    fn from(e: reqwest::Error) -> Self {
+        if let Some(s) = e.status() {
+            return Error::Http {
+                status: s.as_u16(),
+                message: e.to_string(),
+            };
+        }
+        Error::Network(e.to_string())
+    }
+}
+
+impl Error {
+    /// Short machine readable code, used by the UI to show localized messages.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Error::InvalidUrl(_) => "invalid_url",
+            Error::Http { status: 404, .. } => "not_found",
+            Error::Http { .. } => "http",
+            Error::LinkExpired(_) => "link_expired",
+            Error::Network(_) => "network",
+            Error::RangeUnsupported => "range_unsupported",
+            Error::RemoteChanged => "remote_changed",
+            Error::RefreshMismatch { .. } => "refresh_mismatch",
+            Error::DiskFull { .. } => "disk_full",
+            Error::Checksum { .. } => "checksum",
+            Error::NotFound(_) => "missing",
+            Error::InvalidState(_) => "invalid_state",
+            Error::RetriesExhausted(_) => "retries",
+            Error::Io(_) => "io",
+            Error::Db(_) => "db",
+            Error::Json(_) => "json",
+        }
+    }
+}
