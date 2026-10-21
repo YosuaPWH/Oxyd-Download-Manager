@@ -39,7 +39,20 @@
     } else if (mod && e.key === ",") {
       e.preventDefault();
       app.settingsOpen = true;
+    } else if (mod && e.key.toLowerCase() === "f") {
+      e.preventDefault();
+      searchBox?.focus();
+      searchBox?.select();
     }
+  }
+
+  let searchBox = $state<HTMLInputElement>();
+
+  async function clearCompleted() {
+    await run(async () => {
+      const n = await api.clearCompleted();
+      app.notice = `${n} ${t("notice.cleared")}`;
+    });
   }
 
   function closePending() {
@@ -61,21 +74,36 @@
       <Icon name="add" />{t("tb.add")}
     </button>
     <span class="sep"></span>
-    <button disabled={!canStart(sel)} onclick={() => sel && run(() => api.start(sel.id))}>
-      <Icon name="play" />{t("tb.start")}
+    <button disabled={!canStart(sel)} onclick={() => sel && run(() => api.start(sel.id))} title={t("tb.start")}>
+      <Icon name="play" /><span class="lbl">{t("tb.start")}</span>
     </button>
-    <button disabled={!canPause(sel)} onclick={() => sel && run(() => api.pause(sel.id))}>
-      <Icon name="pause" />{t("tb.pause")}
+    <button disabled={!canPause(sel)} onclick={() => sel && run(() => api.pause(sel.id))} title={t("tb.pause")}>
+      <Icon name="pause" /><span class="lbl">{t("tb.pause")}</span>
     </button>
-    <button disabled={!sel} onclick={() => sel && askRemove(sel)} title="Delete">
-      <Icon name="trash" />{t("tb.remove")}
+    <button disabled={!sel} onclick={() => sel && askRemove(sel)} title="{t('tb.remove')} (Delete)">
+      <Icon name="trash" /><span class="lbl">{t("tb.remove")}</span>
     </button>
     <span class="sep"></span>
-    <button onclick={() => run(api.resumeAll)}><Icon name="play" />{t("tb.resumeAll")}</button>
-    <button onclick={() => run(api.pauseAll)}><Icon name="pause" />{t("tb.pauseAll")}</button>
+    <button onclick={() => run(api.resumeAll)} title={t("tb.resumeAll")}><Icon name="play" /><span class="lbl">{t("tb.resumeAll")}</span></button>
+    <button onclick={() => run(api.pauseAll)} title={t("tb.pauseAll")}><Icon name="pause" /><span class="lbl">{t("tb.pauseAll")}</span></button>
+    {#if app.view === "completed" && app.downloads.some((d) => d.status === "completed")}
+      <span class="sep"></span>
+      <button onclick={clearCompleted} title={t("tb.clearCompletedHint")}>
+        <Icon name="trash" /><span class="lbl">{t("tb.clearCompleted")}</span>
+      </button>
+    {/if}
     <span class="grow"></span>
-    <button class="ghost" onclick={() => (app.settingsOpen = true)} title="Ctrl+,">
-      <Icon name="settings" />{t("tb.settings")}
+    <input
+      class="search"
+      type="search"
+      placeholder={t("search.placeholder")}
+      aria-label={t("search.placeholder")}
+      bind:value={app.search}
+      bind:this={searchBox}
+      onkeydown={(e) => e.key === "Escape" && (app.search = "")}
+    />
+    <button class="ghost" onclick={() => (app.settingsOpen = true)} title="{t('tb.settings')} (Ctrl+,)">
+      <Icon name="settings" /><span class="lbl">{t("tb.settings")}</span>
     </button>
   </header>
 
@@ -175,6 +203,25 @@
   }
   .grow {
     flex: 1;
+  }
+  .toolbar button {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  /* Narrow windows: secondary buttons show only their icon (label stays as tooltip). */
+  @media (max-width: 1180px) {
+    .toolbar .lbl {
+      display: none;
+    }
+  }
+  .search {
+    width: 220px;
+    min-width: 100px;
+    flex-shrink: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel-2);
   }
   .banner {
     display: flex;

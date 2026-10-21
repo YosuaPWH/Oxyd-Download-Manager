@@ -26,6 +26,7 @@
   let exists = $state(false);
   let conflict = $state<DuplicatePolicy>("rename");
   let connections = $state(app.settings?.connections ?? 8);
+  let checksum = $state("");
   let busy = $state(false);
   /** Unfinished download this link continues (from the browser match or after probing). */
   // svelte-ignore state_referenced_locally
@@ -102,6 +103,7 @@
           connections,
           onConflict,
           sizeHint: size,
+          checksum: checksum.trim() || null,
         });
       } else {
         await api.add({
@@ -112,6 +114,7 @@
           start,
           onConflict,
           sizeHint: size,
+          checksum: checksum.trim() || null,
         });
       }
       onclose();
@@ -191,6 +194,9 @@
       <input id="nd-conn" type="range" min="1" max="32" bind:value={connections} />
       <span class="conn">{connections}</span>
     </div>
+
+    <label for="nd-sum">{t("new.checksum")}</label>
+    <input id="nd-sum" class="mono" bind:value={checksum} placeholder="sha256:… / md5:…" title={t("new.checksumHint")} />
 
     {#if pending?.source || pending?.referrer}
       <span class="lbl">{t("new.from")}</span>

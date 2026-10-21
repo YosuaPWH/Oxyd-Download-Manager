@@ -12,6 +12,8 @@ export const app = $state({
   settings: null as Settings | null,
   selected: null as string | null,
   view: "all" as View,
+  /** Text typed in the search box. */
+  search: "",
   pending: [] as PendingAdd[],
   /** URL for a manual "New download" dialog; null = closed. */
   manualUrl: null as string | null,
@@ -45,6 +47,12 @@ export function visible(d: DownloadInfo, view: View): boolean {
     default:
       return d.category === view;
   }
+}
+
+/** Whether `d` matches the search text (file name or URL). */
+export function matchesSearch(d: DownloadInfo, text: string): boolean {
+  const q = text.trim().toLowerCase();
+  return !q || d.filename.toLowerCase().includes(q) || d.url.toLowerCase().includes(q);
 }
 
 export function selected(): DownloadInfo | undefined {

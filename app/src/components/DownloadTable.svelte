@@ -3,11 +3,13 @@
   import { askRemove, canPause, canStart, primaryAction } from "../lib/actions";
   import * as fmt from "../lib/format";
   import { errorText, t, type Key } from "../lib/i18n.svelte";
-  import { app, beginRefresh, clock, run, visible } from "../lib/store.svelte";
+  import { app, beginRefresh, clock, matchesSearch, run, visible } from "../lib/store.svelte";
   import type { DownloadInfo } from "../lib/types";
   import Icon from "./Icon.svelte";
 
-  const rows = $derived(app.downloads.filter((d) => visible(d, app.view)));
+  const rows = $derived(
+    app.downloads.filter((d) => visible(d, app.view) && matchesSearch(d, app.search)),
+  );
 
   let menu = $state<{ x: number; y: number; d: DownloadInfo } | null>(null);
   let table: HTMLDivElement;

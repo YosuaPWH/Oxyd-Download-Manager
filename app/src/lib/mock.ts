@@ -133,6 +133,8 @@ export function installMock() {
           return [];
         case "refresh_target":
           return null;
+        case "clear_completed":
+          return 1;
         case "begin_refresh":
           return "https://example.com/files";
         case "find_unfinished":

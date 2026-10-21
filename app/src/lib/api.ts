@@ -46,6 +46,7 @@ export const api = {
       connections: number | null;
       onConflict: DuplicatePolicy | null;
       sizeHint: number | null;
+      checksum: string | null;
     },
   ) => invoke<DownloadInfo>("confirm_pending", { key, options }),
   discardPending: (key: string) => invoke<void>("discard_pending", { key }),
@@ -56,6 +57,7 @@ export const api = {
     invoke<DownloadInfo | null>("find_unfinished", { filename, size }),
   resumePending: (key: string, id: string) => invoke<DownloadInfo>("resume_pending", { key, id }),
   resumeWithUrl: (id: string, url: string) => invoke<DownloadInfo>("resume_with_url", { id, url }),
+  clearCompleted: () => invoke<number>("clear_completed"),
 };
 
 export function onEngineEvent(cb: (e: EngineEvent) => void): Promise<UnlistenFn> {
