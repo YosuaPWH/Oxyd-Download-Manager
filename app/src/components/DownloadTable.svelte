@@ -3,7 +3,7 @@
   import { askRemove, canPause, canStart, primaryAction } from "../lib/actions";
   import * as fmt from "../lib/format";
   import { errorText, t, type Key } from "../lib/i18n.svelte";
-  import { app, clock, run, visible } from "../lib/store.svelte";
+  import { app, beginRefresh, clock, run, visible } from "../lib/store.svelte";
   import type { DownloadInfo } from "../lib/types";
   import Icon from "./Icon.svelte";
 
@@ -165,6 +165,9 @@
     {/if}
     {#if d.status !== "completed" && d.status !== "cancelled"}
       <button role="menuitem" onclick={() => act(() => api.cancel(d.id))}><Icon name="stop" />{t("act.cancel")}</button>
+    {/if}
+    {#if d.status === "failed" || d.status === "paused"}
+      <button role="menuitem" onclick={() => act(() => beginRefresh(d))}><Icon name="link" />{t("refresh.fromBrowser")}</button>
     {/if}
     {#if d.status === "failed" || d.status === "paused" || d.status === "completed"}
       <button role="menuitem" onclick={() => act(() => api.restart(d.id))}><Icon name="refresh" />{t("act.restart")}</button>

@@ -79,6 +79,13 @@ export interface Settings {
   afterQueue: AfterQueue;
 }
 
+export interface PendingMatch {
+  id: string;
+  filename: string;
+  downloaded: number;
+  totalSize: number | null;
+}
+
 export interface PendingAdd {
   key: string;
   url: string;
@@ -87,6 +94,16 @@ export interface PendingAdd {
   mime: string | null;
   referrer: string | null;
   source: string | null;
+  /** Unfinished download this link probably continues. */
+  matched: PendingMatch | null;
+}
+
+/** Result of giving a waiting download its new link from the browser. */
+export interface RefreshResult {
+  id: string;
+  ok: boolean;
+  code: string | null;
+  message: string | null;
 }
 
 export interface NewDownload {

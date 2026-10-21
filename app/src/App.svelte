@@ -4,7 +4,7 @@
   import { askRemove, canPause, canStart } from "./lib/actions";
   import * as fmt from "./lib/format";
   import { t } from "./lib/i18n.svelte";
-  import { app, init, isActive, run, selected } from "./lib/store.svelte";
+  import { app, cancelRefresh, init, isActive, run, selected } from "./lib/store.svelte";
   import DetailPanel from "./components/DetailPanel.svelte";
   import DownloadTable from "./components/DownloadTable.svelte";
   import Icon from "./components/Icon.svelte";
@@ -21,6 +21,14 @@
   const active = $derived(app.downloads.filter(isActive));
   const totalSpeed = $derived(active.reduce((s, d) => s + d.speed, 0));
   const pending = $derived(app.pending[0] ?? null);
+  const refreshing = $derived(app.downloads.find((d) => d.id === app.refreshing));
+
+  // Confirmations fade out on their own.
+  $effect(() => {
+    if (!app.notice) return;
+    const timer = setTimeout(() => (app.notice = null), 5000);
+    return () => clearTimeout(timer);
+  });
 
   function keydown(e: KeyboardEvent) {
     if (document.querySelector(".backdrop")) return;
@@ -71,6 +79,15 @@
     </button>
   </header>
 
+  {#if refreshing}
+    <div class="banner refresh" role="status">
+      <Icon name="link" />
+      <span>{t("refresh.waiting")} <strong>{refreshing.filename}</strong>. {t("refresh.hint")}</span>
+      <span class="grow"></span>
+      <button class="ghost" onclick={cancelRefresh}>{t("refresh.cancel")}</button>
+    </div>
+  {/if}
+
   {#if app.clipboardUrl}
     <div class="banner" role="status">
       <Icon name="clipboard" />
@@ -111,6 +128,13 @@
 
 {#if app.removing}
   <RemoveDialog download={app.removing} onclose={() => (app.removing = null)} />
+{/if}
+
+{#if app.notice}
+  <div class="toast ok" role="status">
+    <span>{app.notice}</span>
+    <button class="ghost" aria-label="Close" onclick={() => (app.notice = null)}>✕</button>
+  </div>
 {/if}
 
 {#if app.error}
@@ -197,6 +221,12 @@
     border-radius: 8px;
     box-shadow: var(--shadow);
     z-index: 60;
+  }
+  .toast.ok {
+    border-color: var(--ok);
+  }
+  .banner.refresh {
+    background: color-mix(in srgb, var(--warn) 14%, var(--panel));
   }
   .toast span {
     flex: 1;

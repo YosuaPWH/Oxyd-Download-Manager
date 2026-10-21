@@ -8,6 +8,7 @@ import type {
   NewDownload,
   PendingAdd,
   ProbeInfo,
+  RefreshResult,
   Settings,
 } from "./types";
 
@@ -48,6 +49,13 @@ export const api = {
     },
   ) => invoke<DownloadInfo>("confirm_pending", { key, options }),
   discardPending: (key: string) => invoke<void>("discard_pending", { key }),
+  beginRefresh: (id: string) => invoke<string | null>("begin_refresh", { id }),
+  cancelRefresh: () => invoke<void>("cancel_refresh"),
+  refreshTarget: () => invoke<string | null>("refresh_target"),
+  findUnfinished: (filename: string, size: number | null) =>
+    invoke<DownloadInfo | null>("find_unfinished", { filename, size }),
+  resumePending: (key: string, id: string) => invoke<DownloadInfo>("resume_pending", { key, id }),
+  resumeWithUrl: (id: string, url: string) => invoke<DownloadInfo>("resume_with_url", { id, url }),
 };
 
 export function onEngineEvent(cb: (e: EngineEvent) => void): Promise<UnlistenFn> {
@@ -60,6 +68,10 @@ export function onPending(cb: (p: PendingAdd) => void): Promise<UnlistenFn> {
 
 export function onClipboard(cb: (url: string) => void): Promise<UnlistenFn> {
   return listen<string>("oxyd://clipboard", (e) => cb(e.payload));
+}
+
+export function onRefresh(cb: (r: RefreshResult) => void): Promise<UnlistenFn> {
+  return listen<RefreshResult>("oxyd://refresh", (e) => cb(e.payload));
 }
 
 export function onResync(cb: () => void): Promise<UnlistenFn> {

@@ -131,6 +131,14 @@ export function installMock() {
           return { version: "0.1.0-mock", dataDir: "C:\\Users\\me\\AppData\\Local\\Oxyd" };
         case "pending_downloads":
           return [];
+        case "refresh_target":
+          return null;
+        case "begin_refresh":
+          return "https://example.com/files";
+        case "find_unfinished":
+          return downloads.find(
+            (d) => d.filename.toLowerCase() === String(a.filename).toLowerCase() && d.status !== "completed",
+          ) ?? null;
         case "suggest_dir":
           return settings.downloadDir;
         case "path_exists":

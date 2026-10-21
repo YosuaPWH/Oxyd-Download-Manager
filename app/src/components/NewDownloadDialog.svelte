@@ -4,7 +4,7 @@
   import * as fmt from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import { app } from "../lib/store.svelte";
-  import type { DuplicatePolicy, PendingAdd, ProbeInfo } from "../lib/types";
+  import type { DuplicatePolicy, PendingAdd, PendingMatch, ProbeInfo } from "../lib/types";
   import Modal from "./Modal.svelte";
 
   let {
@@ -27,6 +27,9 @@
   let conflict = $state<DuplicatePolicy>("rename");
   let connections = $state(app.settings?.connections ?? 8);
   let busy = $state(false);
+  /** Unfinished download this link continues (from the browser match or after probing). */
+  // svelte-ignore state_referenced_locally
+  let match = $state<PendingMatch | null>(pending?.matched ?? null);
 
   const size = $derived(probe?.size ?? pending?.size ?? null);
 
@@ -39,6 +42,13 @@
       probe = pending ? await api.probePending(pending.key) : await api.probe(target);
       if (!nameTouched && probe.filename && (!filename || !pending?.filename)) {
         filename = probe.filename;
+      }
+      const name = filename || probe.filename;
+      if (!match && name) {
+        const d = await api.findUnfinished(name, probe.size);
+        match = d
+          ? { id: d.id, filename: d.filename, downloaded: d.downloaded, totalSize: d.totalSize }
+          : null;
       }
     } catch (e) {
       error = errorMessage(e);
@@ -112,6 +122,22 @@
     }
   }
 
+  /** Give the unfinished download this link and resume it. */
+  async function continueExisting() {
+    if (!match) return;
+    busy = true;
+    error = null;
+    try {
+      if (pending) await api.resumePending(pending.key, match.id);
+      else await api.resumeWithUrl(match.id, url.trim());
+      onclose();
+    } catch (e) {
+      error = errorMessage(e);
+    } finally {
+      busy = false;
+    }
+  }
+
   function cancel() {
     if (pending) void api.discardPending(pending.key);
     onclose();
@@ -174,7 +200,23 @@
       </div>
     {/if}
 
-    {#if exists}
+    {#if match}
+      {@const pct = fmt.percent(match.downloaded, match.totalSize)}
+      <div class="full matchbox" role="alert">
+        <div class="matchtext">
+          <span>{t("match.title")}</span>
+          <strong class="ellipsis">{match.filename}</strong>
+          <span class="muted">
+            {pct === null ? fmt.bytes(match.downloaded) : `${pct.toFixed(1)}%`}
+            · {fmt.bytes(match.downloaded)} / {fmt.bytes(match.totalSize)} — {t("match.hint")}
+          </span>
+        </div>
+        <button type="button" class="primary" onclick={continueExisting} disabled={busy}>
+          {t("match.resume")}
+        </button>
+      </div>
+    {/if}
+    {#if exists && !match}
       <div class="full warnbox" role="alert">
         {t("new.exists")}
         <label class="check"><input type="radio" bind:group={conflict} value="rename" />{t("new.rename")}</label>
@@ -251,6 +293,21 @@
   }
   .warnbox label {
     color: var(--text);
+  }
+  .matchbox {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: var(--accent-soft);
+  }
+  .matchtext {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
   .errbox {
     background: color-mix(in srgb, var(--danger) 14%, transparent);

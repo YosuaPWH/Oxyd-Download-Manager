@@ -1,5 +1,5 @@
-import { api, errorMessage, onClipboard, onEngineEvent, onPending, onResync } from "./api";
-import { i18n } from "./i18n.svelte";
+import { api, errorMessage, onClipboard, onEngineEvent, onPending, onRefresh, onResync } from "./api";
+import { errorText, i18n, t } from "./i18n.svelte";
 import type { Category, DownloadInfo, EngineEvent, PendingAdd, Settings, Status } from "./types";
 
 export type View = "all" | "active" | "unfinished" | "completed" | Category;
@@ -19,6 +19,10 @@ export const app = $state({
   settingsOpen: false,
   removing: null as DownloadInfo | null,
   error: null as string | null,
+  /** Short confirmation shown at the bottom right. */
+  notice: null as string | null,
+  /** Download waiting for its new link from the browser. */
+  refreshing: null as string | null,
   version: "",
 });
 
@@ -117,18 +121,38 @@ export async function init() {
     }),
     onClipboard((url) => (app.clipboardUrl = url)),
     onResync(() => void refresh()),
+    onRefresh((r) => {
+      app.refreshing = null;
+      if (r.ok) app.notice = t("refresh.done");
+      else app.error = errorText(r.code) ?? r.message ?? t("err.title");
+    }),
   ]);
-  const [settings, list, pending, info] = await Promise.all([
+  const [settings, list, pending, info, refreshing] = await Promise.all([
     api.getSettings(),
     api.list(),
     api.pending(),
     api.appInfo(),
+    api.refreshTarget(),
   ]);
+  app.refreshing = refreshing;
   app.settings = settings;
   applyTheme(settings);
   app.downloads = list;
   app.version = info.version;
   for (const p of pending) if (!app.pending.some((x) => x.key === p.key)) app.pending.push(p);
+}
+
+/** Wait for the next link clicked in the browser and use it for download `d`. */
+export async function beginRefresh(d: DownloadInfo) {
+  await run(async () => {
+    await api.beginRefresh(d.id);
+    app.refreshing = d.id;
+  });
+}
+
+export async function cancelRefresh() {
+  await run(api.cancelRefresh);
+  app.refreshing = null;
 }
 
 /** Run an action and surface its error in the UI. */

@@ -2,7 +2,8 @@
   import { api } from "../lib/api";
   import * as fmt from "../lib/format";
   import { errorText, t } from "../lib/i18n.svelte";
-  import { clock, run, selected } from "../lib/store.svelte";
+  import { beginRefresh, clock, run, selected } from "../lib/store.svelte";
+  import Icon from "./Icon.svelte";
   import SegmentBar from "./SegmentBar.svelte";
 
   const d = $derived(selected());
@@ -81,10 +82,13 @@
           <button type="submit">{t("detail.apply")}</button>
         </form>
         {#if canRefresh}
-          <form onsubmit={(e) => (e.preventDefault(), applyUrl())}>
+          <form class="refresh" onsubmit={(e) => (e.preventDefault(), applyUrl())}>
             <label for="newurl">{t("act.refresh")}</label>
             <input id="newurl" bind:value={newUrl} placeholder={t("detail.newUrl")} />
             <button type="submit" disabled={!newUrl.trim()}>{t("detail.apply")}</button>
+            <button type="button" class="primary" onclick={() => d && beginRefresh(d)} title={t("refresh.hint")}>
+              <Icon name="link" />{t("refresh.fromBrowser")}
+            </button>
           </form>
         {/if}
       </div>
@@ -141,6 +145,9 @@
     align-items: center;
     flex: 1;
     min-width: 280px;
+  }
+  form.refresh {
+    flex-basis: 100%;
   }
   form label {
     color: var(--muted);
