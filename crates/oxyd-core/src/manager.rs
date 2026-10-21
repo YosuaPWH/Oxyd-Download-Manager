@@ -249,6 +249,22 @@ impl Manager {
         Ok(())
     }
 
+    /// Save a record owned by a running task without clobbering fields the user may have
+    /// changed meanwhile, and refresh those fields in `r`.
+    fn save_task(&self, r: &mut DownloadRecord, emit: bool) -> Result<()> {
+        self.store.update_task(r)?;
+        if let Some(fresh) = self.store.get(&r.id)? {
+            r.position = fresh.position;
+            r.speed_limit = fresh.speed_limit;
+        }
+        if emit {
+            self.emit(Event::Updated {
+                download: Box::new(self.info(r.clone())),
+            });
+        }
+        Ok(())
+    }
+
     /// Pick a free destination for `name` in `dir`, honouring the duplicate policy.
     fn resolve_path(&self, dir: &Path, name: &str, policy: DuplicatePolicy, id: &str) -> PathBuf {
         if policy == DuplicatePolicy::Overwrite {
@@ -466,12 +482,16 @@ impl Manager {
     }
 
     pub fn set_speed_limit(&self, id: &str, limit: Option<u64>) -> Result<()> {
-        let mut r = self.record(id)?;
-        r.speed_limit = limit.filter(|&l| l > 0);
+        let limit = limit.filter(|&l| l > 0);
+        self.store.set_speed_limit(id, limit)?;
         if let Some(h) = self.tasks().get(id) {
-            h.shared.limiter.set_rate(r.speed_limit);
+            h.shared.limiter.set_rate(limit);
         }
-        self.save_and_emit(&r)
+        let r = self.record(id)?;
+        self.emit(Event::Updated {
+            download: Box::new(self.info(r)),
+        });
+        Ok(())
     }
 
     /// Move a download up (`delta < 0`) or down in the queue.
@@ -640,7 +660,7 @@ impl Manager {
                 tracing::warn!(id, "download failed: {e}");
                 r.status = Status::Failed;
                 r.error = Some(e.to_string());
-                let res = self.store.update(&r);
+                let res = self.save_task(&mut r, false);
                 let info = self.info(r);
                 self.emit(Event::Failed {
                     download: Box::new(info.clone()),
@@ -661,16 +681,16 @@ impl Manager {
         match stop {
             Stop::Pause | Stop::None => {
                 r.status = Status::Paused;
-                self.save_and_emit(&r)
+                self.save_task(&mut r, true)
             }
             Stop::Shutdown => {
                 r.status = Status::Queued;
-                self.store.update(&r)
+                self.save_task(&mut r, false)
             }
             Stop::Cancel => {
                 reset_progress(&self.store, &mut r)?;
                 r.status = Status::Cancelled;
-                self.save_and_emit(&r)
+                self.save_task(&mut r, true)
             }
             Stop::Remove | Stop::RemoveWithFile => {
                 self.purge(&r, stop == Stop::RemoveWithFile);
@@ -696,7 +716,7 @@ impl Manager {
     async fn run_inner(&self, rec: &mut DownloadRecord, ctx: &TaskCtx) -> Result<bool> {
         rec.status = Status::Probing;
         rec.error = None;
-        self.save_and_emit(rec)?;
+        self.save_task(rec, true)?;
 
         let client = self.client();
         let info = tokio::select! {
@@ -762,7 +782,7 @@ impl Manager {
         self.store.save_progress(&rec.id, &segs)?;
         rec.downloaded = segment::total_downloaded(&segs);
         rec.status = Status::Downloading;
-        self.save_and_emit(rec)?;
+        self.save_task(rec, true)?;
 
         let ticker_stop = CancellationToken::new();
         let ticker = self.rt.spawn(ticker(
@@ -850,7 +870,7 @@ impl Manager {
         rec.error = None;
         // Cookies and auth headers must not stay on disk after completion.
         rec.headers = RequestHeaders::default();
-        self.store.update(rec)?;
+        self.save_task(rec, false)?;
         self.store.clear_segments(&rec.id)?;
         Ok(())
     }

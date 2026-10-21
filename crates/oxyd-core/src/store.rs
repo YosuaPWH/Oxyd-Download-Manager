@@ -167,6 +167,46 @@ impl Store {
         Ok(())
     }
 
+    /// Persist the fields owned by a running task. Queue position and speed limit are left
+    /// alone: the user may change them while the task holds an older copy of the record.
+    pub fn update_task(&self, r: &DownloadRecord) -> Result<()> {
+        let c = self.conn();
+        c.execute(
+            "UPDATE downloads SET url=?2, final_url=?3, filename=?4, dir=?5, save_path=?6,              total_size=?7, downloaded=?8, status=?9, resumable=?10, etag=?11, last_modified=?12,              mime=?13, headers_json=?14, category=?15, connections=?16, checksum=?17, error=?18,              updated_at=?19, completed_at=?20 WHERE id=?1",
+            params![
+                r.id,
+                r.url,
+                r.final_url,
+                r.filename,
+                path_str(&r.dir),
+                path_str(&r.save_path),
+                r.total_size.map(|s| s as i64),
+                r.downloaded as i64,
+                r.status.as_str(),
+                r.resumable,
+                r.etag,
+                r.last_modified,
+                r.mime,
+                serde_json::to_string(&r.headers)?,
+                r.category.as_str(),
+                r.connections,
+                r.checksum,
+                r.error,
+                now(),
+                r.completed_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_speed_limit(&self, id: &str, limit: Option<u64>) -> Result<()> {
+        self.conn().execute(
+            "UPDATE downloads SET speed_limit=?2, updated_at=?3 WHERE id=?1",
+            params![id, limit.map(|l| l as i64), now()],
+        )?;
+        Ok(())
+    }
+
     pub fn get(&self, id: &str) -> Result<Option<DownloadRecord>> {
         let c = self.conn();
         Ok(c.query_row(

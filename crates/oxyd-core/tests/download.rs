@@ -455,3 +455,29 @@ async fn queue_finished_only_after_real_completion() {
         "completion must finish the queue"
     );
 }
+
+#[tokio::test]
+async fn changes_made_while_running_survive() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let a = add(&m, format!("{base}/file/{}?rate=1048576", 4 * MB), 2);
+    let b = add(&m, format!("{base}/file/{}?rate=1048576", 4 * MB), 2);
+    wait_progress(&m, &a, 1).await;
+    wait_progress(&m, &b, 1).await;
+    m.move_item(&b, -1).unwrap();
+    m.set_speed_limit(&a, Some(3 * MB)).unwrap();
+    m.pause(&a).unwrap();
+    m.pause(&b).unwrap();
+    let ra = wait(&m, &a).await.record;
+    let rb = wait(&m, &b).await.record;
+    assert!(rb.position < ra.position, "queue order reverted");
+    assert_eq!(ra.speed_limit, Some(3 * MB), "speed limit reverted");
+
+    // Also after running to completion.
+    m.start(&a).unwrap();
+    let ra = wait(&m, &a).await.record;
+    assert_eq!(ra.status, Status::Completed);
+    assert_eq!(ra.speed_limit, Some(3 * MB));
+    assert!(rb.position < ra.position);
+}
