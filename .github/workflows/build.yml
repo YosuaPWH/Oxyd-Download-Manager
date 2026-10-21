@@ -1,0 +1,84 @@
+name: Build installer
+
+# Builds the Windows installer for every push to main and attaches it to the run as an
+# artifact (Actions tab -> the run -> Artifacts). Use "Run workflow" to build any branch.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push makes the build of an older commit pointless.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    name: Windows installer (NSIS)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            extension/package-lock.json
+
+      # Builds oxyd-bridge.exe (sidecar), the browser extension and the Tauri app, then
+      # bundles the NSIS installer into target/release/bundle/nsis/.
+      - name: Build installer
+        shell: pwsh
+        run: ./scripts/build-installer.ps1
+
+      - name: Collect release files
+        id: collect
+        shell: pwsh
+        run: |
+          $version = (Get-Content app/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $short = $env:GITHUB_SHA.Substring(0, 7)
+          $out = New-Item -ItemType Directory -Path out -Force
+
+          $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          if (-not $installer) { throw "installer not found in target/release/bundle/nsis" }
+          Copy-Item $installer.FullName "$out/Oxyd-Setup-$version-$short.exe"
+
+          # The unpacked extension for "Load unpacked" in Chrome/Edge.
+          Compress-Archive -Path extension/build/* -DestinationPath "$out/Oxyd-Extension-$version-$short.zip"
+
+          Push-Location $out
+          Get-FileHash -Algorithm SHA256 *.exe, *.zip |
+            ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } |
+            Set-Content SHA256SUMS.txt -Encoding ascii
+          Pop-Location
+
+          "name=oxyd-windows-x64-$version-$short" >> $env:GITHUB_OUTPUT
+
+          "### Oxyd $version ($short)" >> $env:GITHUB_STEP_SUMMARY
+          "" >> $env:GITHUB_STEP_SUMMARY
+          "| File | Size |" >> $env:GITHUB_STEP_SUMMARY
+          "|---|---|" >> $env:GITHUB_STEP_SUMMARY
+          Get-ChildItem $out | ForEach-Object {
+            "| $($_.Name) | $([math]::Round($_.Length / 1MB, 2)) MB |" >> $env:GITHUB_STEP_SUMMARY
+          }
+          "" >> $env:GITHUB_STEP_SUMMARY
+          '```' >> $env:GITHUB_STEP_SUMMARY
+          Get-Content "$out/SHA256SUMS.txt" >> $env:GITHUB_STEP_SUMMARY
+          '```' >> $env:GITHUB_STEP_SUMMARY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.collect.outputs.name }}
+          path: out/*
+          if-no-files-found: error
+          retention-days: 30
