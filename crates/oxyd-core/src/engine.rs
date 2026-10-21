@@ -1,8 +1,8 @@
 //! Segment workers and the per-download connection scheduler.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use reqwest::header::{self, HeaderMap};
@@ -21,6 +21,9 @@ const WRITE_BUF: usize = 256 * 1024;
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_RETRIES: u32 = 10;
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
+/// Without throttling for this long, one connection is added back.
+const RESTORE_AFTER: Duration = Duration::from_secs(10);
+const RESTORE_CHECK: Duration = Duration::from_secs(2);
 
 /// State shared between the scheduler, its workers and the manager (for progress).
 #[derive(Debug)]
@@ -29,8 +32,11 @@ pub struct Shared {
     pub active_connections: AtomicU32,
     pub conn_limit: AtomicU32,
     pub limiter: Limiter,
-    /// 429/503 answers since the scheduler last looked.
-    throttled: AtomicU32,
+    /// Connections the user asked for; `conn_limit` drops below it while throttled.
+    max_conn: u32,
+    created: Instant,
+    /// Milliseconds after `created` of the last 429/503 answer (0 = never).
+    last_throttle_ms: AtomicU64,
 }
 
 impl Shared {
@@ -40,8 +46,41 @@ impl Shared {
             active_connections: AtomicU32::new(0),
             conn_limit: AtomicU32::new(connections.max(1)),
             limiter: Limiter::new(speed_limit),
-            throttled: AtomicU32::new(0),
+            max_conn: connections.max(1),
+            created: Instant::now(),
+            last_throttle_ms: AtomicU64::new(0),
         }
+    }
+
+    fn note_throttle(&self) {
+        let ms = self.created.elapsed().as_millis().max(1) as u64;
+        self.last_throttle_ms.store(ms, Ordering::Relaxed);
+    }
+
+    /// Drop one connection because the server is overloaded. Returns false when this is
+    /// the last connection, which must keep going.
+    fn shed_connection(&self) -> bool {
+        let active = self.active_connections.load(Ordering::Relaxed);
+        self.conn_limit
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |limit| {
+                let current = limit.min(active.max(1));
+                (current > 1).then_some(current - 1)
+            })
+            .is_ok()
+    }
+
+    /// Give a connection back once the server stayed quiet for a while.
+    fn restore_connection(&self) -> bool {
+        let last = self.last_throttle_ms.load(Ordering::Relaxed);
+        let quiet = self.created.elapsed().as_millis() as u64 - last;
+        let limit = self.conn_limit.load(Ordering::Relaxed);
+        if limit >= self.max_conn || quiet < RESTORE_AFTER.as_millis() as u64 {
+            return false;
+        }
+        self.conn_limit.store(limit + 1, Ordering::Relaxed);
+        // Wait a full quiet period before adding the next one.
+        self.note_throttle();
+        true
     }
 
     pub fn segments(&self) -> std::sync::MutexGuard<'_, Vec<Segment>> {
@@ -71,12 +110,15 @@ pub(crate) struct Job {
 
 #[derive(Debug)]
 pub(crate) enum WorkerError {
+    /// The worker stopped early so the server gets fewer connections.
+    Yield,
     Cancelled,
     RangeUnsupported,
     Fatal(Error),
 }
 
 enum Attempt {
+    Throttled(Option<Duration>),
     Cancelled,
     Range,
     Fatal(Error),
@@ -121,6 +163,24 @@ async fn worker(job: Arc<Job>, idx: usize) -> Result<(), WorkerError> {
             Err(Attempt::Cancelled) => return Err(WorkerError::Cancelled),
             Err(Attempt::Range) => return Err(WorkerError::RangeUnsupported),
             Err(Attempt::Fatal(e)) => return Err(WorkerError::Fatal(e)),
+            Err(Attempt::Throttled(after)) => {
+                job.shared.note_throttle();
+                if job.shared.shed_connection() {
+                    tracing::info!(idx, "server throttling, giving up a connection");
+                    return Err(WorkerError::Yield);
+                }
+                attempt += 1;
+                if attempt > MAX_RETRIES {
+                    return Err(WorkerError::Fatal(Error::RetriesExhausted(
+                        "server keeps refusing (429/503)".into(),
+                    )));
+                }
+                let delay = after.unwrap_or_else(|| backoff(attempt));
+                tokio::select! {
+                    _ = job.cancel.cancelled() => return Err(WorkerError::Cancelled),
+                    _ = tokio::time::sleep(delay) => {}
+                }
+            }
             Err(Attempt::Retry {
                 reason,
                 after,
@@ -177,12 +237,7 @@ async fn fetch(job: &Job, idx: usize, from: u64, end: u64) -> Result<(), Attempt
         StatusCode::OK if !ranged => {}
         s if s.is_success() => return Err(Attempt::Range),
         StatusCode::TOO_MANY_REQUESTS | StatusCode::SERVICE_UNAVAILABLE => {
-            job.shared.throttled.fetch_add(1, Ordering::Relaxed);
-            return Err(Attempt::Retry {
-                reason: format!("server busy (HTTP {})", s_u16(status)),
-                after: retry_after(resp.headers()),
-                progressed: false,
-            });
+            return Err(Attempt::Throttled(retry_after(resp.headers())));
         }
         s if s.is_server_error() || s == StatusCode::REQUEST_TIMEOUT => {
             return Err(Attempt::Retry {
@@ -302,10 +357,6 @@ async fn fetch(job: &Job, idx: usize, from: u64, end: u64) -> Result<(), Attempt
     })
 }
 
-fn s_u16(s: StatusCode) -> u16 {
-    s.as_u16()
-}
-
 /// Run workers for all unfinished segments, keeping at most `conn_limit` connections and
 /// splitting the largest remaining segment whenever a connection becomes idle.
 pub(crate) async fn run_segments(job: Arc<Job>) -> Result<(), WorkerError> {
@@ -350,7 +401,16 @@ pub(crate) async fn run_segments(job: Arc<Job>) -> Result<(), WorkerError> {
             .active_connections
             .store(running.len() as u32, Ordering::Relaxed);
 
-        let Some(joined) = set.join_next().await else {
+        let joined = tokio::select! {
+            j = set.join_next() => j,
+            _ = tokio::time::sleep(RESTORE_CHECK) => {
+                if job.shared.restore_connection() {
+                    tracing::info!("server calm again, adding a connection");
+                }
+                continue;
+            }
+        };
+        let Some(joined) = joined else {
             break;
         };
         let (idx, result) = match joined {
@@ -365,23 +425,13 @@ pub(crate) async fn run_segments(job: Arc<Job>) -> Result<(), WorkerError> {
         };
         running.retain(|&i| i != idx);
         match result {
-            Ok(()) | Err(WorkerError::Cancelled) => {}
+            Ok(()) | Err(WorkerError::Cancelled) | Err(WorkerError::Yield) => {}
             Err(e) => {
                 job.cancel.cancel();
                 set.shutdown().await;
                 job.shared.active_connections.store(0, Ordering::Relaxed);
                 return Err(e);
             }
-        }
-        // Back off when the server keeps telling us it is overloaded.
-        if job.shared.throttled.swap(0, Ordering::Relaxed) >= 2 && limit > 1 {
-            job.shared
-                .conn_limit
-                .store(limit as u32 - 1, Ordering::Relaxed);
-            tracing::info!(
-                connections = limit - 1,
-                "server throttling, reducing connections"
-            );
         }
     }
     job.shared.active_connections.store(0, Ordering::Relaxed);

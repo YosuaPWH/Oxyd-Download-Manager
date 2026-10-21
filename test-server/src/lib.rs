@@ -10,12 +10,15 @@
 //! - `etag=S` ETag value (default derived from size)
 //! - `name=S` filename sent via `Content-Disposition`
 //! - `nolen=1` omit `Content-Length` (chunked)
+//! - `maxconn=N` answer 429 while N bodies are already being sent
 
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::Body;
-use axum::extract::{Path, Query};
+use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -49,12 +52,34 @@ pub struct Opts {
     etag: Option<String>,
     name: Option<String>,
     nolen: Option<u8>,
+    maxconn: Option<usize>,
 }
 
-pub fn router() -> Router {
+/// Counters shared by all requests of one server.
+#[derive(Debug, Default)]
+pub struct Stats {
+    /// Bodies currently being sent.
+    pub active: AtomicUsize,
+    /// Requests refused with 429 because of `maxconn`.
+    pub rejected: AtomicUsize,
+    /// Highest number of bodies sent at the same time.
+    pub peak: AtomicUsize,
+}
+
+/// Decrements `Stats::active` when the body is dropped.
+struct Slot(Arc<Stats>);
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.0.active.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+pub fn router(stats: Arc<Stats>) -> Router {
     Router::new()
         .route("/file/:size", get(serve_file).head(serve_file))
         .route("/redirect/:size", get(redirect).head(redirect))
+        .with_state(stats)
 }
 
 async fn redirect(Path(size): Path<u64>) -> Response {
@@ -82,6 +107,7 @@ fn parse_range(headers: &HeaderMap, size: u64) -> Option<(u64, u64)> {
 }
 
 async fn serve_file(
+    State(stats): State<Arc<Stats>>,
     method: Method,
     Path(size): Path<u64>,
     Query(o): Query<Opts>,
@@ -137,14 +163,23 @@ async fn serve_file(
         return b.body(Body::empty()).unwrap();
     }
 
+    let active = stats.active.fetch_add(1, Ordering::SeqCst) + 1;
+    let slot = Slot(stats.clone());
+    if o.maxconn.is_some_and(|max| active > max) {
+        drop(slot);
+        stats.rejected.fetch_add(1, Ordering::SeqCst);
+        return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "1")]).into_response();
+    }
+    stats.peak.fetch_max(active, Ordering::SeqCst);
+
     let rate = o.rate;
     let drop = o.drop.unwrap_or(0.0).clamp(0.0, 1.0);
-    let body = stream::unfold((start, len), move |(pos, left)| async move {
+    let body = stream::unfold((start, len, slot), move |(pos, left, slot)| async move {
         if left == 0 {
             return None;
         }
         if drop > 0.0 && pos != start && rand::thread_rng().gen_bool(drop) {
-            return Some((Err(std::io::Error::other("dropped")), (pos, 0)));
+            return Some((Err(std::io::Error::other("dropped")), (pos, 0, slot)));
         }
         let n = (left as usize).min(CHUNK);
         if let Some(rate) = rate {
@@ -153,17 +188,27 @@ async fn serve_file(
         }
         let mut buf = vec![0u8; n];
         fill(pos, &mut buf);
-        Some((Ok(Bytes::from(buf)), (pos + n as u64, left - n as u64)))
+        Some((
+            Ok(Bytes::from(buf)),
+            (pos + n as u64, left - n as u64, slot),
+        ))
     });
     b.body(Body::from_stream(body)).unwrap()
 }
 
 /// Start the server on `addr` (use port 0 for a random port). Returns the bound address.
 pub async fn spawn(addr: SocketAddr) -> std::io::Result<SocketAddr> {
+    Ok(spawn_with_stats(addr).await?.0)
+}
+
+/// Like [`spawn`], also returning the server's counters.
+pub async fn spawn_with_stats(addr: SocketAddr) -> std::io::Result<(SocketAddr, Arc<Stats>)> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let local = listener.local_addr()?;
+    let stats = Arc::new(Stats::default());
+    let app = router(stats.clone());
     tokio::spawn(async move {
-        let _ = axum::serve(listener, router()).await;
+        let _ = axum::serve(listener, app).await;
     });
-    Ok(local)
+    Ok((local, stats))
 }

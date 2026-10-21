@@ -940,6 +940,7 @@ impl Manager {
                 }
                 Err(WorkerError::RangeUnsupported) => break Err(Error::RangeUnsupported),
                 Err(WorkerError::Fatal(e)) => break Err(e),
+                Err(WorkerError::Yield) => unreachable!("run_segments absorbs yields"),
             }
         };
 

@@ -576,3 +576,25 @@ async fn temporary_failures_resume_after_app_restart() {
     let m = Manager::open(&db).await.unwrap();
     assert_completed(&wait(&m, &id).await, MB);
 }
+
+#[tokio::test]
+async fn backs_off_when_server_limits_connections() {
+    let (addr, stats) = test_server::spawn_with_stats(SocketAddr::from(([127, 0, 0, 1], 0)))
+        .await
+        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let size = 8 * MB;
+    let id = add(
+        &m,
+        format!("http://{addr}/file/{size}?rate=1048576&maxconn=2"),
+        8,
+    );
+    assert_completed(&wait(&m, &id).await, size);
+    let rejected = stats.rejected.load(std::sync::atomic::Ordering::SeqCst);
+    println!("429 answers: {rejected}");
+    assert!(
+        rejected <= 8,
+        "kept hammering the server: {rejected} rejections"
+    );
+}
