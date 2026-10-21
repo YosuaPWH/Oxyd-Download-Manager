@@ -66,9 +66,13 @@
     menu = { x: Math.min(e.clientX, innerWidth - 230), y: Math.min(e.clientY, innerHeight - 330), d };
   }
 
-  function act(fn: () => Promise<unknown> | void) {
+  /** Runs a menu action on the menu's download. The download is taken before the menu closes:
+   *  `{@const d = menu.d}` is re-read on use and would be null afterwards. */
+  function act(fn: (d: DownloadInfo) => Promise<unknown> | void) {
+    if (!menu) return;
+    const d = menu.d;
     menu = null;
-    void run(async () => fn());
+    void run(async () => fn(d));
   }
 
   const statusClass: Record<string, string> = {
@@ -154,31 +158,31 @@
   {@const d = menu.d}
   <div class="menu" role="menu" tabindex="-1" style:left="{menu.x}px" style:top="{menu.y}px" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.key === "Escape" && (menu = null)}>
     {#if d.status === "completed"}
-      <button role="menuitem" onclick={() => act(() => api.openFile(d.id))}><Icon name="file" />{t("act.open")}</button>
+      <button role="menuitem" onclick={() => act((d) => api.openFile(d.id))}><Icon name="file" />{t("act.open")}</button>
     {/if}
-    <button role="menuitem" onclick={() => act(() => api.openFolder(d.id))}><Icon name="folder" />{t("act.folder")}</button>
-    <button role="menuitem" onclick={() => act(() => api.copy(d.url))}><Icon name="copy" />{t("act.copy")}</button>
+    <button role="menuitem" onclick={() => act((d) => api.openFolder(d.id))}><Icon name="folder" />{t("act.folder")}</button>
+    <button role="menuitem" onclick={() => act((d) => api.copy(d.url))}><Icon name="copy" />{t("act.copy")}</button>
     <hr />
     {#if canStart(d)}
-      <button role="menuitem" onclick={() => act(() => api.start(d.id))}><Icon name="play" />{t("act.resume")}</button>
+      <button role="menuitem" onclick={() => act((d) => api.start(d.id))}><Icon name="play" />{t("act.resume")}</button>
     {/if}
     {#if canPause(d)}
-      <button role="menuitem" onclick={() => act(() => api.pause(d.id))}><Icon name="pause" />{t("act.pause")}</button>
+      <button role="menuitem" onclick={() => act((d) => api.pause(d.id))}><Icon name="pause" />{t("act.pause")}</button>
     {/if}
     {#if d.status !== "completed" && d.status !== "cancelled"}
-      <button role="menuitem" onclick={() => act(() => api.cancel(d.id))}><Icon name="stop" />{t("act.cancel")}</button>
+      <button role="menuitem" onclick={() => act((d) => api.cancel(d.id))}><Icon name="stop" />{t("act.cancel")}</button>
     {/if}
     {#if d.status !== "completed" && d.status !== "cancelled"}
-      <button role="menuitem" onclick={() => act(() => beginRefresh(d))}><Icon name="link" />{t("refresh.fromBrowser")}</button>
+      <button role="menuitem" onclick={() => act((d) => beginRefresh(d))}><Icon name="link" />{t("refresh.fromBrowser")}</button>
     {/if}
     {#if d.status === "failed" || d.status === "paused" || d.status === "completed"}
-      <button role="menuitem" onclick={() => act(() => api.restart(d.id))}><Icon name="refresh" />{t("act.restart")}</button>
+      <button role="menuitem" onclick={() => act((d) => api.restart(d.id))}><Icon name="refresh" />{t("act.restart")}</button>
     {/if}
     <hr />
-    <button role="menuitem" onclick={() => act(() => api.move(d.id, -1))}><Icon name="up" />{t("act.up")}</button>
-    <button role="menuitem" onclick={() => act(() => api.move(d.id, 1))}><Icon name="down" />{t("act.down")}</button>
+    <button role="menuitem" onclick={() => act((d) => api.move(d.id, -1))}><Icon name="up" />{t("act.up")}</button>
+    <button role="menuitem" onclick={() => act((d) => api.move(d.id, 1))}><Icon name="down" />{t("act.down")}</button>
     <hr />
-    <button role="menuitem" class="danger" onclick={() => act(() => askRemove(d))}><Icon name="trash" />{t("act.remove")}</button>
+    <button role="menuitem" class="danger" onclick={() => act((d) => askRemove(d))}><Icon name="trash" />{t("act.remove")}</button>
   </div>
 {/if}
 
