@@ -1,0 +1,410 @@
+//! End-to-end tests of the engine against the local test server.
+
+use std::net::SocketAddr;
+use std::path::Path;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use oxyd_core::store::Store;
+use oxyd_core::{DownloadInfo, Manager, NewDownload, RequestHeaders, Settings, Status};
+
+const MB: u64 = 1024 * 1024;
+
+async fn server() -> String {
+    let addr = test_server::spawn(SocketAddr::from(([127, 0, 0, 1], 0)))
+        .await
+        .unwrap();
+    format!("http://{addr}")
+}
+
+fn settings(dir: &Path) -> Settings {
+    Settings {
+        download_dir: dir.to_path_buf(),
+        ..Settings::default()
+    }
+}
+
+async fn manager(dir: &Path) -> Arc<Manager> {
+    let m = Manager::with_store(Store::open_in_memory().unwrap()).unwrap();
+    m.set_settings(settings(dir)).unwrap();
+    m
+}
+
+fn add(m: &Manager, url: String, connections: u32) -> String {
+    m.add(NewDownload {
+        url,
+        connections: Some(connections),
+        start: true,
+        ..Default::default()
+    })
+    .unwrap()
+    .record
+    .id
+}
+
+async fn wait(m: &Manager, id: &str) -> DownloadInfo {
+    tokio::time::timeout(Duration::from_secs(60), m.wait(id))
+        .await
+        .expect("download timed out")
+        .unwrap()
+}
+
+/// Wait until at least `bytes` were downloaded.
+async fn wait_progress(m: &Manager, id: &str, bytes: u64) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while m.get(id).unwrap().record.downloaded < bytes {
+        assert!(Instant::now() < deadline, "no progress");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+fn assert_content(path: &Path, size: u64) {
+    let data = std::fs::read(path).unwrap();
+    assert_eq!(data.len() as u64, size, "size of {}", path.display());
+    let mut expected = vec![0u8; size as usize];
+    test_server::fill(0, &mut expected);
+    assert!(data == expected, "content of {} differs", path.display());
+    assert!(!oxyd_core::filename::part_path(path).exists());
+}
+
+fn assert_completed(info: &DownloadInfo, size: u64) {
+    assert_eq!(
+        info.record.status,
+        Status::Completed,
+        "error: {:?}",
+        info.record.error
+    );
+    assert_content(&info.record.save_path, size);
+}
+
+#[tokio::test]
+async fn segmented_download_matches_source() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let size = 12 * MB + 12345;
+    let id = add(&m, format!("{base}/file/{size}?name=big.bin"), 8);
+    let info = wait(&m, &id).await;
+    assert_completed(&info, size);
+    assert_eq!(info.record.filename, "big.bin");
+    assert!(info.record.resumable);
+    assert!(info.record.headers.is_empty());
+}
+
+#[tokio::test]
+async fn parallel_connections_beat_per_connection_limit() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let size = 8 * MB;
+    // 1 MB/s per connection: a single connection would need 8 s.
+    let t = Instant::now();
+    let id = add(&m, format!("{base}/file/{size}?rate=1048576"), 8);
+    let info = wait(&m, &id).await;
+    assert_completed(&info, size);
+    let secs = t.elapsed().as_secs_f64();
+    assert!(secs < 4.0, "took {secs:.1}s");
+}
+
+#[tokio::test]
+async fn falls_back_without_range_support() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let size = 3 * MB + 7;
+    let id = add(
+        &m,
+        format!("{base}/file/{size}?range=0&name=norange.bin"),
+        8,
+    );
+    let info = wait(&m, &id).await;
+    assert_completed(&info, size);
+    assert!(!info.record.resumable);
+}
+
+#[tokio::test]
+async fn handles_unknown_length() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let size = MB + 99;
+    let id = add(&m, format!("{base}/file/{size}?range=0&nolen=1"), 8);
+    let info = wait(&m, &id).await;
+    assert_completed(&info, size);
+    assert_eq!(info.record.total_size, Some(size));
+}
+
+#[tokio::test]
+async fn survives_dropped_connections() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let size = 6 * MB;
+    let id = add(&m, format!("{base}/file/{size}?drop=0.01"), 6);
+    let info = wait(&m, &id).await;
+    assert_completed(&info, size);
+}
+
+#[tokio::test]
+async fn retries_service_unavailable() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let size = 4 * MB;
+    // The probe may hit a 503 too, so retry the whole download a few times.
+    let url = format!("{base}/file/{size}?err=0.25");
+    let id = add(&m, url, 4);
+    let mut info = wait(&m, &id).await;
+    for _ in 0..5 {
+        if info.record.status == Status::Completed {
+            break;
+        }
+        m.start(&id).unwrap();
+        info = wait(&m, &id).await;
+    }
+    assert_completed(&info, size);
+}
+
+#[tokio::test]
+async fn follows_redirects() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let id = add(&m, format!("{base}/redirect/{}", 2 * MB), 4);
+    let info = wait(&m, &id).await;
+    assert_completed(&info, 2 * MB);
+    assert_eq!(info.record.filename, "redirected.bin");
+    assert!(info
+        .record
+        .final_url
+        .unwrap()
+        .contains("/file/2097152?name=redirected.bin"));
+}
+
+#[tokio::test]
+async fn reports_http_errors() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let id = add(&m, format!("{base}/file/10?status=404"), 1);
+    let info = wait(&m, &id).await;
+    assert_eq!(info.record.status, Status::Failed);
+    assert!(info.record.error.unwrap().contains("404"));
+
+    let id = add(&m, format!("{base}/file/10?status=403"), 1);
+    let info = wait(&m, &id).await;
+    assert_eq!(info.record.status, Status::Failed);
+    assert!(info.record.error.unwrap().contains("expired"));
+}
+
+#[tokio::test]
+async fn pause_and_resume_keeps_data_intact() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let size = 4 * MB;
+    let id = add(&m, format!("{base}/file/{size}?rate=2097152"), 4);
+    wait_progress(&m, &id, MB).await;
+    m.pause(&id).unwrap();
+    let paused = wait(&m, &id).await;
+    assert_eq!(paused.record.status, Status::Paused);
+    assert!(paused.record.downloaded > 0 && paused.record.downloaded < size);
+    m.start(&id).unwrap();
+    let info = wait(&m, &id).await;
+    assert_completed(&info, size);
+}
+
+#[tokio::test]
+async fn resumes_after_restart_of_the_app() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("oxyd.db");
+    let dl = dir.path().join("dl");
+    let size = 4 * MB;
+    let id;
+    {
+        let m = Manager::open(&db).await.unwrap();
+        m.set_settings(settings(&dl)).unwrap();
+        id = add(&m, format!("{base}/file/{size}?rate=2097152"), 4);
+        wait_progress(&m, &id, MB).await;
+        m.shutdown().await;
+        let r = m.get(&id).unwrap().record;
+        assert_eq!(r.status, Status::Queued);
+        assert!(r.downloaded > 0);
+    }
+    let m = Manager::open(&db).await.unwrap();
+    let info = wait(&m, &id).await;
+    assert_completed(&info, size);
+}
+
+#[tokio::test]
+async fn detects_changed_remote_file() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("oxyd.db");
+    let size = 4 * MB;
+    let id;
+    {
+        let m = Manager::open(&db).await.unwrap();
+        m.set_settings(settings(dir.path())).unwrap();
+        id = add(&m, format!("{base}/file/{size}?rate=2097152"), 2);
+        wait_progress(&m, &id, MB).await;
+        m.pause(&id).unwrap();
+        wait(&m, &id).await;
+        m.shutdown().await;
+    }
+    {
+        // The server now reports a new ETag for the same URL.
+        let store = Store::open(&db).unwrap();
+        let mut r = store.get(&id).unwrap().unwrap();
+        r.url = format!("{base}/file/{size}?etag=%22v2%22");
+        store.update(&r).unwrap();
+    }
+    let m = Manager::open(&db).await.unwrap();
+    m.start(&id).unwrap();
+    let info = wait(&m, &id).await;
+    assert_eq!(info.record.status, Status::Failed);
+    assert!(info.record.error.unwrap().contains("changed"));
+
+    // Restarting discards the stale part file and downloads the new version.
+    m.restart(&id).unwrap();
+    let info = wait(&m, &id).await;
+    assert_completed(&info, size);
+}
+
+#[tokio::test]
+async fn refresh_link_keeps_progress() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let size = 4 * MB;
+    let id = add(
+        &m,
+        format!("{base}/file/{size}?rate=2097152&etag=%22a%22"),
+        2,
+    );
+    wait_progress(&m, &id, MB).await;
+    m.pause(&id).unwrap();
+    let before = wait(&m, &id).await.record.downloaded;
+
+    let err = m
+        .refresh_url(&id, &format!("{base}/file/{}", size + 1))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), "refresh_mismatch");
+
+    let info = m
+        .refresh_url(&id, &format!("{base}/file/{size}?etag=%22b%22"))
+        .await
+        .unwrap();
+    assert_eq!(info.record.downloaded, before);
+    m.start(&id).unwrap();
+    assert_completed(&wait(&m, &id).await, size);
+}
+
+#[tokio::test]
+async fn cancel_deletes_part_file() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let id = add(&m, format!("{base}/file/{}?rate=1048576", 4 * MB), 2);
+    wait_progress(&m, &id, 1).await;
+    let path = m.get(&id).unwrap().record.save_path;
+    m.cancel(&id).unwrap();
+    let info = wait(&m, &id).await;
+    assert_eq!(info.record.status, Status::Cancelled);
+    assert!(!oxyd_core::filename::part_path(&path).exists());
+    m.remove(&id, false).unwrap();
+    assert!(m.get(&id).is_err());
+}
+
+#[tokio::test]
+async fn duplicate_names_get_renamed() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    std::fs::write(dir.path().join("dup.bin"), b"old").unwrap();
+    let a = add(&m, format!("{base}/file/1000?name=dup.bin"), 1);
+    let b = add(&m, format!("{base}/file/1000?name=dup.bin"), 1);
+    let a = wait(&m, &a).await;
+    let b = wait(&m, &b).await;
+    assert_completed(&a, 1000);
+    assert_completed(&b, 1000);
+    let mut names = vec![a.record.filename, b.record.filename];
+    names.sort();
+    assert_eq!(names, ["dup (1).bin", "dup (2).bin"]);
+    assert_eq!(std::fs::read(dir.path().join("dup.bin")).unwrap(), b"old");
+}
+
+#[tokio::test]
+async fn respects_queue_limit() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    m.set_settings(Settings {
+        max_active: 1,
+        ..settings(dir.path())
+    })
+    .unwrap();
+    let a = add(&m, format!("{base}/file/{}?rate=1048576", MB), 1);
+    let b = add(&m, format!("{base}/file/{}", MB), 1);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(m.get(&b).unwrap().record.status, Status::Queued);
+    wait(&m, &a).await;
+    assert_completed(&wait(&m, &b).await, MB);
+}
+
+#[tokio::test]
+async fn global_speed_limit_applies() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    m.set_settings(Settings {
+        speed_limit: Some(MB),
+        ..settings(dir.path())
+    })
+    .unwrap();
+    let t = Instant::now();
+    let id = add(&m, format!("{base}/file/{}", 2 * MB), 4);
+    assert_completed(&wait(&m, &id).await, 2 * MB);
+    assert!(t.elapsed() > Duration::from_millis(1500));
+}
+
+#[tokio::test]
+async fn sends_custom_headers_and_checksum() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let size = 1000u64;
+    let mut data = vec![0u8; size as usize];
+    test_server::fill(0, &mut data);
+    use sha2::Digest;
+    let digest = hex::encode(sha2::Sha256::digest(&data));
+    let info = m
+        .add(NewDownload {
+            url: format!("{base}/file/{size}"),
+            filename: Some("ok.bin".into()),
+            headers: RequestHeaders {
+                cookie: Some("session=1".into()),
+                referer: Some("https://example.com".into()),
+                ..Default::default()
+            },
+            checksum: Some(format!("sha256:{digest}")),
+            start: true,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_completed(&wait(&m, &info.record.id).await, size);
+
+    let bad = m
+        .add(NewDownload {
+            url: format!("{base}/file/{size}"),
+            filename: Some("bad.bin".into()),
+            checksum: Some("md5:00000000000000000000000000000000".into()),
+            start: true,
+            ..Default::default()
+        })
+        .unwrap();
+    let info = wait(&m, &bad.record.id).await;
+    assert_eq!(info.record.status, Status::Failed);
+}
