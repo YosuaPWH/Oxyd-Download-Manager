@@ -7,7 +7,9 @@ Dokumen ini menjabarkan langkah pengerjaan Oxyd berdasarkan [PRD.md](PRD.md). Se
 ## Status Implementasi
 
 Fase 0–7 serta fitur v0.2 (fase 9) dan v0.3 (fase 10) sudah diimplementasikan dan diuji
-otomatis. Yang masih terbuka: uji manual di Chrome/Edge dan Windows bersih, uji end-to-end
+otomatis. Alur bridge → named pipe → aplikasi → download sudah diuji end-to-end dengan
+`browser_sim` (aplikasi siap menerima link ±0,7 detik setelah dijalankan bridge) dan
+installer NSIS berukuran ±5 MB. Yang masih terbuka: uji manual di Chrome/Edge dan Windows bersih, uji end-to-end
 dengan situs nyata, pengukuran metrik PRD §11, dan rilis `v0.1.0`.
 
 Catatan perbedaan dari rencana awal:
@@ -173,7 +175,7 @@ oxyd-download-manager/
 - [x] CLI: `oxyd-cli list`, `pause`, `resume` untuk pengujian.
 
 **Pengujian**
-- [ ] Kill proses (`taskkill /F`) di tengah download 100 kali secara acak, lalu resume: hash selalu cocok.
+- [x] Kill proses (`taskkill /F`) di tengah download 100 kali secara acak, lalu resume: hash selalu cocok. *(`scripts/kill-resume-test.ps1`: 24 + 83 kill, file 32/64 MB utuh)*
 - [x] Ubah ETag di server di antara pause dan resume: terdeteksi.
 
 **Selesai jika:** tidak ada satu pun file korup pada pengujian kill/resume.
