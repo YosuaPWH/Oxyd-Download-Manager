@@ -223,6 +223,7 @@ pub fn run() {
             commands::find_unfinished,
             commands::resume_pending,
             commands::resume_with_url,
+            commands::clear_completed,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Oxyd");

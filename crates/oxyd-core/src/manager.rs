@@ -559,6 +559,16 @@ impl Manager {
         Ok(())
     }
 
+    /// Remove every completed download from the list (files stay on disk). Returns how
+    /// many were removed.
+    pub fn clear_completed(&self) -> Result<usize> {
+        let done = self.store.list_by_status(&[Status::Completed])?;
+        for r in &done {
+            self.purge(r, false);
+        }
+        Ok(done.len())
+    }
+
     fn purge(&self, r: &DownloadRecord, delete_file: bool) {
         if !r.save_path.as_os_str().is_empty() {
             let _ = std::fs::remove_file(part_path(&r.save_path));

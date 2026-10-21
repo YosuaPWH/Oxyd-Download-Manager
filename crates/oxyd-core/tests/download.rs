@@ -694,3 +694,24 @@ async fn finds_the_unfinished_download_a_link_continues() {
         "completed downloads are not offered"
     );
 }
+
+#[tokio::test]
+async fn clears_completed_downloads_but_keeps_files() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let done = add(&m, format!("{base}/file/1000?name=keep.bin"), 1);
+    let done = wait(&m, &done).await;
+    let later = m
+        .add(NewDownload {
+            url: format!("{base}/file/1000?name=later.bin"),
+            ..Default::default()
+        })
+        .unwrap()
+        .record
+        .id;
+    assert_eq!(m.clear_completed().unwrap(), 1);
+    let left: Vec<String> = m.list().unwrap().into_iter().map(|d| d.record.id).collect();
+    assert_eq!(left, [later]);
+    assert!(done.record.save_path.exists(), "file must stay on disk");
+}

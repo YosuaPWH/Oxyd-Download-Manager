@@ -228,6 +228,7 @@ pub struct ConfirmOptions {
     connections: Option<u32>,
     on_conflict: Option<DuplicatePolicy>,
     size_hint: Option<u64>,
+    checksum: Option<String>,
 }
 
 #[tauri::command]
@@ -249,6 +250,7 @@ pub fn confirm_pending(
         size_hint: options.size_hint.or(p.size),
         start: options.start,
         on_conflict: options.on_conflict,
+        checksum: options.checksum,
         ..Default::default()
     })?)
 }
@@ -344,4 +346,9 @@ pub async fn resume_with_url(
     state.mgr.refresh_url(&id, &url).await?;
     state.mgr.start(&id)?;
     Ok(state.mgr.get(&id)?)
+}
+
+#[tauri::command]
+pub fn clear_completed(state: State<'_, AppState>) -> Res<usize> {
+    Ok(state.mgr.clear_completed()?)
 }
