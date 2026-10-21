@@ -269,8 +269,8 @@ pub fn begin_refresh(
     id: String,
 ) -> Res<Option<String>> {
     let d = state.mgr.get(&id)?;
-    if d.record.status.is_active() {
-        return Err(CmdError::other("invalid_state", "pause the download first"));
+    if d.record.status == oxyd_core::Status::Completed {
+        return Err(CmdError::other("invalid_state", "already completed"));
     }
     state.set_refresh(Some(RefreshTarget {
         id,

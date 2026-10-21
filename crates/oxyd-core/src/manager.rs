@@ -588,7 +588,8 @@ impl Manager {
 
     /// Like [`Manager::refresh_url`], also replacing the request headers (fresh cookies and
     /// referer from the browser) when `headers` is given: an expired link usually comes with
-    /// an expired session too.
+    /// an expired session too. A running download (typically still retrying its dead link)
+    /// is paused first; progress is kept.
     pub async fn refresh_link(
         &self,
         id: &str,
@@ -596,7 +597,8 @@ impl Manager {
         headers: Option<RequestHeaders>,
     ) -> Result<DownloadInfo> {
         if self.tasks().contains_key(id) {
-            return Err(Error::InvalidState("pause the download first".into()));
+            self.pause(id)?;
+            self.wait(id).await?;
         }
         self.clear_retry(id);
         let mut r = self.record(id)?;
@@ -625,20 +627,24 @@ impl Manager {
 
     /// The unfinished download that a link with `filename` and `size` most likely continues:
     /// same file name (ignoring a ` (n)` added for duplicates) and, when both are known, the
-    /// same size. Running, completed and cancelled downloads are ignored; the one with the
-    /// most progress wins.
+    /// same size. Running downloads count too: a dead link is usually still being retried
+    /// when the user fetches a new one. The one with the most progress wins.
     pub fn find_unfinished(
         &self,
         filename: &str,
         size: Option<u64>,
     ) -> Result<Option<DownloadInfo>> {
         let wanted = base_name_key(&filename::sanitize(filename));
-        let tasks: Vec<String> = self.tasks().keys().cloned().collect();
         let best = self
             .store
-            .list_by_status(&[Status::Paused, Status::Failed, Status::Queued])?
+            .list_by_status(&[
+                Status::Paused,
+                Status::Failed,
+                Status::Queued,
+                Status::Probing,
+                Status::Downloading,
+            ])?
             .into_iter()
-            .filter(|r| !tasks.contains(&r.id))
             .filter(|r| !r.filename.is_empty() && base_name_key(&r.filename) == wanted)
             .filter(|r| match (r.total_size, size) {
                 (Some(a), Some(b)) => a == b,

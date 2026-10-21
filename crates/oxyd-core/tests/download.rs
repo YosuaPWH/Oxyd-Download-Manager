@@ -674,8 +674,9 @@ async fn finds_the_unfinished_download_a_link_continues() {
     );
     wait_progress(&m, &id, MB).await;
 
-    // Running downloads are not offered.
-    assert!(m.find_unfinished("Game.zip", Some(size)).unwrap().is_none());
+    // Running downloads are offered too (a dead link is often still being retried).
+    let running = m.find_unfinished("Game.zip", Some(size)).unwrap().unwrap();
+    assert_eq!(running.record.id, id);
     m.pause(&id).unwrap();
     wait(&m, &id).await;
 
@@ -714,4 +715,27 @@ async fn clears_completed_downloads_but_keeps_files() {
     let left: Vec<String> = m.list().unwrap().into_iter().map(|d| d.record.id).collect();
     assert_eq!(left, [later]);
     assert!(done.record.save_path.exists(), "file must stay on disk");
+}
+
+#[tokio::test]
+async fn refresh_link_takes_over_a_running_download() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let size = 4 * MB;
+    let id = add(
+        &m,
+        format!("{base}/file/{size}?rate=524288&name=run.bin"),
+        2,
+    );
+    wait_progress(&m, &id, MB / 2).await;
+    // Still downloading when the new link arrives: it is paused, relinked and kept.
+    let info = m
+        .refresh_link(&id, &format!("{base}/file/{size}?name=run.bin"), None)
+        .await
+        .unwrap();
+    assert_eq!(info.record.status, Status::Paused);
+    assert!(info.record.downloaded >= MB / 2, "progress kept");
+    m.start(&id).unwrap();
+    assert_completed(&wait(&m, &id).await, size);
 }

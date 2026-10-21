@@ -37,7 +37,8 @@
     });
   }
 
-  const canRefresh = $derived(!!d && (d.status === "paused" || d.status === "failed"));
+  // Running downloads too: a dead link is usually still being retried.
+  const canRefresh = $derived(!!d && d.status !== "completed" && d.status !== "cancelled");
 </script>
 
 {#if d}

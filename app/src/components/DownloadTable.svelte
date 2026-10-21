@@ -168,7 +168,7 @@
     {#if d.status !== "completed" && d.status !== "cancelled"}
       <button role="menuitem" onclick={() => act(() => api.cancel(d.id))}><Icon name="stop" />{t("act.cancel")}</button>
     {/if}
-    {#if d.status === "failed" || d.status === "paused"}
+    {#if d.status !== "completed" && d.status !== "cancelled"}
       <button role="menuitem" onclick={() => act(() => beginRefresh(d))}><Icon name="link" />{t("refresh.fromBrowser")}</button>
     {/if}
     {#if d.status === "failed" || d.status === "paused" || d.status === "completed"}
