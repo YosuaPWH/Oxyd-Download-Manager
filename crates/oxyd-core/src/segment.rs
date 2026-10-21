@@ -97,6 +97,56 @@ pub fn split_largest(segments: &mut Vec<Segment>, candidates: &[usize]) -> Optio
     Some(segments.len() - 1)
 }
 
+/// Smallest part kept by either side of a speed-aware split. Covers what a worker may
+/// already have buffered past its recorded position (one block in memory, one in flight).
+pub const MIN_PART: u64 = 512 * 1024;
+/// Segments expected to finish sooner than this are not worth a new connection.
+pub const MIN_ETA_SECS: f64 = 1.0;
+
+/// Speed-aware dynamic segmentation. `running` pairs each running segment with the
+/// measured speed of its connection (bytes/s, `None` while unknown).
+///
+/// Picks the segment that will take longest to finish (remaining / speed) and splits it
+/// so both parts finish together: the current connection keeps a share proportional to
+/// its speed against a new connection assumed to run at the average speed. Without any
+/// speed data it falls back to [`split_largest`].
+pub fn split_slowest(
+    segments: &mut Vec<Segment>,
+    running: &[(usize, Option<f64>)],
+) -> Option<usize> {
+    let known: Vec<f64> = running
+        .iter()
+        .filter_map(|&(_, r)| r)
+        .filter(|&r| r > 0.0)
+        .collect();
+    if known.is_empty() {
+        let idxs: Vec<usize> = running.iter().map(|&(i, _)| i).collect();
+        return split_largest(segments, &idxs);
+    }
+    let avg = known.iter().sum::<f64>() / known.len() as f64;
+    let (idx, eta, speed) = running
+        .iter()
+        .filter(|&&(i, _)| {
+            segments[i].end != UNKNOWN_END && segments[i].remaining() >= 2 * MIN_PART
+        })
+        .map(|&(i, r)| {
+            let speed = r.filter(|&r| r > 0.0).unwrap_or(avg);
+            (i, segments[i].remaining() as f64 / speed, speed)
+        })
+        .max_by(|a, b| a.1.total_cmp(&b.1))?;
+    if eta < MIN_ETA_SECS {
+        return None;
+    }
+    let seg = segments[idx];
+    let rem = seg.remaining();
+    let keep = ((rem as f64) * speed / (speed + avg)) as u64;
+    let keep = keep.clamp(MIN_PART, rem - MIN_PART);
+    let mid = seg.pos() + keep;
+    segments[idx].end = mid - 1;
+    segments.push(Segment::new(mid, seg.end));
+    Some(segments.len() - 1)
+}
+
 pub fn total_downloaded(segments: &[Segment]) -> u64 {
     segments.iter().map(|s| s.downloaded).sum()
 }
@@ -154,6 +204,35 @@ mod tests {
         covers(&segs, size);
         // Both halves keep their remaining bytes balanced.
         assert!(segs[1].remaining().abs_diff(segs[2].remaining()) <= 1);
+    }
+
+    #[test]
+    fn splits_the_slowest_connection_proportionally() {
+        let mut segs = plan(32 * MIN_SEGMENT, 2);
+        segs[0].downloaded = 8 * MIN_SEGMENT; // 8 MiB left, fast connection
+        segs[1].downloaded = 12 * MIN_SEGMENT; // 4 MiB left, very slow connection
+        let fast = 4.0 * MIN_SEGMENT as f64;
+        let slow = 0.25 * MIN_SEGMENT as f64;
+        let new = split_slowest(&mut segs, &[(0, Some(fast)), (1, Some(slow))]).unwrap();
+        // The slow connection (16 s left) is relieved, not the one with more bytes left.
+        assert_eq!(segs[new].end, 32 * MIN_SEGMENT - 1);
+        assert_eq!(segs[1].end + 1, segs[new].start);
+        covers(&segs, 32 * MIN_SEGMENT);
+        // It keeps only a small share: slow / (slow + average).
+        let kept = segs[1].remaining();
+        let given = segs[new].remaining();
+        assert!(kept < given / 4, "kept {kept}, gave {given}");
+    }
+
+    #[test]
+    fn does_not_split_what_finishes_soon() {
+        let mut segs = plan(8 * MIN_SEGMENT, 1);
+        segs[0].downloaded = 6 * MIN_SEGMENT;
+        let fast = 10.0 * MIN_SEGMENT as f64; // 0.2 s left
+        assert!(split_slowest(&mut segs, &[(0, Some(fast))]).is_none());
+        // Small remainders are still split when they would take long.
+        let slow = 0.1 * MIN_SEGMENT as f64; // 20 s left
+        assert!(split_slowest(&mut segs, &[(0, Some(slow))]).is_some());
     }
 
     #[test]

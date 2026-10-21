@@ -1,5 +1,6 @@
 //! Segment workers and the per-download connection scheduler.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -37,6 +38,8 @@ pub struct Shared {
     created: Instant,
     /// Milliseconds after `created` of the last 429/503 answer (0 = never).
     last_throttle_ms: AtomicU64,
+    /// Per segment: when its current connection started and the bytes it wrote since.
+    rates: Mutex<HashMap<usize, (Instant, u64)>>,
 }
 
 impl Shared {
@@ -49,7 +52,30 @@ impl Shared {
             max_conn: connections.max(1),
             created: Instant::now(),
             last_throttle_ms: AtomicU64::new(0),
+            rates: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn rates(&self) -> std::sync::MutexGuard<'_, HashMap<usize, (Instant, u64)>> {
+        self.rates.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// A new connection starts on segment `idx`.
+    fn connection_started(&self, idx: usize) {
+        self.rates().insert(idx, (Instant::now(), 0));
+    }
+
+    fn record_bytes(&self, idx: usize, n: u64) {
+        if let Some(r) = self.rates().get_mut(&idx) {
+            r.1 += n;
+        }
+    }
+
+    /// Measured speed of the connection on `idx` in bytes/s, once it ran long enough.
+    fn speed(&self, idx: usize) -> Option<f64> {
+        let (since, bytes) = *self.rates().get(&idx)?;
+        let secs = since.elapsed().as_secs_f64();
+        (secs >= 0.5 && bytes > 0).then(|| bytes as f64 / secs)
     }
 
     fn note_throttle(&self) {
@@ -214,6 +240,7 @@ async fn worker(job: Arc<Job>, idx: usize) -> Result<(), WorkerError> {
 /// One HTTP request for the rest of segment `idx` starting at `from`.
 /// Returns `Ok` when the body ended (complete or not; the caller re-checks).
 async fn fetch(job: &Job, idx: usize, from: u64, end: u64) -> Result<(), Attempt> {
+    job.shared.connection_started(idx);
     let ranged = job.multi || from > 0;
     let mut rb = job.headers.apply(job.client.get(&job.url));
     if ranged {
@@ -401,6 +428,8 @@ impl<'a> SegmentWriter<'a> {
                 s.downloaded += s.remaining().min(len);
             }
         }
+        drop(segs);
+        self.job.shared.record_bytes(self.idx, len);
         self.progressed = true;
         Ok(())
     }
@@ -439,7 +468,9 @@ pub(crate) async fn run_segments(job: Arc<Job>) -> Result<(), WorkerError> {
                 spawn(&mut set, &mut running, idx);
             }
             while job.multi && running.len() < limit {
-                let new = segment::split_largest(&mut job.shared.segments(), &running);
+                let speeds: Vec<(usize, Option<f64>)> =
+                    running.iter().map(|&i| (i, job.shared.speed(i))).collect();
+                let new = segment::split_slowest(&mut job.shared.segments(), &speeds);
                 match new {
                     Some(idx) => spawn(&mut set, &mut running, idx),
                     None => break,
