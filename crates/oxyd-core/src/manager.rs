@@ -571,10 +571,26 @@ impl Manager {
     /// Replace an expired link while keeping progress. The new URL must point to a file of
     /// the same size.
     pub async fn refresh_url(&self, id: &str, url: &str) -> Result<DownloadInfo> {
+        self.refresh_link(id, url, None).await
+    }
+
+    /// Like [`Manager::refresh_url`], also replacing the request headers (fresh cookies and
+    /// referer from the browser) when `headers` is given: an expired link usually comes with
+    /// an expired session too.
+    pub async fn refresh_link(
+        &self,
+        id: &str,
+        url: &str,
+        headers: Option<RequestHeaders>,
+    ) -> Result<DownloadInfo> {
         if self.tasks().contains_key(id) {
             return Err(Error::InvalidState("pause the download first".into()));
         }
+        self.clear_retry(id);
         let mut r = self.record(id)?;
+        if let Some(h) = headers {
+            r.headers = h;
+        }
         let info = self.probe(url, &r.headers).await?;
         if r.downloaded > 0 && (r.total_size.is_none() || info.size != r.total_size) {
             return Err(Error::RefreshMismatch {
@@ -593,6 +609,31 @@ impl Manager {
         }
         self.save_and_emit(&r)?;
         Ok(self.info(r))
+    }
+
+    /// The unfinished download that a link with `filename` and `size` most likely continues:
+    /// same file name (ignoring a ` (n)` added for duplicates) and, when both are known, the
+    /// same size. Running, completed and cancelled downloads are ignored; the one with the
+    /// most progress wins.
+    pub fn find_unfinished(
+        &self,
+        filename: &str,
+        size: Option<u64>,
+    ) -> Result<Option<DownloadInfo>> {
+        let wanted = base_name_key(&filename::sanitize(filename));
+        let tasks: Vec<String> = self.tasks().keys().cloned().collect();
+        let best = self
+            .store
+            .list_by_status(&[Status::Paused, Status::Failed, Status::Queued])?
+            .into_iter()
+            .filter(|r| !tasks.contains(&r.id))
+            .filter(|r| !r.filename.is_empty() && base_name_key(&r.filename) == wanted)
+            .filter(|r| match (r.total_size, size) {
+                (Some(a), Some(b)) => a == b,
+                _ => true,
+            })
+            .max_by_key(|r| r.downloaded);
+        Ok(best.map(|r| self.info(r)))
     }
 
     pub fn set_speed_limit(&self, id: &str, limit: Option<u64>) -> Result<()> {
@@ -1089,6 +1130,22 @@ fn file_name(p: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// Lower-case file name without a ` (n)` duplicate counter: `Setup (2).EXE` -> `setup.exe`.
+fn base_name_key(name: &str) -> String {
+    let (stem, ext) = filename::split_ext(name);
+    let stem = match stem.rsplit_once(" (") {
+        Some((head, tail))
+            if tail.ends_with(')')
+                && tail.len() > 1
+                && tail[..tail.len() - 1].bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            head
+        }
+        _ => stem,
+    };
+    format!("{stem}{ext}").to_lowercase()
+}
+
 fn paths_eq(a: &Path, b: &Path) -> bool {
     if cfg!(windows) {
         a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
@@ -1113,4 +1170,19 @@ fn _assert_send_sync() {
     fn is<T: Send + Sync>() {}
     is::<Manager>();
     is::<Segment>();
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn base_name_key_ignores_duplicate_counter() {
+        assert_eq!(super::base_name_key("Setup (2).EXE"), "setup.exe");
+        assert_eq!(super::base_name_key("a.tar (1).gz"), "a.tar.gz");
+        assert_eq!(super::base_name_key("data (1).tar.gz"), "data.tar.gz");
+        assert_eq!(
+            super::base_name_key("notes (draft).txt"),
+            "notes (draft).txt"
+        );
+        assert_eq!(super::base_name_key("x ().zip"), "x ().zip");
+    }
 }

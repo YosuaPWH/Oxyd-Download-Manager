@@ -13,6 +13,7 @@
 //! - `maxconn=N` answer 429 while N bodies are already being sent
 //! - `jitter=1` give each connection a random rate between 1/4 and 2x `rate`
 //! - `latency=MS` wait MS milliseconds before answering (network round trip)
+//! - `cookie=S` answer 403 unless the `Cookie` header contains S (login session)
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -72,6 +73,7 @@ pub struct Opts {
     maxconn: Option<usize>,
     jitter: Option<u8>,
     latency: Option<u64>,
+    cookie: Option<String>,
 }
 
 /// Counters shared by all requests of one server.
@@ -137,6 +139,15 @@ async fn serve_file(
     stats.requests.fetch_add(1, Ordering::SeqCst);
     if let Some(ms) = o.latency {
         tokio::time::sleep(Duration::from_millis(ms)).await;
+    }
+    if let Some(need) = &o.cookie {
+        let sent = headers
+            .get(header::COOKIE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        if !sent.contains(need.as_str()) {
+            return StatusCode::FORBIDDEN.into_response();
+        }
     }
     if let Some(s) = o.status {
         return StatusCode::from_u16(s)

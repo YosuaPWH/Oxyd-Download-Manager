@@ -619,3 +619,78 @@ async fn small_downloads_need_a_single_request() {
         );
     }
 }
+
+#[tokio::test]
+async fn refresh_link_takes_new_session_cookies() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let size = 4 * MB;
+    let cookies = |v: &str| RequestHeaders {
+        cookie: Some(format!("session={v}")),
+        ..Default::default()
+    };
+    let id = m
+        .add(NewDownload {
+            url: format!("{base}/file/{size}?rate=2097152&cookie=s1&name=app.zip"),
+            headers: cookies("s1"),
+            connections: Some(2),
+            start: true,
+            ..Default::default()
+        })
+        .unwrap()
+        .record
+        .id;
+    wait_progress(&m, &id, MB).await;
+    m.pause(&id).unwrap();
+    let before = wait(&m, &id).await.record.downloaded;
+
+    // The site issued a new link that only works with the new session.
+    let new_url = format!("{base}/file/{size}?cookie=s2&name=app.zip");
+    let err = m.refresh_url(&id, &new_url).await.unwrap_err();
+    assert_eq!(err.code(), "link_expired", "old cookies must not work");
+
+    let info = m
+        .refresh_link(&id, &new_url, Some(cookies("s2")))
+        .await
+        .unwrap();
+    assert_eq!(info.record.downloaded, before, "progress kept");
+    m.start(&id).unwrap();
+    let done = wait(&m, &id).await;
+    assert_completed(&done, size);
+    assert_eq!(done.record.filename, "app.zip");
+}
+
+#[tokio::test]
+async fn finds_the_unfinished_download_a_link_continues() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let size = 4 * MB;
+    let id = add(
+        &m,
+        format!("{base}/file/{size}?rate=2097152&name=Game.zip"),
+        2,
+    );
+    wait_progress(&m, &id, MB).await;
+
+    // Running downloads are not offered.
+    assert!(m.find_unfinished("Game.zip", Some(size)).unwrap().is_none());
+    m.pause(&id).unwrap();
+    wait(&m, &id).await;
+
+    let found =
+        |name: &str, size: Option<u64>| m.find_unfinished(name, size).unwrap().map(|d| d.record.id);
+    assert_eq!(found("Game.zip", Some(size)).as_deref(), Some(id.as_str()));
+    assert_eq!(found("game (1).ZIP", None).as_deref(), Some(id.as_str()));
+    assert_eq!(found("Game.zip", Some(size + 1)), None, "different file");
+    assert_eq!(found("Other.zip", Some(size)), None);
+
+    m.start(&id).unwrap();
+    assert_completed(&wait(&m, &id).await, size);
+    assert_eq!(
+        found("Game.zip", Some(size)),
+        None,
+        "completed downloads are not offered"
+    );
+}
