@@ -30,6 +30,8 @@ const NO_ETA: u64 = u64::MAX;
 const MAX_AUTO_RETRIES: u32 = 30;
 const DEFAULT_RETRY_BASE: Duration = Duration::from_secs(30);
 const MAX_RETRY_DELAY: Duration = Duration::from_secs(600);
+/// Quick retries of the initial request after temporary network errors.
+const PROBE_RETRIES: [Duration; 2] = [Duration::from_millis(250), Duration::from_secs(1)];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -893,10 +895,23 @@ impl Manager {
         let (info, mut opened) = tokio::select! {
             _ = ctx.cancel.cancelled() => return Ok(false),
             r = async {
-                if resuming {
-                    probe::probe(&client, &rec.url, &rec.headers).await.map(|i| (i, None))
-                } else {
-                    probe::probe_open(&client, &rec.url, &rec.headers).await
+                // A connection reset or a busy server is often gone a moment later: retry
+                // quickly before failing (and leaving it to the slower automatic retry).
+                let mut attempt = 0;
+                loop {
+                    let r = if resuming {
+                        probe::probe(&client, &rec.url, &rec.headers).await.map(|i| (i, None))
+                    } else {
+                        probe::probe_open(&client, &rec.url, &rec.headers).await
+                    };
+                    match r {
+                        Err(e) if e.is_transient() && attempt < PROBE_RETRIES.len() => {
+                            tracing::debug!(id = %rec.id, "probe failed, retrying: {e}");
+                            tokio::time::sleep(PROBE_RETRIES[attempt]).await;
+                            attempt += 1;
+                        }
+                        r => break r,
+                    }
                 }
             } => r?,
         };
