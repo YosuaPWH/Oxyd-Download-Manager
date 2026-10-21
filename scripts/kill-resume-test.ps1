@@ -23,7 +23,7 @@ $url = "http://127.0.0.1:$Port/file/${size}?rate=524288&name=kill.bin"
 
 $server = Start-Process "target\release\test-server.exe" -ArgumentList $Port -PassThru -WindowStyle Hidden
 Start-Sleep -Milliseconds 500
-$cli = "target\release\oxyd.exe"
+$cli = "target\release\oxyd-cli.exe"
 $rand = New-Object System.Random
 $kills = 0
 try {

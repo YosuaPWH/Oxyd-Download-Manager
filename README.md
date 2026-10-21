@@ -44,7 +44,7 @@ Ekstensi MV3 ──stdio──▶ oxyd-bridge.exe ──\\.\pipe\oxyd──▶ O
 | Folder | Isi |
 |---|---|
 | `crates/oxyd-core` | Mesin download: probe, segmentasi, worker, limiter, SQLite, manager/antrean |
-| `crates/oxyd-cli` | CLI `oxyd` untuk menguji engine |
+| `crates/oxyd-cli` | CLI `oxyd-cli` untuk menguji engine |
 | `crates/oxyd-protocol` | Tipe pesan JSON, framing 4 byte LE, server named pipe |
 | `crates/oxyd-bridge` | Native messaging host `oxyd-bridge.exe` |
 | `app/` | Aplikasi Tauri (`src-tauri/`) dan UI Svelte (`src/`) |

@@ -6,7 +6,7 @@ license.workspace = true
 description = "Command line front end for the Oxyd download engine"
 
 [[bin]]
-name = "oxyd"
+name = "oxyd-cli"
 path = "src/main.rs"
 
 [dependencies]

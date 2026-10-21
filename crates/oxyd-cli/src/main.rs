@@ -10,7 +10,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use oxyd_core::{DownloadInfo, Event, Manager, NewDownload, RequestHeaders, Status};
 
 #[derive(Parser)]
-#[command(name = "oxyd", version, about = "Oxyd Download Manager (CLI)")]
+#[command(name = "oxyd-cli", version, about = "Oxyd Download Manager (CLI)")]
 struct Cli {
     /// Database file (defaults to %LOCALAPPDATA%\Oxyd\cli.db).
     #[arg(long, global = true)]
@@ -21,7 +21,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Download a URL. Ctrl+C pauses; continue later with `oxyd resume`.
+    /// Download a URL. Ctrl+C pauses; continue later with `oxyd-cli resume`.
     Download {
         url: String,
         /// Output file or directory.
@@ -233,7 +233,7 @@ async fn follow(mgr: &Arc<Manager>, id: &str) -> Result<()> {
     let r = info.record;
     match r.status {
         Status::Completed => println!("saved {}", r.save_path.display()),
-        Status::Paused => println!("paused; continue with `oxyd resume {}`", &r.id[..8]),
+        Status::Paused => println!("paused; continue with `oxyd-cli resume {}`", &r.id[..8]),
         s => bail!(
             "download {}: {}",
             s.as_str(),
