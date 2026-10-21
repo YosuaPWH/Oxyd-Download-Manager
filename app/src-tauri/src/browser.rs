@@ -9,15 +9,16 @@ use crate::state::{AppState, PendingAdd};
 /// Serve the bridge pipe for the lifetime of the app.
 pub fn start_pipe_server(app: &AppHandle) {
     let name = oxyd_protocol::pipe_name();
-    let first = match oxyd_protocol::pipe::bind(&name) {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::error!(%name, "cannot open bridge pipe: {e}");
-            return;
-        }
-    };
     let app = app.clone();
+    // Pipes register with the tokio reactor, so bind inside the runtime.
     tauri::async_runtime::spawn(async move {
+        let first = match oxyd_protocol::pipe::bind(&name) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!(%name, "cannot open bridge pipe: {e}");
+                return;
+            }
+        };
         let handler = move |msg: Message| {
             let app = app.clone();
             async move { handle(&app, msg) }
