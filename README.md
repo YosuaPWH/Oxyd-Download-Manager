@@ -10,7 +10,7 @@ browsers, and lets you continue a download from where it stopped even after its 
 expired.
 
 <p align="center">
-  <img src="docs/images/main-dark.png" alt="Oxyd main window, dark theme: download list with the segment map and speed of the selected download" width="900">
+  <img src="docs/images/downloads-dark.png" alt="Oxyd main window, dark theme: download list with the segment map and speed of the selected download" width="900">
 </p>
 
 > The screenshots show sample downloads served by the local test server in this repository.
@@ -57,7 +57,7 @@ Windows and Linux.
 
 | Dark | Light |
 |---|---|
-| ![Dark theme](docs/images/main-dark.png) | ![Light theme](docs/images/main-light.png) |
+| ![Dark theme](docs/images/downloads-dark.png) | ![Light theme](docs/images/downloads-light.png) |
 
 **Layout**
 
@@ -113,7 +113,7 @@ Choose **Start**, **Later** (adds it paused) or **Cancel**. If the file name alr
 you can rename automatically or overwrite.
 
 <p align="center">
-  <img src="docs/images/dialog-dark.png" alt="New download dialog recognising an unfinished download" width="800">
+  <img src="docs/images/add-url-dark.png" alt="New download dialog recognising an unfinished download" width="800">
 </p>
 
 ### Continuing downloads, even with a new link
@@ -127,7 +127,7 @@ Links expire and login sessions end. Like IDM, Oxyd can give a stopped download 
    download and continues from the last byte. The file is checked to have the same size.
 
 <p align="center">
-  <img src="docs/images/refresh-dark.png" alt="Waiting for a new link from the browser" width="800">
+  <img src="docs/images/link-refresh-dark.png" alt="Waiting for a new link from the browser" width="800">
 </p>
 
 It also recognises links on its own: a link whose name and size match an unfinished download
@@ -149,7 +149,7 @@ as `file (1)`. You can also paste a new URL by hand in the detail panel.
 ### Settings
 
 <p align="center">
-  <img src="docs/images/settings-dark.png" alt="Settings page" width="800">
+  <img src="docs/images/settings-page-dark.png" alt="Settings page" width="800">
 </p>
 
 | Tab | What you can set |
