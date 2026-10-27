@@ -1,64 +1,93 @@
+/* Data terminal: colour only on data and selection; surfaces split by one tone step.
+   Light is the same system with the steps reversed. */
 :root {
-  --bg: #f6f7f9;
-  --panel: #ffffff;
-  --panel-2: #f0f2f5;
-  --border: #dde1e7;
-  --text: #1c2129;
-  --muted: #677283;
-  --accent: #2563eb;
-  --accent-2: #7c3aed;
-  --accent-soft: #e3ecff;
-  --ok: #15803d;
-  --warn: #b45309;
-  --danger: #c62828;
-  --row-hover: #f3f6fb;
-  --row-sel: #e3ecff;
-  --shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
-  --radius: 8px;
+  --ground: #f6f6f7;
+  --surface: #ffffff;
+  --raised: #efeff1;
+  --border: #e4e4e7;
+  --rule: #ededf0;
+  --control: #c9c9cf;
+  --text: #111113;
+  --muted: #5f6168;
+  --accent: #1d5fbf;
+  --track: #e4e4e7;
+  --done: #a3a3aa;
+  --primary-bg: #111113;
+  --primary-ink: #ffffff;
+  --negative: #c4242a;
+  --neg-bg: #ffedea;
+  --positive: #247b50;
+  --pos-bg: #dcfae5;
+  --warning: #92400e;
+  --warn-bg: #fffbeb;
+  --card-shadow: none;
+  --card-border: var(--border);
+  --float-shadow: 0 12px 28px rgba(17, 17, 19, 0.16);
+  --scrim: rgba(17, 17, 19, 0.35);
+  --radius: 6px;
+  --font: "Public Sans Variable", "Public Sans", "Segoe UI", system-ui, sans-serif;
+  --font-num: "JetBrains Mono Variable", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
   color-scheme: light;
-  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font);
   font-size: 13px;
+  line-height: 20px;
   color: var(--text);
-  background: var(--bg);
+  background: var(--ground);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #15181d;
-    --panel: #1c2027;
-    --panel-2: #232831;
-    --border: #2f3541;
-    --text: #e6e9ee;
-    --muted: #96a0b0;
-    --accent: #5b8cff;
-    --accent-2: #a78bfa;
-    --accent-soft: #24324f;
-    --ok: #4ade80;
-    --warn: #fbbf24;
-    --danger: #f87171;
-    --row-hover: #222833;
-    --row-sel: #24324f;
-    --shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    --ground: #171719;
+    --surface: #131217;
+    --raised: #212023;
+    --border: #222224;
+    --rule: #1b1a1f;
+    --control: #3a3a3e;
+    --text: #ffffff;
+    --muted: #8a8c92;
+    --accent: #4a8ad6;
+    --track: #2a292e;
+    --done: #5c5c63;
+    --primary-bg: #ffffff;
+    --primary-ink: #111113;
+    --negative: #e5566f;
+    --neg-bg: #2c1a20;
+    --positive: #5fc39c;
+    --pos-bg: #1b2828;
+    --warning: #d9a441;
+    --warn-bg: #2a2416;
+    --card-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
+    --card-border: transparent;
+    --float-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+    --scrim: rgba(0, 0, 0, 0.55);
     color-scheme: dark;
   }
 }
 
 :root[data-theme="dark"] {
-  --bg: #15181d;
-  --panel: #1c2027;
-  --panel-2: #232831;
-  --border: #2f3541;
-  --text: #e6e9ee;
-  --muted: #96a0b0;
-  --accent: #5b8cff;
-  --accent-2: #a78bfa;
-  --accent-soft: #24324f;
-  --ok: #4ade80;
-  --warn: #fbbf24;
-  --danger: #f87171;
-  --row-hover: #222833;
-  --row-sel: #24324f;
-  --shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  --ground: #171719;
+  --surface: #131217;
+  --raised: #212023;
+  --border: #222224;
+  --rule: #1b1a1f;
+  --control: #3a3a3e;
+  --text: #ffffff;
+  --muted: #8a8c92;
+  --accent: #4a8ad6;
+  --track: #2a292e;
+  --done: #5c5c63;
+  --primary-bg: #ffffff;
+  --primary-ink: #111113;
+  --negative: #e5566f;
+  --neg-bg: #2c1a20;
+  --positive: #5fc39c;
+  --pos-bg: #1b2828;
+  --warning: #d9a441;
+  --warn-bg: #2a2416;
+  --card-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
+  --card-border: transparent;
+  --float-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  --scrim: rgba(0, 0, 0, 0.55);
   color-scheme: dark;
 }
 
@@ -76,54 +105,84 @@ body,
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: var(--bg);
+  background: var(--ground);
 }
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
   color: inherit;
 }
 
+/* Buttons: an outlined pill by default, a filled pill for the one primary action. */
 button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--panel);
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--control);
+  border-radius: 999px;
+  background: transparent;
+  white-space: nowrap;
   cursor: pointer;
+  transition: background-color 0.12s, border-color 0.12s;
 }
 
 button:hover:not(:disabled) {
-  background: var(--panel-2);
+  background: var(--raised);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 button:disabled {
-  opacity: 0.45;
-  cursor: default;
+  color: var(--muted);
+  border-color: var(--border);
+  cursor: not-allowed;
 }
 
 button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  border-color: var(--primary-bg);
+  background: var(--primary-bg);
+  color: var(--primary-ink);
+  font-weight: 600;
 }
 
 button.primary:hover:not(:disabled) {
-  filter: brightness(1.08);
-  background: var(--accent);
+  background: var(--primary-bg);
+  opacity: 0.88;
+}
+
+button.primary:disabled {
+  border-color: var(--raised);
+  background: var(--raised);
+  color: var(--muted);
 }
 
 button.danger {
-  color: var(--danger);
+  color: var(--negative);
 }
 
 button.ghost {
   border-color: transparent;
-  background: transparent;
+}
+
+button.icon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+
+button.icon:hover:not(:disabled) {
+  color: var(--text);
 }
 
 :focus-visible {
@@ -134,20 +193,68 @@ button.ghost {
 input[type="text"],
 input[type="number"],
 input[type="time"],
+input[type="search"],
 input:not([type]),
 select {
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--panel);
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--control);
+  border-radius: var(--radius);
+  background: var(--surface);
   min-width: 0;
+}
+
+input::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 
 input:focus,
 select:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+input:disabled,
+select:disabled {
+  color: var(--muted);
+  background: var(--raised);
+}
+
+input[type="range"] {
+  accent-color: var(--accent);
+}
+
+/* A checkbox drawn as a switch: `<input type="checkbox" class="switch" role="switch">`. */
+input.switch {
+  appearance: none;
+  flex: none;
+  width: 30px;
+  height: 18px;
+  margin: 0;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--control);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+input.switch::before {
+  content: "";
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface);
+  transition: transform 0.15s;
+}
+
+input.switch:checked {
+  background: var(--text);
+}
+
+input.switch:checked::before {
+  transform: translateX(12px);
 }
 
 label.check {
@@ -157,12 +264,48 @@ label.check {
   cursor: pointer;
 }
 
+/* Underline choices: the selection is one 1px accent line as wide as its label. */
+.lines {
+  display: flex;
+  gap: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.lines button {
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  margin-bottom: -1px;
+  color: var(--muted);
+  background: transparent;
+}
+
+.lines button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text);
+}
+
+.lines button[aria-selected="true"],
+.lines button[aria-checked="true"] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
 .muted {
   color: var(--muted);
 }
 
+/* Every figure: digits that stack. */
+.num {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+}
+
 .mono {
-  font-family: "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-num);
   font-size: 12px;
 }
 
@@ -170,4 +313,47 @@ label.check {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.pill {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.pill.bad {
+  background: var(--neg-bg);
+  color: var(--negative);
+}
+
+.pill.good {
+  background: var(--pos-bg);
+  color: var(--positive);
+}
+
+.pill.warn {
+  background: var(--warn-bg);
+  color: var(--warning);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
 }

@@ -8,7 +8,10 @@
   import Icon from "./Icon.svelte";
 
   const rows = $derived(
-    app.downloads.filter((d) => visible(d, app.view) && matchesSearch(d, app.search)),
+    app.downloads.filter(
+      (d) =>
+        visible(d, app.view) && (!app.category || d.category === app.category) && matchesSearch(d, app.search),
+    ),
   );
 
   let menu = $state<{ x: number; y: number; d: DownloadInfo } | null>(null);
@@ -16,6 +19,14 @@
 
   function name(d: DownloadInfo) {
     return d.filename || d.url;
+  }
+
+  function host(d: DownloadInfo) {
+    try {
+      return new URL(d.finalUrl ?? d.url).host;
+    } catch {
+      return "";
+    }
   }
 
   function select(d: DownloadInfo) {
@@ -54,16 +65,26 @@
       case "ContextMenu":
         if (cur) {
           const el = table.querySelector<HTMLElement>(`[data-id="${cur.id}"]`)!.getBoundingClientRect();
-          menu = { x: el.left + 40, y: el.bottom, d: cur };
+          openMenu(el.left + 40, el.bottom, cur);
           e.preventDefault();
         }
     }
   }
 
+  function openMenu(x: number, y: number, d: DownloadInfo) {
+    select(d);
+    menu = { x: Math.min(x, innerWidth - 240), y: Math.min(y, innerHeight - 340), d };
+  }
+
   function contextmenu(e: MouseEvent, d: DownloadInfo) {
     e.preventDefault();
-    select(d);
-    menu = { x: Math.min(e.clientX, innerWidth - 230), y: Math.min(e.clientY, innerHeight - 330), d };
+    openMenu(e.clientX, e.clientY, d);
+  }
+
+  function kebab(e: MouseEvent, d: DownloadInfo) {
+    e.stopPropagation();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    openMenu(r.right - 230, r.bottom + 4, d);
   }
 
   /** Runs a menu action on the menu's download. The download is taken before the menu closes:
@@ -75,15 +96,16 @@
     void run(async () => fn(d));
   }
 
-  const statusClass: Record<string, string> = {
-    downloading: "run",
-    probing: "run",
-    queued: "wait",
-    paused: "wait",
-    completed: "ok",
-    failed: "bad",
-    cancelled: "muted",
-  };
+  /** Progress fill colour: the accent only on what is moving. */
+  function fill(d: DownloadInfo) {
+    return d.status === "downloading" || d.status === "probing" ? "var(--accent)" : "var(--done)";
+  }
+
+  function status(d: DownloadInfo) {
+    if (d.status === "downloading" && d.activeConnections > 0) return `${t("st.downloading")} · ${d.activeConnections}×`;
+    if (d.status === "failed" && d.retryAt) return `${t("st.failed")} · ↻ ${fmt.duration(fmt.until(d.retryAt, clock.now)) || "0s"}`;
+    return t(`st.${d.status}` as Key);
+  }
 </script>
 
 <svelte:window onclick={() => (menu = null)} onblur={() => (menu = null)} />
@@ -93,21 +115,23 @@
     class="table"
     role="grid"
     tabindex="0"
-    aria-label="Downloads"
+    aria-label={t("page.downloads")}
     aria-rowcount={rows.length}
     bind:this={table}
     onkeydown={keydown}
   >
     <div class="row head" role="row">
       <div role="columnheader">{t("col.name")}</div>
-      <div role="columnheader" class="num">{t("col.size")}</div>
-      <div role="columnheader">{t("col.progress")}</div>
-      <div role="columnheader" class="num">{t("col.speed")}</div>
-      <div role="columnheader" class="num">{t("col.eta")}</div>
-      <div role="columnheader">{t("col.status")}</div>
+      <div role="columnheader" class="r">{t("col.size")}</div>
+      <div role="columnheader" class="r">{t("col.progress")}</div>
+      <div role="columnheader" class="r">{t("col.speed")}</div>
+      <div role="columnheader" class="r">{t("col.eta")}</div>
+      <div role="columnheader" class="st">{t("col.status")}</div>
+      <div role="columnheader"><span class="sr-only">{t("act.more")}</span></div>
     </div>
     {#each rows as d (d.id)}
       {@const pct = fmt.percent(d.downloaded, d.totalSize)}
+      {@const moving = d.status === "downloading"}
       <!-- Keyboard navigation is handled by the grid (arrow keys, Enter, Delete). -->
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <div
@@ -115,40 +139,42 @@
         role="row"
         tabindex="-1"
         aria-selected={app.selected === d.id}
-        class:sel={app.selected === d.id}
         data-id={d.id}
         onclick={() => select(d)}
         ondblclick={() => primaryAction(d)}
         oncontextmenu={(e) => contextmenu(e, d)}
       >
         <div class="name" role="gridcell" title={d.url}>
-          <span class="ico"><Icon name={d.category} /></span>
-          <span class="ellipsis">{name(d)}</span>
+          <span class="ellipsis file">{name(d)}</span>
+          <span class="ellipsis muted sub">{t(`cat.${d.category}` as Key)}{host(d) ? ` · ${host(d)}` : ""}</span>
         </div>
-        <div role="gridcell" class="num">{fmt.bytes(d.totalSize)}</div>
+        <div role="gridcell" class="r num">{d.totalSize === null ? "—" : fmt.bytes(d.totalSize)}</div>
         <div role="gridcell" class="prog">
-          <div class="pbar" class:indet={pct === null && d.status === "downloading"}>
-            <div class="pfill {statusClass[d.status]}" style:width="{pct ?? 0}%"></div>
+          <div class="track" class:indet={pct === null && moving}>
+            <div class="fill" style:width="{pct ?? 0}%" style:background={fill(d)}></div>
           </div>
-          <span class="pct">{pct === null ? fmt.bytes(d.downloaded) : `${pct.toFixed(1)}%`}</span>
+          <span class="num pct">{pct === null ? fmt.bytes(d.downloaded) : `${pct.toFixed(1)}%`}</span>
         </div>
-        <div role="gridcell" class="num">{d.status === "downloading" ? fmt.speed(d.speed) : ""}</div>
-        <div role="gridcell" class="num">{d.status === "downloading" ? fmt.duration(d.eta) : ""}</div>
-        <div role="gridcell" class="st {statusClass[d.status]}" title={errorText(d.errorCode) ?? d.error ?? ""}>
-          {t(`st.${d.status}` as Key)}
-          {#if d.status === "failed" && d.retryAt}
-            <span class="muted">· ↻ {fmt.duration(fmt.until(d.retryAt, clock.now))}</span>
+        <div role="gridcell" class="r num" class:muted={!moving}>{moving ? fmt.speed(d.speed) || "0 B/s" : "—"}</div>
+        <div role="gridcell" class="r num" class:muted={!moving || d.eta === null}>{moving && d.eta !== null ? fmt.duration(d.eta) : "—"}</div>
+        <div role="gridcell" class="st" title={errorText(d.errorCode) ?? d.error ?? ""}>
+          {#if d.status === "failed"}
+            <span class="pill bad">{status(d)}</span>
+          {:else}
+            <span class="ellipsis" class:muted={!moving && d.status !== "probing"}>{status(d)}</span>
           {/if}
-          {#if d.status === "downloading" && d.activeConnections > 0}
-            <span class="muted">· {d.activeConnections}×</span>
-          {/if}
+        </div>
+        <div role="gridcell" class="r">
+          <button class="icon" aria-label={t("act.more")} tabindex="-1" onclick={(e) => kebab(e, d)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>
+          </button>
         </div>
       </div>
     {:else}
       <div class="empty">
-        <Icon name="active" size={40} />
-        <h3>{t("empty.title")}</h3>
+        <h2>{t("empty.title")}</h2>
         <p class="muted">{t("empty.body")}</p>
+        <button class="primary" onclick={() => (app.manualUrl = "")}><Icon name="add" size={14} />{t("tb.add")}</button>
       </div>
     {/each}
   </div>
@@ -191,83 +217,76 @@
     flex: 1;
     min-height: 0;
     overflow: auto;
-    background: var(--panel);
   }
   .table {
     outline: none;
-    min-width: 640px;
+    min-width: 720px;
   }
   .row {
     display: grid;
-    grid-template-columns: minmax(200px, 1fr) 90px minmax(150px, 220px) 100px 90px 130px;
-    gap: 12px;
+    grid-template-columns: minmax(180px, 1fr) 84px minmax(140px, 176px) 92px 72px minmax(110px, 150px) 32px;
+    column-gap: 16px;
     align-items: center;
-    padding: 0 14px;
-    height: 34px;
-    border-bottom: 1px solid var(--border);
+    height: 56px;
+    padding: 0 6px 0 10px;
+    border-top: 1px solid var(--rule);
     cursor: default;
     user-select: none;
   }
   .row:not(.head):hover {
-    background: var(--row-hover);
+    background: var(--raised);
   }
-  .row.sel {
-    background: var(--row-sel);
+  .row[aria-selected="true"] {
+    background: var(--raised);
   }
-  .table:focus-visible .row.sel {
-    box-shadow: inset 2px 0 0 var(--accent);
+  .table:focus-visible .row[aria-selected="true"] {
+    box-shadow: inset 1px 0 0 var(--accent);
   }
   .head {
     position: sticky;
     top: 0;
     z-index: 1;
-    height: 30px;
-    background: var(--panel-2);
+    height: 38px;
+    border-top: 0;
+    background: var(--ground);
     font-size: 12px;
-    font-weight: 600;
     color: var(--muted);
   }
-  .num {
+  .r {
     text-align: right;
-    font-variant-numeric: tabular-nums;
+  }
+  .st {
+    min-width: 0;
+    display: flex;
   }
   .name {
     display: flex;
-    gap: 8px;
-    align-items: center;
+    flex-direction: column;
     min-width: 0;
   }
-  .ico {
-    color: var(--muted);
-    display: flex;
+  .file {
+    font-weight: 500;
+  }
+  .sub {
+    font-size: 12px;
+    line-height: 18px;
   }
   .prog {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
   }
-  .pbar {
+  .track {
     flex: 1;
-    height: 8px;
-    border-radius: 4px;
-    background: var(--panel-2);
+    height: 2px;
+    background: var(--track);
     overflow: hidden;
   }
-  .pfill {
+  .fill {
     height: 100%;
-    background: var(--muted);
     transition: width 0.25s linear;
   }
-  .pfill.run {
-    background: linear-gradient(90deg, var(--accent), var(--accent-2));
-  }
-  .pfill.ok {
-    background: var(--ok);
-  }
-  .pfill.bad {
-    background: var(--danger);
-  }
-  .pbar.indet .pfill {
+  .track.indet .fill {
     width: 30% !important;
     animation: slide 1.2s linear infinite;
   }
@@ -280,56 +299,51 @@
     }
   }
   .pct {
-    width: 56px;
+    width: 52px;
     text-align: right;
-    font-size: 12px;
-    font-variant-numeric: tabular-nums;
-    color: var(--muted);
   }
-  .st.run {
-    color: var(--accent);
-  }
-  .st.ok {
-    color: var(--ok);
-  }
-  .st.bad {
-    color: var(--danger);
-  }
-  .st.wait {
-    color: var(--warn);
+  .row .icon {
+    width: 28px;
+    height: 28px;
   }
   .empty {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    padding: 80px 20px;
-    color: var(--muted);
+    align-items: flex-start;
+    gap: 4px;
+    padding: 32px 10px;
+    border-top: 1px solid var(--rule);
   }
-  .empty h3 {
-    margin: 12px 0 4px;
-    color: var(--text);
+  .empty h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .empty p {
+    margin: 0 0 12px;
   }
   .menu {
     position: fixed;
     z-index: 40;
-    min-width: 220px;
+    min-width: 230px;
     padding: 4px;
-    background: var(--panel);
+    background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: var(--shadow);
+    border-radius: var(--radius);
+    box-shadow: var(--float-shadow);
   }
   .menu button {
     width: 100%;
+    height: 32px;
     border: none;
-    background: transparent;
+    border-radius: 4px;
     justify-content: flex-start;
-    padding: 6px 10px;
+    padding: 0 10px;
     gap: 10px;
   }
   .menu hr {
     border: none;
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--rule);
     margin: 4px 0;
   }
 </style>

@@ -49,9 +49,11 @@ parts that talk to the operating system differ.
 
 ## Design
 
-Oxyd is a single window that keeps the download list in the middle and everything else out of
-the way. It is built with Svelte 5 inside a Tauri 2 shell, so it starts fast and looks the
-same on Windows and Linux.
+Oxyd is a single window built like a monitoring screen: neutral surfaces, colour only on what
+is moving, and every figure (sizes, speeds, times) in JetBrains Mono so the digits stack while
+they change; the text is Public Sans. Both fonts ship with the app, so it works offline. It
+is built with Svelte 5 inside a Tauri 2 shell, so it starts fast and looks the same on
+Windows and Linux.
 
 | Dark | Light |
 |---|---|
@@ -59,17 +61,21 @@ same on Windows and Linux.
 
 **Layout**
 
-- **Toolbar**: *Add URL*, *Start*, *Pause*, *Remove*, *Resume all*, *Pause all*, search and
-  settings. On narrow windows the secondary buttons shrink to icons with tooltips.
-- **Sidebar**: status filters (*All*, *Running*, *Unfinished*, *Finished*) and automatic
-  categories (Video, Music, Documents, Archives, Programs, Other) with live counts.
-- **Download list**: name, size, progress, speed, time left and status. Each row has an icon
-  for its category and a colour for its state: blue-to-violet gradient while downloading,
-  green when complete, amber when paused or queued, red when failed.
-- **Detail panel**: one bar per connection showing exactly which part of the file each
-  segment has fetched, the source URL, the save location, a per-download speed limit and the
-  link refresh controls.
-- **Status bar**: running downloads and the combined speed.
+- **Rail**: the Oxyd mark (a ring of eight segments, one lit) with *Downloads* and *Settings*.
+  The selected place is marked by a 1px accent line, the same mark every selection uses.
+- **Title row**: one line that says what matters now ("2 downloading at 14.2 MB/s · Ubuntu
+  finishes in 2m 49s · 1 failed, retrying in 0:24"), *Resume all*, *Pause all* and *Add URL*.
+- **Tabs and filters**: *All*, *Running*, *Paused*, *Failed*, *Finished* with counts, a search
+  box and a file type filter (Video, Music, Documents, Archives, Programs, Other).
+- **Download list**: name with its type and site, size, progress, speed, time left and status.
+  Only running downloads are drawn in the accent; a failed one carries a red tag with its retry
+  countdown. Each row has a menu button as well as the right-click menu.
+- **Detail card**: the selected download's progress in large figures, its actions, the segment
+  map (one cell per connection, showing which part of the file each has fetched), the speed
+  over the last minute, where it is saved, a per-download speed limit and the link refresh
+  controls. On narrow windows the card moves under the list.
+- **Settings**: its own page in five sections; every change saves itself.
+- **Status bar**: running downloads, the combined speed and the speed limit.
 
 **Theme and language.** *Settings → General* offers *Follow system*, *Light* and *Dark*, and
 English or Indonesian. Error messages are translated too, with the technical detail

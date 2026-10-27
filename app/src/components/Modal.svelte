@@ -76,7 +76,9 @@
   >
     <header>
       <h2>{title}</h2>
-      <button class="ghost close" aria-label="Close" onclick={onclose}>✕</button>
+      <button class="icon" aria-label="Close" onclick={onclose}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+      </button>
     </header>
     <div class="content">{@render children()}</div>
     {#if footer}
@@ -89,7 +91,7 @@
   .backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(10, 14, 20, 0.45);
+    background: var(--scrim);
     display: grid;
     place-items: center;
     z-index: 50;
@@ -99,37 +101,32 @@
     max-height: calc(100vh - 32px);
     display: flex;
     flex-direction: column;
-    background: var(--panel);
+    background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    box-shadow: var(--shadow);
+    border-radius: var(--radius);
+    box-shadow: var(--float-shadow);
     outline: none;
   }
   header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 14px 18px 8px;
+    padding: 16px 14px 0 20px;
   }
   h2 {
     margin: 0;
     font-size: 16px;
     font-weight: 600;
   }
-  .close {
-    padding: 4px 8px;
-  }
   .content {
-    padding: 8px 18px 16px;
+    padding: 16px 20px 20px;
     overflow: auto;
   }
   footer {
     display: flex;
     gap: 8px;
     justify-content: flex-end;
-    padding: 12px 18px;
-    border-top: 1px solid var(--border);
-    background: var(--panel-2);
-    border-radius: 0 0 12px 12px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--rule);
   }
 </style>

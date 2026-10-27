@@ -2,7 +2,8 @@ import { api, errorMessage, onClipboard, onEngineEvent, onPending, onRefresh, on
 import { errorText, i18n, t } from "./i18n.svelte";
 import type { Category, DownloadInfo, EngineEvent, PendingAdd, Settings, Status } from "./types";
 
-export type View = "all" | "active" | "unfinished" | "completed" | Category;
+/** Status tabs of the download list. */
+export type View = "all" | "active" | "paused" | "failed" | "completed";
 
 /** Ticks every second for countdowns. */
 export const clock = $state({ now: Math.floor(Date.now() / 1000) });
@@ -11,14 +12,16 @@ export const app = $state({
   downloads: [] as DownloadInfo[],
   settings: null as Settings | null,
   selected: null as string | null,
+  page: "downloads" as "downloads" | "settings",
   view: "all" as View,
+  /** File type filter next to the search box; null = every type. */
+  category: null as Category | null,
   /** Text typed in the search box. */
   search: "",
   pending: [] as PendingAdd[],
   /** URL for a manual "New download" dialog; null = closed. */
   manualUrl: null as string | null,
   clipboardUrl: null as string | null,
-  settingsOpen: false,
   removing: null as DownloadInfo | null,
   error: null as string | null,
   /** Short confirmation shown at the bottom right. */
@@ -40,12 +43,12 @@ export function visible(d: DownloadInfo, view: View): boolean {
       return true;
     case "active":
       return isActive(d);
-    case "unfinished":
-      return d.status !== "completed";
+    case "paused":
+      return d.status === "paused";
+    case "failed":
+      return d.status === "failed" || d.status === "cancelled";
     case "completed":
       return d.status === "completed";
-    default:
-      return d.category === view;
   }
 }
 

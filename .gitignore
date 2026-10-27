@@ -9,3 +9,4 @@ app/src-tauri/gen/
 app/src-tauri/binaries/
 /out/
 app/src-tauri/native-host/
+.taste-skill/

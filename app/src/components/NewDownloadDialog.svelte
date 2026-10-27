@@ -40,6 +40,13 @@
   let urlInput = $state<HTMLInputElement>();
 
   const size = $derived(probe?.size ?? pending?.size ?? null);
+  const host = $derived.by(() => {
+    try {
+      return new URL(probe?.finalUrl ?? url.trim()).host;
+    } catch {
+      return "";
+    }
+  });
   // Browser downloads arrive checked; a typed link shows its details once it was checked.
   const ready = $derived(!!pending || (!!probe && probedUrl === url.trim()));
 
@@ -184,81 +191,82 @@
   const more = $derived(Math.max(0, app.pending.length - 1));
 </script>
 
-<Modal title={t("new.title")} onclose={cancel} width={600}>
-  <form class="grid" onsubmit={(e) => (e.preventDefault(), ready ? submit(true) : check())}>
-    <label for="nd-url">{t("new.url")}</label>
-    <div class="row">
-      <input
-        id="nd-url"
-        class="mono"
-        bind:value={url}
-        bind:this={urlInput}
-        readonly={!!pending}
-        placeholder="https://"
-        oninput={onUrlInput}
-        onchange={onUrlChange}
-      />
-      {#if !pending}
-        <button type="button" class:primary={!ready} onclick={check} disabled={probing || !url.trim()}>
-          {t("new.check")}
-        </button>
+<Modal title={t("new.title")} onclose={cancel} width={540}>
+  <form class="stack" onsubmit={(e) => (e.preventDefault(), ready ? submit(true) : check())}>
+    <div>
+      <label for="nd-url">{t("new.url")}</label>
+      <div class="row">
+        <input
+          id="nd-url"
+          class="mono"
+          bind:value={url}
+          bind:this={urlInput}
+          readonly={!!pending}
+          placeholder="https://"
+          oninput={onUrlInput}
+          onchange={onUrlChange}
+        />
+        {#if !pending}
+          <button type="button" class:primary={!ready} onclick={check} disabled={probing || !url.trim()}>
+            {t("new.check")}
+          </button>
+        {/if}
+      </div>
+      {#if !ready}
+        <p class="hint muted" aria-live="polite">{probing ? t("new.probing") : error ? "" : t("new.hint")}</p>
       {/if}
     </div>
 
-    {#if !ready}
-      <div class="hint muted" aria-live="polite">
-        {probing ? t("new.probing") : error ? "" : t("new.hint")}
-      </div>
-    {:else}
-      <label for="nd-name">{t("new.filename")}</label>
-      <input id="nd-name" bind:value={filename} oninput={() => (nameTouched = true)} />
-
-      <label for="nd-dir">{t("new.folder")}</label>
-      <div class="row">
-        <input id="nd-dir" bind:value={dir} oninput={() => (dirTouched = true)} />
-        <button type="button" onclick={browse}>{t("new.browse")}</button>
-      </div>
-
-      <span class="lbl">{t("new.size")}</span>
-      <div class="info">
-        {#if probing}
-          <span class="muted">{t("new.probing")}</span>
+    {#if ready}
+      <div class="facts">
+        <span class="num big">{probing ? "…" : size === null ? t("new.unknown") : fmt.bytes(size)}</span>
+        <span class="muted r ellipsis">{host}</span>
+        {#if probe}
+          <span class:muted={probe.acceptRanges} class:warn={!probe.acceptRanges}>
+            {probe.acceptRanges ? t("new.ranges") : t("new.noRanges")}
+          </span>
         {:else}
-          <strong>{size === null ? t("new.unknown") : fmt.bytes(size)}</strong>
-          {#if probe}
-            <span class={probe.acceptRanges ? "ok" : "warn"}>
-              · {probe.acceptRanges ? t("new.ranges") : t("new.noRanges")}
-            </span>
-          {/if}
+          <span></span>
         {/if}
+        {#if pending?.source}<span class="muted r">{pending.source}</span>{/if}
       </div>
 
-      <label for="nd-conn">{t("new.connections")}</label>
-      <div class="row">
-        <input id="nd-conn" type="range" min="1" max="32" bind:value={connections} />
-        <span class="conn">{connections}</span>
+      <div>
+        <label for="nd-name">{t("new.filename")}</label>
+        <input id="nd-name" bind:value={filename} oninput={() => (nameTouched = true)} />
       </div>
 
-      <label for="nd-sum">{t("new.checksum")}</label>
-      <input id="nd-sum" class="mono" bind:value={checksum} placeholder="sha256:… / md5:…" title={t("new.checksumHint")} />
-
-      {#if pending?.source || pending?.referrer}
-        <span class="lbl">{t("new.from")}</span>
-        <div class="info ellipsis muted" title={pending.referrer ?? ""}>
-          {pending.source ?? ""}
-          {pending.referrer ? `· ${pending.referrer}` : ""}
+      <div>
+        <label for="nd-dir">{t("new.folder")}</label>
+        <div class="row">
+          <input id="nd-dir" bind:value={dir} oninput={() => (dirTouched = true)} />
+          <button type="button" onclick={browse}>{t("new.browse")}</button>
         </div>
-      {/if}
+      </div>
+
+      <div class="two">
+        <div>
+          <label for="nd-conn">{t("new.connections")}</label>
+          <div class="row range">
+            <input id="nd-conn" type="range" min="1" max="32" bind:value={connections} />
+            <span class="num conn">{connections}</span>
+          </div>
+        </div>
+        <div>
+          <label for="nd-sum">{t("new.checksum")}</label>
+          <input id="nd-sum" class="mono" bind:value={checksum} placeholder="sha256:…" title={t("new.checksumHint")} />
+        </div>
+      </div>
 
       {#if match}
         {@const pct = fmt.percent(match.downloaded, match.totalSize)}
-        <div class="full matchbox" role="alert">
+        <div class="box" role="alert">
           <div class="matchtext">
             <span>{t("match.title")}</span>
             <strong class="ellipsis">{match.filename}</strong>
             <span class="muted">
-              {pct === null ? fmt.bytes(match.downloaded) : `${pct.toFixed(1)}%`}
-              · {fmt.bytes(match.downloaded)} / {fmt.bytes(match.totalSize)} — {t("match.hint")}
+              <span class="num">{pct === null ? fmt.bytes(match.downloaded) : `${pct.toFixed(1)}%`}</span>
+              · <span class="num">{fmt.bytes(match.downloaded)} / {fmt.bytes(match.totalSize)}</span> — {t("match.hint")}
             </span>
           </div>
           <button type="button" class="primary" onclick={continueExisting} disabled={busy}>
@@ -267,22 +275,24 @@
         </div>
       {/if}
       {#if exists && !match}
-        <div class="full warnbox" role="alert">
-          {t("new.exists")}
-          <label class="check"><input type="radio" bind:group={conflict} value="rename" />{t("new.rename")}</label>
-          <label class="check"><input type="radio" bind:group={conflict} value="overwrite" />{t("new.overwrite")}</label>
+        <div class="box warnbox" role="alert">
+          <span>{t("new.exists")}</span>
+          <div class="lines" role="radiogroup" aria-label={t("new.exists")}>
+            <button type="button" role="radio" aria-checked={conflict === "rename"} onclick={() => (conflict = "rename")}>{t("new.rename")}</button>
+            <button type="button" role="radio" aria-checked={conflict === "overwrite"} onclick={() => (conflict = "overwrite")}>{t("new.overwrite")}</button>
+          </div>
         </div>
       {/if}
     {/if}
     {#if error}
-      <div class="full errbox" role="alert">{error}</div>
+      <div class="errbox" role="alert">{error}</div>
     {/if}
     <button type="submit" hidden aria-hidden="true" tabindex="-1"></button>
   </form>
 
   {#snippet footer()}
     {#if more}
-      <span class="muted more">+{more} {t("new.more")}</span>
+      <span class="muted more">+<span class="num">{more}</span> {t("new.more")}</span>
     {/if}
     <button onclick={cancel}>{t("new.cancel")}</button>
     <button onclick={() => submit(false)} disabled={busy || !ready}>{t("new.later")}</button>
@@ -291,15 +301,21 @@
 </Modal>
 
 <style>
-  .grid {
-    display: grid;
-    grid-template-columns: 110px 1fr;
-    gap: 10px 12px;
-    align-items: center;
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
   }
-  label,
-  .lbl {
+  label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 12px;
+    line-height: 16px;
     color: var(--muted);
+  }
+  .stack > div > input,
+  .two input:not([type="range"]) {
+    width: 100%;
   }
   .row {
     display: flex;
@@ -309,53 +325,51 @@
   .row input:not([type="range"]) {
     flex: 1;
   }
-  .row input[type="range"] {
+  .range {
+    height: 34px;
+  }
+  .range input {
     flex: 1;
-    accent-color: var(--accent);
   }
   .conn {
-    width: 24px;
+    width: 22px;
     text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-  .info {
-    min-width: 0;
   }
   .hint {
-    grid-column: 2;
-    margin-top: -4px;
+    margin: 8px 0 0;
   }
-  .ok {
-    color: var(--ok);
+  .facts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 16px;
+    align-items: baseline;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    background: var(--raised);
+  }
+  .big {
+    font-size: 20px;
+    line-height: 26px;
+  }
+  .r {
+    text-align: right;
   }
   .warn {
-    color: var(--warn);
+    color: var(--warning);
   }
-  .full {
-    grid-column: 1 / -1;
+  .two {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px;
   }
-  .warnbox,
-  .errbox {
-    padding: 8px 10px;
-    border-radius: 6px;
+  .box {
     display: flex;
-    gap: 14px;
     flex-wrap: wrap;
-    align-items: center;
-  }
-  .warnbox {
-    background: color-mix(in srgb, var(--warn) 14%, transparent);
-  }
-  .warnbox label {
-    color: var(--text);
-  }
-  .matchbox {
-    display: flex;
     gap: 12px;
     align-items: center;
-    padding: 10px 12px;
-    border-radius: 6px;
-    background: var(--accent-soft);
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    background: var(--raised);
   }
   .matchtext {
     flex: 1;
@@ -364,9 +378,14 @@
     flex-direction: column;
     gap: 2px;
   }
+  .warnbox {
+    justify-content: space-between;
+  }
   .errbox {
-    background: color-mix(in srgb, var(--danger) 14%, transparent);
-    color: var(--danger);
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    background: var(--neg-bg);
+    color: var(--negative);
   }
   .more {
     margin-right: auto;
