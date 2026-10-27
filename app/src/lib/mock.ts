@@ -52,6 +52,7 @@ const downloads: DownloadInfo[] = [
   dl({
     id: "a",
     filename: "ubuntu-24.04-desktop-amd64.iso",
+    url: "https://releases.ubuntu.com/24.04/ubuntu-24.04-desktop-amd64.iso",
     category: "archive",
     totalSize: 5800 * MB,
     downloaded: 2400 * MB,
@@ -65,6 +66,7 @@ const downloads: DownloadInfo[] = [
   dl({
     id: "b",
     filename: "Big_Buck_Bunny_4K.mp4",
+    url: "https://download.blender.org/demo/movies/BBB/Big_Buck_Bunny_4K.mp4",
     category: "video",
     totalSize: 890 * MB,
     downloaded: 890 * MB,
@@ -75,6 +77,7 @@ const downloads: DownloadInfo[] = [
   dl({
     id: "c",
     filename: "VSCodeUserSetup-x64.exe",
+    url: "https://update.code.visualstudio.com/latest/win32-x64-user/stable",
     category: "program",
     totalSize: 98 * MB,
     downloaded: 41 * MB,
@@ -84,16 +87,38 @@ const downloads: DownloadInfo[] = [
   }),
   dl({
     id: "d",
-    filename: "laporan-tahunan-2026.pdf",
+    filename: "artemis-ii-press-kit.pdf",
+    url: "https://www.nasa.gov/wp-content/uploads/artemis-ii-press-kit.pdf",
     category: "document",
     totalSize: 12 * MB,
     status: "failed",
-    error: "network error: error sending request for url (https://example.com/files/laporan.pdf)",
+    error: "network error: error sending request for url (https://www.nasa.gov/wp-content/uploads/artemis-ii-press-kit.pdf)",
     errorCode: "network",
     retryAt: now + 45,
     position: 4,
   }),
-  dl({ id: "e", filename: "podcast-ep42.mp3", category: "music", totalSize: 64 * MB, position: 5 }),
+  dl({
+    id: "e",
+    filename: "podcast-ep42.mp3",
+    url: "https://cdn.longtailpod.fm/episodes/podcast-ep42.mp3",
+    category: "music",
+    totalSize: 64 * MB,
+    position: 5,
+  }),
+  dl({
+    id: "f",
+    filename: "blender-4.2.3-windows-x64.msi",
+    url: "https://download.blender.org/release/Blender4.2/blender-4.2.3-windows-x64.msi",
+    category: "program",
+    totalSize: 342.6 * MB,
+    downloaded: 98.3 * MB,
+    status: "downloading",
+    speed: 2.6 * MB,
+    eta: 94,
+    activeConnections: 4,
+    position: 6,
+    segments: segs(342.6 * MB, 4, [0.4, 0.3, 0.25, 0.2]),
+  }),
 ];
 
 let settings: Settings = {
@@ -109,7 +134,8 @@ let settings: Settings = {
   clipboardMonitor: false,
   proxy: null,
   theme: "system",
-  language: "id",
+  // `?lang=en` shows the English interface (used for the README screenshots).
+  language: new URLSearchParams(location.search).get("lang") === "en" ? "en" : "id",
   schedule: { enabled: false, start: null, stop: null },
   afterQueue: "nothing",
 };
@@ -128,7 +154,7 @@ export function installMock() {
           settings = a.settings as Settings;
           return settings;
         case "app_info":
-          return { version: "0.1.0-mock", dataDir: "C:\\Users\\me\\AppData\\Local\\Oxyd" };
+          return { version: "0.1.3", dataDir: "C:\\Users\\me\\AppData\\Local\\Oxyd" };
         case "pending_downloads":
           return [];
         case "refresh_target":
@@ -142,7 +168,7 @@ export function installMock() {
             (d) => d.filename.toLowerCase() === String(a.filename).toLowerCase() && d.status !== "completed",
           ) ?? null;
         case "clipboard_link":
-          return "https://releases.ubuntu.com/24.04/ubuntu-24.04-desktop-amd64.iso";
+          return downloads[0].url;
         case "suggest_dir":
           return settings.downloadDir;
         case "path_exists":
@@ -150,7 +176,8 @@ export function installMock() {
         case "probe_url":
           return {
             finalUrl: a.url,
-            size: 734 * MB,
+            // A link to a file already in the list reports that file's size.
+            size: downloads.find((d) => d.url === a.url)?.totalSize ?? 734 * MB,
             acceptRanges: true,
             etag: '"x"',
             lastModified: null,
@@ -163,20 +190,25 @@ export function installMock() {
     },
     { shouldMockEvents: true },
   );
-  // Animate the running download.
+  // Animate the running downloads; their speed wanders around a base like a real line.
+  const running = downloads.filter((d) => d.status === "downloading");
+  const base = new Map(running.map((d) => [d.id, d.speed]));
   setInterval(() => {
-    const d = downloads[0];
-    d.downloaded = Math.min(d.totalSize!, d.downloaded + d.speed / 4);
-    d.segments.forEach((s) => (s.downloaded = Math.min(s.end - s.start + 1, s.downloaded + d.speed / 32)));
-    void emit("oxyd://event", {
-      type: "progress",
-      id: d.id,
-      downloaded: d.downloaded,
-      total: d.totalSize,
-      speed: d.speed,
-      eta: Math.round((d.totalSize! - d.downloaded) / d.speed),
-      activeConnections: 8,
-      segments: d.segments,
-    });
+    for (const d of running) {
+      d.speed = base.get(d.id)! * (0.88 + Math.random() * 0.24);
+      d.downloaded = Math.min(d.totalSize!, d.downloaded + d.speed / 4);
+      const n = d.segments.length;
+      d.segments.forEach((s) => (s.downloaded = Math.min(s.end - s.start + 1, s.downloaded + d.speed / 4 / n)));
+      void emit("oxyd://event", {
+        type: "progress",
+        id: d.id,
+        downloaded: d.downloaded,
+        total: d.totalSize,
+        speed: d.speed,
+        eta: Math.round((d.totalSize! - d.downloaded) / d.speed),
+        activeConnections: d.activeConnections,
+        segments: d.segments,
+      });
+    }
   }, 250);
 }
