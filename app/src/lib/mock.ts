@@ -154,7 +154,7 @@ export function installMock() {
           settings = a.settings as Settings;
           return settings;
         case "app_info":
-          return { version: "0.1.3", dataDir: "C:\\Users\\me\\AppData\\Local\\Oxyd" };
+          return { version: "0.2.0", dataDir: "C:\\Users\\me\\AppData\\Local\\Oxyd" };
         case "pending_downloads":
           return [];
         case "refresh_target":

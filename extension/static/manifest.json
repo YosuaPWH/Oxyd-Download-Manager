@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Oxyd Download Manager",
   "short_name": "Oxyd",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Send downloads from Chrome and Edge to Oxyd Download Manager.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxqfktveGZKRVMvWwn1Q4eRZd6on+fuKolsbOrdhPStHTtyVtK6TsX/wPhXryd04ScoCJ1BDtQ5fNApxwXCabRAAOa+vDp+c82S3t5qNgSGv2utsCoO22buvkshlQVvicNBf7zE4iQoMZQlozgWB+U3oExJAr+8MBkvQBAu7539Z80o6OTYmtD10GZyvhJAQ6gjgzQxmS+N2raDpUfmM2ofTDJHPjIVI6JPewnYAEY7uswsoHZnU8LvCRswdZ5tcm+AqgS09yTlJtqL+4xJkt0F/6h86Lb5nH3O5QefUpsXFn64AF2OS+ujzfI8fAPqtLmrREisRumzP9OAAzlzxx4QIDAQAB",
   "minimum_chrome_version": "116",
