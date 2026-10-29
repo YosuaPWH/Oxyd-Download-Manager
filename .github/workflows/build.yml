@@ -227,13 +227,17 @@ jobs:
         run: |
           # v0.1.0-beta.1 and similar are marked as pre-releases.
           flags=""
-          case "$TAG" in *-*) flags="--prerelease" ;; esac
+          prerelease=false
+          case "$TAG" in *-*) flags="--prerelease"; prerelease=true ;; esac
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             # The release exists already (drafted in the web UI, or this tag is being
             # re-released): replace its files so no stale ones with old names remain.
             gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name' |
               while read -r asset; do gh release delete-asset "$TAG" "$asset" --yes --repo "$REPO"; done
             gh release upload "$TAG" out/* --clobber --repo "$REPO"
+            # Deleting a tag turns its release into a draft, and one drafted in the web UI
+            # is one too: publish it, so the files are not left hidden.
+            gh release edit "$TAG" --draft=false --prerelease="$prerelease" --repo "$REPO"
           else
             gh release create "$TAG" out/* --repo "$REPO" --title "Oxyd $TAG" --generate-notes $flags
           fi
