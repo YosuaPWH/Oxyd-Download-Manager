@@ -1,6 +1,6 @@
 import { api, errorMessage, onClipboard, onEngineEvent, onPending, onRefresh, onResync } from "./api";
 import { errorText, i18n, t } from "./i18n.svelte";
-import type { Category, DownloadInfo, EngineEvent, PendingAdd, Settings, Status } from "./types";
+import type { Category, DownloadInfo, EngineEvent, PendingAdd, Settings, Status, VideoProbe } from "./types";
 
 /** Status tabs of the download list. */
 export type View = "all" | "active" | "paused" | "failed" | "completed";
@@ -21,6 +21,8 @@ export const app = $state({
   pending: [] as PendingAdd[],
   /** URL for a manual "New download" dialog; null = closed. */
   manualUrl: null as string | null,
+  /** Videos of a page typed in "Add URL", waiting for a quality. */
+  videoPage: null as VideoProbe | null,
   clipboardUrl: null as string | null,
   removing: null as DownloadInfo | null,
   error: null as string | null,

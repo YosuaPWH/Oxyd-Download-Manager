@@ -6,10 +6,16 @@
 // chrome.storage.session instead of module variables.
 import { shouldCapture } from "./filters.ts";
 import { handOffDownload } from "./handoff.ts";
+import type { ContentMessage } from "./messages.ts";
 import { browserName, cookieHeader, sendNative, type AddDownload } from "./native.ts";
 import { loadSettings } from "./settings.ts";
+import { initSniffer } from "./sniffer.ts";
+import { pageVideo, storeIdFor, videoDownload, videoOptions } from "./video.ts";
 
 const MENU_ID = "oxyd-download-link";
+const VIDEO_MENU_ID = "oxyd-download-video";
+
+initSniffer();
 const SKIP_MS = 30_000;
 const BYPASS_MS = 60_000;
 
@@ -52,17 +58,6 @@ function flashBadge(text: string, color: string) {
   void chrome.action.setBadgeText({ text });
   void chrome.action.setBadgeBackgroundColor({ color });
   setTimeout(() => void chrome.action.setBadgeText({ text: "" }), 4000);
-}
-
-/** Cookie store of the incognito profile when `incognito`, default store otherwise. */
-async function storeIdFor(incognito: boolean): Promise<string | undefined> {
-  if (!incognito) return undefined;
-  try {
-    const stores = await chrome.cookies.getAllCookieStores();
-    return stores.find((s) => s.id !== "0")?.id;
-  } catch {
-    return undefined;
-  }
 }
 
 async function offerToOxyd(msg: AddDownload): Promise<boolean> {
@@ -141,16 +136,33 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
 });
 
 chrome.runtime.onInstalled.addListener(() => {
+  const id = chrome.i18n.getUILanguage().startsWith("id");
   chrome.contextMenus.create({
     id: MENU_ID,
-    title: chrome.i18n.getUILanguage().startsWith("id")
-      ? "Download dengan Oxyd"
-      : "Download with Oxyd",
+    title: id ? "Download dengan Oxyd" : "Download with Oxyd",
     contexts: ["link"],
+  });
+  chrome.contextMenus.create({
+    id: VIDEO_MENU_ID,
+    title: id ? "Unduh video dengan Oxyd" : "Download video with Oxyd",
+    contexts: ["video", "audio"],
   });
 });
 
+/** Right-click on a video: the button's menu over it, else the app's video dialog. */
+async function videoFromContextMenu(info: chrome.contextMenus.OnClickData, tab?: chrome.tabs.Tab) {
+  if (tab?.id !== undefined) {
+    const shown = await chrome.tabs
+      .sendMessage(tab.id, { type: "open-video-menu" }, { frameId: info.frameId ?? 0 })
+      .catch(() => false);
+    if (shown) return;
+  }
+  const result = await pageVideo(info.frameUrl || info.pageUrl || tab?.url || "", tab);
+  flashBadge(result.ok ? "✓" : "!", result.ok ? "#15803d" : "#c62828");
+}
+
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId === VIDEO_MENU_ID) return void videoFromContextMenu(info, tab);
   if (info.menuItemId !== MENU_ID || !info.linkUrl) return;
   const accepted = await offerToOxyd({
     v: 1,
@@ -174,9 +186,28 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (Date.now() >= (await session()).skipNextUntil) void chrome.action.setBadgeText({ text: "" });
 });
 
-chrome.runtime.onMessage.addListener((msg, _sender, respond) => {
+chrome.runtime.onMessage.addListener((msg, sender, respond) => {
   if (msg?.type === "skip-next") {
     void armSkipNext().then(() => respond(true));
     return true; // respond asynchronously
   }
+  // Only this extension's own pages and content scripts send these.
+  if (sender.id !== chrome.runtime.id) return false;
+  const m = msg as ContentMessage | { type: "page-video"; tabId: number };
+  if (m?.type === "video-options") {
+    void videoOptions(m, sender.tab).then(respond);
+    return true;
+  }
+  if (m?.type === "video-download") {
+    void videoDownload(m, sender.tab).then(respond);
+    return true;
+  }
+  if (m?.type === "page-video") {
+    void chrome.tabs
+      .get(m.tabId)
+      .then((tab) => pageVideo(tab.url ?? "", tab))
+      .then(respond, () => respond({ ok: false }));
+    return true;
+  }
+  return false;
 });

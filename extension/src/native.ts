@@ -15,9 +15,40 @@ export interface AddDownload {
   source?: string;
 }
 
+export interface VideoChoice {
+  id: string;
+  kind: "video" | "audio";
+  label: string;
+  detail: string;
+  size?: number;
+}
+
+export interface VideoInfo {
+  v: 1;
+  type: "video_info";
+  id: string;
+  title: string;
+  duration?: number;
+  site?: string;
+  live: boolean;
+  choices: VideoChoice[];
+}
+
 export type Reply =
-  | { v: 1; type: "ack"; id: string; status: "accepted" | "rejected" | "error"; message?: string }
-  | { v: 1; type: "pong"; appVersion: string };
+  | {
+      v: 1;
+      type: "ack";
+      id: string;
+      status: "accepted" | "rejected" | "error";
+      message?: string;
+      /** Why it failed: `video`, `tool`, `network`, ... */
+      code?: string;
+    }
+  | { v: 1; type: "pong"; appVersion: string }
+  | VideoInfo;
+
+/** Reading a page with yt-dlp (downloading yt-dlp first, the first time) takes a while. */
+export const VIDEO_TIMEOUT_MS = 120_000;
 
 /** Send one message to the native host, failing after `timeout` ms. */
 export function sendNative(msg: object, timeout = TIMEOUT_MS): Promise<Reply> {

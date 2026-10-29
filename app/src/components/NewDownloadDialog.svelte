@@ -32,6 +32,23 @@
   // svelte-ignore state_referenced_locally
   let match = $state<PendingMatch | null>(pending?.matched ?? null);
 
+  /** A web page rather than a file: its video can be taken with yt-dlp. */
+  const isPage = $derived(!pending && !!probe && /^text\/html|^application\/xhtml/i.test(probe.mime ?? ""));
+  let reading = $state(false);
+
+  async function findVideo() {
+    reading = true;
+    error = null;
+    try {
+      app.videoPage = await api.probeVideo(url.trim());
+      onclose();
+    } catch (e) {
+      error = errorMessage(e);
+    } finally {
+      reading = false;
+    }
+  }
+
   /** The link the current `probe` belongs to. */
   let probedUrl = $state("");
   /** The link of the latest check, finished or not; only the latest one may update the form. */
@@ -216,6 +233,16 @@
         <p class="hint muted" aria-live="polite">{probing ? t("new.probing") : error ? "" : t("new.hint")}</p>
       {/if}
     </div>
+
+    {#if ready && isPage}
+      <div class="box" role="status">
+        <div class="matchtext">
+          <span>{t("video.pageHint")}</span>
+          {#if reading}<span class="muted">{t("video.reading")} {t("video.firstTime")}</span>{/if}
+        </div>
+        <button type="button" class="primary" onclick={findVideo} disabled={reading}>{t("video.find")}</button>
+      </div>
+    {/if}
 
     {#if ready}
       <div class="facts">

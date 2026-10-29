@@ -11,6 +11,7 @@
   import NewDownloadDialog from "./components/NewDownloadDialog.svelte";
   import Rail from "./components/Rail.svelte";
   import RemoveDialog from "./components/RemoveDialog.svelte";
+  import VideoDialog from "./components/VideoDialog.svelte";
   import SettingsPage from "./components/SettingsPage.svelte";
 
   onMount(() => {
@@ -226,8 +227,14 @@
 
 {#if pending}
   {#key pending.key}
-    <NewDownloadDialog {pending} onclose={closePending} />
+    {#if pending.video}
+      <VideoDialog {pending} probe={pending.video.probe} onclose={closePending} />
+    {:else}
+      <NewDownloadDialog {pending} onclose={closePending} />
+    {/if}
   {/key}
+{:else if app.videoPage}
+  <VideoDialog probe={app.videoPage} onclose={() => (app.videoPage = null)} />
 {:else if app.manualUrl !== null}
   <NewDownloadDialog initialUrl={app.manualUrl} onclose={() => (app.manualUrl = null)} />
 {/if}

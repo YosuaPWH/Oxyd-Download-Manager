@@ -225,6 +225,12 @@ pub fn run() {
             commands::resume_pending,
             commands::resume_with_url,
             commands::clear_completed,
+            commands::probe_video,
+            commands::confirm_video,
+            commands::add_video,
+            commands::video_file_name,
+            commands::tool_status,
+            commands::update_ytdlp,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Oxyd");

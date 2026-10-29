@@ -22,6 +22,9 @@ expired.
 - **Refresh an expired link** from the browser and continue from the last byte, like IDM
 - **Browser integration**: Chrome, Edge, Chromium, Brave and Vivaldi downloads are captured,
   cookies and referer included
+- **Videos from web pages**: hover a video on YouTube, Instagram, Facebook, TikTok, X and the
+  other sites yt-dlp knows and pick a quality, or just the MP3; video and audio download in
+  parallel and are merged without re-encoding
 - **Small**: the Windows installer is about 5 MB and the app uses about 21 MB in the tray
 - **Light and dark** themes that follow your system, in English and Indonesian
 
@@ -134,6 +137,38 @@ It also recognises links on its own: a link whose name and size match an unfinis
 is offered as **Continue that one** (see the dialog above) instead of being downloaded again
 as `file (1)`. You can also paste a new URL by hand in the detail panel.
 
+### Videos from web pages
+
+Hover a video in the browser and a **Download** button appears in its corner, like IDM's.
+Click it for the qualities the page offers (for example *1080p60 · MP4 · H.264 · about
+310 MB*), the sound alone as M4A, or MP3; *Best quality* starts right away, before the list
+is in. On feeds (Instagram, Facebook, X, Reddit, TikTok) the button belongs to the post the
+video is in. The right-click menu has *Download video with Oxyd*, and the popup can send the
+current page. Pages are read by [yt-dlp](https://github.com/yt-dlp/yt-dlp), so the same works
+for the 1,800+ sites it supports; on other sites the menu lists the video files and HLS/DASH
+streams the page loaded. *Add URL* recognises a web page and offers **Find videos on this
+page**.
+
+How a video downloads:
+
+- When the streams are plain files (most YouTube, Instagram and Facebook videos), **Oxyd's own
+  engine** fetches video and audio *together* over many connections into one part file, so
+  they pause, resume and survive restarts like any download. ffmpeg then merges them without
+  re-encoding; a file that already has its sound is just renamed, so ffmpeg is not even
+  needed. Stream links that expired while paused are read from the page again and the
+  download continues where it stopped.
+- HLS and fragmented DASH streams, or streams a site refuses to Oxyd's engine, are downloaded
+  by yt-dlp itself (several fragments at once) and shown with the same progress.
+
+Nothing extra is installed up front: yt-dlp (and deno, which yt-dlp needs for YouTube) are
+downloaded the first time a video needs them, ffmpeg the first time something has to be merged
+or converted (Linux uses the system's ffmpeg when it has one). Each is checked against the
+SHA-256 its release publishes and kept in Oxyd's data folder. yt-dlp is updated once a day,
+because sites change often. *Settings → Videos from the web* shows the tools, updates yt-dlp
+on request and accepts your own yt-dlp or ffmpeg.
+
+Download only what you have the right to: many sites' terms forbid downloading their videos.
+
 ### Queue, limits and schedule
 
 - Run up to 3 downloads at once by default (1 to 20); the rest wait in the queue, and you can
@@ -157,6 +192,7 @@ as `file (1)`. You can also paste a new URL by hand in the detail panel.
 | General | Language, theme, start automatically when you sign in, notifications |
 | Downloads | Default folder, a sub folder per category, connections per download (1–32), simultaneous downloads, global speed limit, what to do with duplicate names |
 | Browser & integration | Show the confirmation dialog for browser downloads, watch the clipboard for file links |
+| Videos from the web | Which yt-dlp, ffmpeg and deno are used, update yt-dlp now or every day, your own yt-dlp or ffmpeg |
 | Schedule | Start and stop times, action when the queue finishes |
 | Network | HTTP, HTTPS or SOCKS5 proxy |
 
@@ -174,6 +210,10 @@ network port is opened. Firefox is not supported yet.
   within 3 seconds.
 - **Right-click a link** and choose *Download with Oxyd*; press **Alt+Shift+O** to let the
   next download stay in the browser.
+- **Download button on videos** (see [Videos from web pages](#videos-from-web-pages)). It can
+  be switched off in the popup. To list the streams of pages yt-dlp does not know, the
+  extension notes which responses a tab received were video, audio or HLS/DASH manifests
+  (`webRequest`, read-only); that list stays in the browser session.
 - The popup shows whether the app is reachable and lets you switch capturing off, change the
   minimum size, the captured file types and the domains that should be left alone.
 
@@ -217,6 +257,14 @@ starts the app first if needed.
    `md5:`), renamed from `.oxydpart`, and any cookies stored for the download are erased.
 5. **Be polite.** Failed requests retry with exponential backoff and `Retry-After`; when a
    server answers 429 or 503, connections are given up immediately and added back slowly.
+
+**Videos.** The extension sends the page address and that site's cookies; the app reads the
+page with yt-dlp (`-J`, cookies through a temporary file only your user can read) and offers a
+short list of qualities. The chosen formats' sizes and Range support are checked; plain files
+then go through the engine above as one part file with the streams end to end (no segment
+crosses from video to audio). At the end the audio is moved out, the part file cut to the
+video and ffmpeg merges both (`-c copy`); if that fails or is stopped, the part file is put
+back together so no progress is lost. Other streams go to yt-dlp with its own `.part` files.
 
 **Privacy.** Cookies and authorisation headers are kept only while a download needs them and
 deleted when it completes. On Windows they are encrypted with DPAPI for your user account; on
@@ -309,6 +357,7 @@ one `SHA256SUMS.txt`. Tags with a suffix such as `v0.2.0-beta.1` become pre-rele
 | Downloads and settings | `%LOCALAPPDATA%\Oxyd\oxyd.db` | `~/.local/share/Oxyd/oxyd.db` |
 | Logs | `%LOCALAPPDATA%\Oxyd\logs\` | `~/.local/share/Oxyd/logs/` |
 | Browser helper | `%LOCALAPPDATA%\Oxyd\native-host\` and HKCU | `~/.config/<browser>/NativeMessagingHosts/` |
+| yt-dlp, ffmpeg, deno | `%LOCALAPPDATA%\Oxyd\tools\` | `~/.local/share/Oxyd/tools/` |
 
 ## Build from source
 
@@ -364,7 +413,7 @@ On Linux a development build registers its own `oxyd-bridge` for your user when 
 
 | Folder | Contents |
 |---|---|
-| `crates/oxyd-core` | Download engine: probe, segments, workers, limiter, SQLite, queue and manager |
+| `crates/oxyd-core` | Download engine: probe, segments, workers, limiter, SQLite, queue and manager; `media/` for videos from web pages (yt-dlp, ffmpeg, tool downloads) |
 | `crates/oxyd-cli` | `oxyd-cli`, a command line front end for the engine |
 | `crates/oxyd-protocol` | Message types, framing, the secured named pipe (Windows) and Unix socket (Linux) |
 | `crates/oxyd-bridge` | `oxyd-bridge`, the native messaging host |

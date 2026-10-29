@@ -98,8 +98,50 @@ impl Drop for Slot {
     }
 }
 
+/// Files registered with [`put_blob`], served at `/blob/<name>`.
+static BLOBS: std::sync::Mutex<Option<std::collections::HashMap<String, Bytes>>> =
+    std::sync::Mutex::new(None);
+
+/// Serve `data` at `/blob/<name>` (with Range support) on every server of this process.
+pub fn put_blob(name: &str, data: Vec<u8>) {
+    BLOBS
+        .lock()
+        .unwrap()
+        .get_or_insert_with(Default::default)
+        .insert(name.to_string(), Bytes::from(data));
+}
+
+async fn serve_blob(Path(name): Path<String>, headers: HeaderMap) -> Response {
+    let Some(data) = BLOBS
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|m| m.get(&name).cloned())
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let size = data.len() as u64;
+    let b = Response::builder()
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::CONTENT_TYPE, "application/octet-stream");
+    match parse_range(&headers, size) {
+        Some((s, e)) => b
+            .status(StatusCode::PARTIAL_CONTENT)
+            .header(header::CONTENT_RANGE, format!("bytes {s}-{e}/{size}"))
+            .header(header::CONTENT_LENGTH, e - s + 1)
+            .body(Body::from(data.slice(s as usize..=e as usize)))
+            .unwrap(),
+        None => b
+            .status(StatusCode::OK)
+            .header(header::CONTENT_LENGTH, size)
+            .body(Body::from(data))
+            .unwrap(),
+    }
+}
+
 pub fn router(stats: Arc<Stats>) -> Router {
     Router::new()
+        .route("/blob/:name", get(serve_blob))
         .route("/file/:size", get(serve_file).head(serve_file))
         .route("/redirect/:size", get(redirect).head(redirect))
         .with_state(stats)

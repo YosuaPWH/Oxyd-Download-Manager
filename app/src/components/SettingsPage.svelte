@@ -3,7 +3,7 @@
   import * as fmt from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import { app, saveSettings } from "../lib/store.svelte";
-  import type { Settings } from "../lib/types";
+  import type { Settings, ToolStatus } from "../lib/types";
 
   let s = $state<Settings>(structuredClone($state.snapshot(app.settings!)));
   let limit = $state(fmt.rateInput(s.speedLimit));
@@ -49,6 +49,32 @@
   async function browse() {
     const p = await api.pickFolder(s.downloadDir);
     if (p) s.downloadDir = p;
+  }
+
+  let tools = $state<ToolStatus[]>([]);
+  let updating = $state(false);
+  let toolNote = $state<string | null>(null);
+  const loadTools = async () => (tools = await api.toolStatus().catch(() => []));
+  void loadTools();
+
+  async function updateYtdlp() {
+    updating = true;
+    toolNote = null;
+    try {
+      const v = await api.updateYtdlp();
+      toolNote = v ? `${t("set.updated")} ${v}` : t("set.upToDate");
+      await loadTools();
+    } catch (e) {
+      toolNote = errorMessage(e);
+    } finally {
+      updating = false;
+    }
+  }
+
+  function toolText(x: ToolStatus) {
+    if (!x.path) return t("set.toolMissing");
+    const where = x.managed ? t("set.toolManaged") : t("set.toolSystem");
+    return x.version ? `${x.version} · ${where}` : where;
   }
 </script>
 
@@ -149,6 +175,41 @@
           <span>{t("set.clipboard")}</span>
           <input type="checkbox" class="switch" role="switch" bind:checked={s.clipboardMonitor} />
         </label>
+      </div>
+    </section>
+
+    <section>
+      <div class="label"><h2>{t("set.video")}</h2><p>{t("set.videoHint")}</p></div>
+      <div class="panel">
+        <div class="item wide">
+          <span>{t("set.tools")}</span>
+          <dl class="tools">
+            {#each tools as x (x.tool)}
+              <dt>{x.tool}</dt>
+              <dd class="muted" title={x.path ?? ""}>{toolText(x)}</dd>
+            {/each}
+          </dl>
+          <div class="field">
+            <button onclick={updateYtdlp} disabled={updating}>{t("set.updateYtdlp")}</button>
+            {#if toolNote}<span class="muted" aria-live="polite">{toolNote}</span>{/if}
+          </div>
+        </div>
+        <label class="item">
+          <span>{t("set.autoUpdate")}</span>
+          <input type="checkbox" class="switch" role="switch" bind:checked={s.video.autoUpdate} />
+        </label>
+        <div class="item wide">
+          <label for="s-ytdlp">{t("set.ytdlpPath")}<span class="hint">{t("set.pathHint")}</span></label>
+          <div class="field">
+            <input id="s-ytdlp" class="mono" bind:value={s.video.ytdlpPath} onchange={loadTools} placeholder="—" />
+          </div>
+        </div>
+        <div class="item wide">
+          <label for="s-ffmpeg">{t("set.ffmpegPath")}<span class="hint">{t("set.pathHint")}</span></label>
+          <div class="field">
+            <input id="s-ffmpeg" class="mono" bind:value={s.video.ffmpegPath} onchange={loadTools} placeholder="—" />
+          </div>
+        </div>
       </div>
     </section>
 
@@ -308,6 +369,22 @@
   #s-limit {
     width: 120px;
     text-align: right;
+  }
+  .tools {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 4px 16px;
+    margin: 0;
+  }
+  .tools dt {
+    font-family: var(--font-num);
+    font-size: 13px;
+  }
+  .tools dd {
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .version {
     padding-top: 32px;

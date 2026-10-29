@@ -3,7 +3,11 @@
 use std::path::PathBuf;
 
 use oxyd_core::filename::{sanitize, Category};
-use oxyd_core::{DownloadInfo, DuplicatePolicy, NewDownload, ProbeInfo, RequestHeaders, Settings};
+use oxyd_core::media::{ChoiceKind, ToolStatus, VideoProbe};
+use oxyd_core::{
+    DownloadInfo, DuplicatePolicy, Manager, MediaSpec, NewDownload, ProbeInfo, RequestHeaders,
+    Settings,
+};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 use tauri_plugin_autostart::ManagerExt as _;
@@ -368,6 +372,129 @@ pub async fn resume_with_url(
 #[tauri::command]
 pub fn clear_completed(state: State<'_, AppState>) -> Res<usize> {
     Ok(state.mgr.clear_completed()?)
+}
+
+/// Add the video of `probe` in quality `choice_id` (or `best`).
+pub fn add_video_download(
+    mgr: &Manager,
+    probe: &VideoProbe,
+    choice_id: &str,
+    filename: Option<String>,
+    dir: Option<PathBuf>,
+    headers: RequestHeaders,
+    start: bool,
+) -> oxyd_core::Result<DownloadInfo> {
+    let choice = probe
+        .choices
+        .iter()
+        .find(|c| c.id == choice_id)
+        .or_else(|| {
+            (choice_id == "best")
+                .then(|| probe.choices.iter().find(|c| c.kind == ChoiceKind::Video))
+                .flatten()
+        })
+        .ok_or_else(|| oxyd_core::Error::Video("this quality is not offered".into()))?;
+    let filename = filename
+        .filter(|f| !f.trim().is_empty())
+        .unwrap_or_else(|| oxyd_core::media::file_name(&probe.title, &choice.container));
+    mgr.add(NewDownload {
+        url: probe.page_url.clone(),
+        filename: Some(filename),
+        dir,
+        headers,
+        size_hint: choice.size,
+        start,
+        media: Some(MediaSpec {
+            format: choice.id.clone(),
+            height: choice.height,
+            container: choice.container.clone(),
+            mp3: choice.container == "mp3",
+            ..Default::default()
+        }),
+        ..Default::default()
+    })
+}
+
+/// The videos of a page typed in *Add URL*.
+#[tauri::command]
+pub async fn probe_video(state: State<'_, AppState>, url: String) -> Res<VideoProbe> {
+    Ok(state
+        .mgr
+        .probe_video(url.trim(), &RequestHeaders::default())
+        .await?)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoOptions {
+    choice: String,
+    filename: Option<String>,
+    dir: Option<PathBuf>,
+    start: bool,
+}
+
+/// Download the video waiting in the "Download video" dialog.
+#[tauri::command]
+pub fn confirm_video(
+    state: State<'_, AppState>,
+    key: String,
+    options: VideoOptions,
+) -> Res<DownloadInfo> {
+    let p = state
+        .find_pending(&key)
+        .ok_or_else(|| CmdError::other("missing", "link no longer pending"))?;
+    let video = p
+        .video
+        .as_ref()
+        .ok_or_else(|| CmdError::other("invalid_state", "not a video"))?;
+    let info = add_video_download(
+        &state.mgr,
+        &video.probe,
+        &options.choice,
+        options.filename,
+        options.dir,
+        p.headers.clone(),
+        options.start,
+    )?;
+    state.take_pending(&key);
+    Ok(info)
+}
+
+/// Download the video of a page typed in *Add URL* (read again from the recent cache).
+#[tauri::command]
+pub async fn add_video(
+    state: State<'_, AppState>,
+    url: String,
+    options: VideoOptions,
+) -> Res<DownloadInfo> {
+    let headers = RequestHeaders::default();
+    let probe = state.mgr.probe_video(url.trim(), &headers).await?;
+    Ok(add_video_download(
+        &state.mgr,
+        &probe,
+        &options.choice,
+        options.filename,
+        options.dir,
+        headers,
+        options.start,
+    )?)
+}
+
+/// File name for a video titled `title` saved as `container`.
+#[tauri::command]
+pub fn video_file_name(title: String, container: String) -> String {
+    oxyd_core::media::file_name(&title, &container)
+}
+
+#[tauri::command]
+pub fn tool_status(state: State<'_, AppState>) -> Vec<ToolStatus> {
+    state.mgr.tool_status()
+}
+
+/// Install or update yt-dlp now; the new version when it changed.
+#[tauri::command]
+pub async fn update_ytdlp(state: State<'_, AppState>) -> Res<Option<String>> {
+    Ok(state.mgr.update_ytdlp().await?)
 }
 
 #[cfg(test)]

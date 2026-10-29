@@ -3,6 +3,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use oxyd_core::media::VideoProbe;
 use oxyd_core::{DownloadInfo, Manager, RequestHeaders};
 use serde::Serialize;
 
@@ -20,8 +21,18 @@ pub struct PendingAdd {
     pub source: Option<String>,
     /// Unfinished download this link probably continues (same name and size).
     pub matched: Option<PendingMatch>,
+    /// A video of a web page: the "Download video" dialog asks for its quality.
+    pub video: Option<PendingVideo>,
     #[serde(skip)]
     pub headers: RequestHeaders,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingVideo {
+    pub probe: VideoProbe,
+    /// Quality picked in the browser, preselected in the dialog.
+    pub choice: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

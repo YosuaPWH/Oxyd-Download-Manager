@@ -58,6 +58,29 @@ pub struct Settings {
     pub language: String,
     pub schedule: Schedule,
     pub after_queue: AfterQueue,
+    pub video: VideoSettings,
+}
+
+/// Where the tools for videos from web pages come from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VideoSettings {
+    /// yt-dlp to use instead of the one Oxyd keeps up to date; empty = automatic.
+    pub ytdlp_path: String,
+    /// ffmpeg to use; empty = automatic (the system's, else one Oxyd downloads).
+    pub ffmpeg_path: String,
+    /// Update yt-dlp once a day: sites change and old versions stop working.
+    pub auto_update: bool,
+}
+
+impl Default for VideoSettings {
+    fn default() -> Self {
+        VideoSettings {
+            ytdlp_path: String::new(),
+            ffmpeg_path: String::new(),
+            auto_update: true,
+        }
+    }
 }
 
 pub const MAX_CONNECTIONS: u32 = 32;
@@ -80,6 +103,7 @@ impl Default for Settings {
             language: "id".into(),
             schedule: Schedule::default(),
             after_queue: AfterQueue::Nothing,
+            video: VideoSettings::default(),
         }
     }
 }
@@ -91,6 +115,8 @@ impl Settings {
         self.max_active = self.max_active.clamp(1, 20);
         self.speed_limit = self.speed_limit.filter(|&s| s > 0);
         self.proxy = self.proxy.filter(|p| !p.trim().is_empty());
+        self.video.ytdlp_path = self.video.ytdlp_path.trim().to_string();
+        self.video.ffmpeg_path = self.video.ffmpeg_path.trim().to_string();
         if self.download_dir.as_os_str().is_empty() {
             self.download_dir = crate::paths::default_download_dir();
         }

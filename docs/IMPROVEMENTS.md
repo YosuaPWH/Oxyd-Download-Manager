@@ -182,4 +182,4 @@ Ideas, roughly by value:
 - Virtualised download list for very long histories.
 - Segment-level resume across a changed ETag when the server serves identical bytes.
 - Per-server connection limits learned from earlier 429s.
-- Video streams (HLS/DASH), macOS and Linux, Firefox: out of scope for v1 (see the PRD).
+- macOS and Firefox: out of scope for v1 (see the PRD). Videos from web pages (HLS/DASH included) and Linux have since been added.

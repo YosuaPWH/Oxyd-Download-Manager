@@ -10,7 +10,16 @@ import type {
   ProbeInfo,
   RefreshResult,
   Settings,
+  ToolStatus,
+  VideoProbe,
 } from "./types";
+
+export interface VideoOptions {
+  choice: string;
+  filename: string | null;
+  dir: string | null;
+  start: boolean;
+}
 
 export const api = {
   list: () => invoke<DownloadInfo[]>("list_downloads"),
@@ -59,6 +68,14 @@ export const api = {
   resumePending: (key: string, id: string) => invoke<DownloadInfo>("resume_pending", { key, id }),
   resumeWithUrl: (id: string, url: string) => invoke<DownloadInfo>("resume_with_url", { id, url }),
   clearCompleted: () => invoke<number>("clear_completed"),
+  probeVideo: (url: string) => invoke<VideoProbe>("probe_video", { url }),
+  confirmVideo: (key: string, options: VideoOptions) =>
+    invoke<DownloadInfo>("confirm_video", { key, options }),
+  addVideo: (url: string, options: VideoOptions) => invoke<DownloadInfo>("add_video", { url, options }),
+  videoFileName: (title: string, container: string) =>
+    invoke<string>("video_file_name", { title, container }),
+  toolStatus: () => invoke<ToolStatus[]>("tool_status"),
+  updateYtdlp: () => invoke<string | null>("update_ytdlp"),
 };
 
 export function onEngineEvent(cb: (e: EngineEvent) => void): Promise<UnlistenFn> {

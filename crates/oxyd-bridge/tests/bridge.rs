@@ -4,7 +4,8 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 use oxyd_protocol::{
-    read_message, write_frame, write_message, Ack, AckStatus, AddDownload, Message,
+    read_message, write_frame, write_message, Ack, AckStatus, AddDownload, Message, ProbeVideo,
+    VideoInfo,
 };
 
 fn bridge(pipe: &str) -> Command {
@@ -29,6 +30,14 @@ fn add(id: &str) -> Message {
     })
 }
 
+fn probe(id: &str) -> Message {
+    Message::ProbeVideo(ProbeVideo {
+        id: id.into(),
+        page_url: "https://www.youtube.com/watch?v=x".into(),
+        ..Default::default()
+    })
+}
+
 #[tokio::test]
 async fn forwards_messages_to_the_app() {
     let pipe = oxyd_protocol::unique_pipe_name("bridge");
@@ -39,6 +48,11 @@ async fn forwards_messages_to_the_app() {
                 app_version: "9.9.9".into(),
             },
             Message::AddDownload(a) => Message::ack(a.id, AckStatus::Accepted, None),
+            Message::ProbeVideo(p) => Message::VideoInfo(VideoInfo {
+                id: p.id,
+                title: "clip".into(),
+                ..Default::default()
+            }),
             _ => Message::ack("", AckStatus::Rejected, None),
         }
     }));
@@ -48,6 +62,7 @@ async fn forwards_messages_to_the_app() {
         let mut stdin = child.stdin.take().unwrap();
         write_message(&mut stdin, &Message::Ping).unwrap();
         write_message(&mut stdin, &add("dl-1")).unwrap();
+        write_message(&mut stdin, &probe("pv-1")).unwrap();
         // Invalid JSON keeps the bridge alive and reports the id when possible.
         write_frame(
             &mut stdin,
@@ -74,6 +89,10 @@ async fn forwards_messages_to_the_app() {
         read_message(&mut r).unwrap(),
         Some(Message::ack("dl-1", AckStatus::Accepted, None))
     );
+    assert!(matches!(
+        read_message(&mut r).unwrap(),
+        Some(Message::VideoInfo(VideoInfo { id, .. })) if id == "pv-1"
+    ));
     for expected_id in ["bad", ""] {
         match read_message(&mut r).unwrap() {
             Some(Message::Ack(a)) => {
@@ -98,10 +117,12 @@ fn reports_error_when_app_is_unreachable() {
     let mut stdin = child.stdin.take().unwrap();
     write_message(&mut stdin, &Message::Ping).unwrap();
     write_message(&mut stdin, &add("dl-2")).unwrap();
+    // A lookup ahead of a click does not try to start the app.
+    write_message(&mut stdin, &probe("pv-2")).unwrap();
     drop(stdin);
     let output = child.wait_with_output().unwrap();
     let mut r = &output.stdout[..];
-    for id in ["", "dl-2"] {
+    for id in ["", "dl-2", "pv-2"] {
         match read_message(&mut r).unwrap() {
             Some(Message::Ack(a)) => {
                 assert_eq!(a.status, AckStatus::Error);

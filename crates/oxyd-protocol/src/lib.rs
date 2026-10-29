@@ -105,6 +105,11 @@ pub fn unique_pipe_name(tag: &str) -> String {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Message {
     AddDownload(AddDownload),
+    /// List the videos of a web page (answered with [`Message::VideoInfo`]).
+    ProbeVideo(ProbeVideo),
+    VideoInfo(VideoInfo),
+    /// Download a video of a web page in the chosen quality (answered with an [`Ack`]).
+    AddVideo(AddVideo),
     Ping,
     #[serde(rename_all = "camelCase")]
     Pong {
@@ -136,6 +141,75 @@ pub struct AddDownload {
     pub source: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProbeVideo {
+    pub id: String,
+    /// The page (or, on a feed, the post) the video is on.
+    pub page_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cookies: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub referrer: Option<String>,
+    /// Start the app when it is not running. Off for lookups made ahead of a click.
+    #[serde(default)]
+    pub launch: bool,
+}
+
+/// The qualities a page's video can be downloaded in.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoInfo {
+    pub id: String,
+    pub title: String,
+    /// Seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration: Option<u64>,
+    /// `Youtube`, `Instagram`, ...
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site: Option<String>,
+    #[serde(default)]
+    pub live: bool,
+    pub choices: Vec<VideoChoice>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoChoice {
+    /// Echoed in [`AddVideo::choice`].
+    pub id: String,
+    /// `video` or `audio`.
+    pub kind: String,
+    /// `1080p60`, `MP3`, ...
+    pub label: String,
+    /// `MP4 · H.264`
+    pub detail: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddVideo {
+    pub id: String,
+    pub page_url: String,
+    /// A [`VideoChoice::id`], or `best`. Without one the app asks which quality.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub choice: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cookies: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub referrer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AckStatus {
@@ -151,6 +225,9 @@ pub struct Ack {
     pub status: AckStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Machine readable reason of an error (`video`, `tool`, `network`, ...).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
 }
 
 impl Message {
@@ -160,7 +237,30 @@ impl Message {
             id: id.into(),
             status,
             message,
+            code: None,
         })
+    }
+
+    /// An error [`Ack`] with its code.
+    pub fn error(id: impl Into<String>, code: &str, message: impl Into<String>) -> Message {
+        Message::Ack(Ack {
+            id: id.into(),
+            status: AckStatus::Error,
+            message: Some(message.into()),
+            code: Some(code.to_string()),
+        })
+    }
+
+    /// The id a reply to this message carries.
+    pub fn id(&self) -> &str {
+        match self {
+            Message::AddDownload(a) => &a.id,
+            Message::ProbeVideo(p) => &p.id,
+            Message::VideoInfo(v) => &v.id,
+            Message::AddVideo(a) => &a.id,
+            Message::Ack(a) => &a.id,
+            Message::Ping | Message::Pong { .. } => "",
+        }
     }
 }
 
@@ -207,21 +307,38 @@ pub fn decode(bytes: &[u8]) -> Result<Message, ProtocolError> {
     Ok(env.msg)
 }
 
+fn check_url(url: &str) -> Result<(), ProtocolError> {
+    let lower = url.to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return Err(ProtocolError::Invalid("url must be http(s)".into()));
+    }
+    if url.len() > 64 * 1024 {
+        return Err(ProtocolError::Invalid("url too long".into()));
+    }
+    Ok(())
+}
+
+fn check_len(what: &str, value: Option<&str>, max: usize) -> Result<(), ProtocolError> {
+    if value.is_some_and(|v| v.len() > max) {
+        return Err(ProtocolError::Invalid(format!("{what} too long")));
+    }
+    Ok(())
+}
+
 fn validate(msg: &Message) -> Result<(), ProtocolError> {
-    if let Message::AddDownload(a) = msg {
-        let lower = a.url.to_ascii_lowercase();
-        if !(lower.starts_with("http://") || lower.starts_with("https://")) {
-            return Err(ProtocolError::Invalid("url must be http(s)".into()));
+    check_len("id", Some(msg.id()), 128)?;
+    match msg {
+        Message::AddDownload(a) => {
+            check_url(&a.url)?;
+            check_len("filename", a.filename.as_deref(), 1024)?;
         }
-        if a.url.len() > 64 * 1024 {
-            return Err(ProtocolError::Invalid("url too long".into()));
+        Message::ProbeVideo(p) => check_url(&p.page_url)?,
+        Message::AddVideo(a) => {
+            check_url(&a.page_url)?;
+            check_len("choice", a.choice.as_deref(), 256)?;
+            check_len("title", a.title.as_deref(), 1024)?;
         }
-        if a.id.len() > 128 {
-            return Err(ProtocolError::Invalid("id too long".into()));
-        }
-        if a.filename.as_ref().is_some_and(|f| f.len() > 1024) {
-            return Err(ProtocolError::Invalid("filename too long".into()));
-        }
+        _ => {}
     }
     Ok(())
 }
@@ -295,6 +412,50 @@ mod tests {
         .unwrap();
         assert_eq!(pong, r#"{"v":1,"type":"pong","appVersion":"0.1.0"}"#);
         assert_eq!(decode(br#"{"v":1,"type":"ping"}"#).unwrap(), Message::Ping);
+    }
+
+    #[test]
+    fn video_messages_match_documented_json() {
+        let probe = br#"{"v": 1, "type": "probe_video", "id": "p1",
+            "pageUrl": "https://www.youtube.com/watch?v=x", "cookies": "a=b", "launch": true}"#;
+        let Message::ProbeVideo(p) = decode(probe).unwrap() else {
+            panic!("wrong type")
+        };
+        assert!(p.launch);
+        assert_eq!(p.page_url, "https://www.youtube.com/watch?v=x");
+
+        let info = Message::VideoInfo(VideoInfo {
+            id: "p1".into(),
+            title: "T".into(),
+            duration: Some(60),
+            choices: vec![VideoChoice {
+                id: "137+140".into(),
+                kind: "video".into(),
+                label: "1080p".into(),
+                detail: "MP4 · H.264".into(),
+                size: Some(10),
+            }],
+            ..Default::default()
+        });
+        let json = String::from_utf8(encode(&info)).unwrap();
+        assert!(
+            json.starts_with(r#"{"v":1,"type":"video_info","id":"p1","title":"T","duration":60"#),
+            "{json}"
+        );
+        assert_eq!(decode(json.as_bytes()).unwrap(), info);
+
+        let add = br#"{"v": 1, "type": "add_video", "id": "a1", "pageUrl": "https://x.com/i/status/1", "choice": "best"}"#;
+        assert!(matches!(
+            decode(add).unwrap(),
+            Message::AddVideo(AddVideo {
+                choice: Some(_),
+                ..
+            })
+        ));
+        assert!(matches!(
+            decode(br#"{"v": 1, "type": "add_video", "id": "a", "pageUrl": "javascript:x"}"#),
+            Err(ProtocolError::Invalid(_))
+        ));
     }
 
     #[test]

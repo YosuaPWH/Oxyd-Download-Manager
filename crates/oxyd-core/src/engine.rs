@@ -122,10 +122,20 @@ impl Shared {
     }
 }
 
-pub(crate) struct Job {
-    pub client: Client,
+/// Where the bytes from `start` on in the part file come from. A video's streams (video and
+/// audio) lie one after the other in one part file, each fetched from its own URL; segments
+/// never cross from one to the next.
+#[derive(Debug, Clone)]
+pub(crate) struct Source {
+    pub start: u64,
     pub url: String,
     pub headers: RequestHeaders,
+}
+
+pub(crate) struct Job {
+    pub client: Client,
+    /// Sorted by `start`; the first starts at 0.
+    pub sources: Vec<Source>,
     pub file: SharedFile,
     pub shared: Arc<Shared>,
     pub global: Arc<Limiter>,
@@ -140,6 +150,15 @@ impl Job {
     /// Whether any speed limit applies (skips the limiter on the hot path otherwise).
     fn limited(&self) -> bool {
         self.global.rate().is_some() || self.shared.limiter.rate().is_some()
+    }
+
+    /// The source holding part file offset `pos`.
+    fn source(&self, pos: u64) -> &Source {
+        self.sources
+            .iter()
+            .rev()
+            .find(|s| s.start <= pos)
+            .unwrap_or(&self.sources[0])
     }
 }
 
@@ -344,10 +363,17 @@ async fn fetch(job: &Job, idx: usize, from: u64, end: u64) -> Result<(), Attempt
     })
 }
 
-/// Request `from..=end` and check that the answer can be used for it.
+/// Request `from..=end` (part file offsets) and check that the answer can be used for it.
 async fn request(job: &Job, from: u64, end: u64) -> Result<reqwest::Response, Attempt> {
+    let src = job.source(from);
+    let from = from - src.start;
+    let end = if end == UNKNOWN_END {
+        end
+    } else {
+        end - src.start
+    };
     let ranged = job.multi || from > 0;
-    let mut rb = job.headers.apply(job.client.get(&job.url));
+    let mut rb = src.headers.apply(job.client.get(&src.url));
     if ranged {
         let range = if end == UNKNOWN_END {
             format!("bytes={from}-")

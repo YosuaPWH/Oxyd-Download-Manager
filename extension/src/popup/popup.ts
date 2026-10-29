@@ -14,12 +14,18 @@ const ID: Record<string, string> = {
   offline: "Aplikasi tidak berjalan",
   saved: "Tersimpan",
   skipArmed: "Download berikutnya ke browser",
+  videoButton: "Tampilkan tombol unduh di video",
+  pageVideo: "Unduh video di halaman ini",
+  sent: "Dikirim ke Oxyd",
+  failed: "Gagal mengirim ke Oxyd",
 };
 const EN: Record<string, string> = {
   connected: "Connected",
   offline: "App not running",
   saved: "Saved",
   skipArmed: "Next download goes to the browser",
+  sent: "Sent to Oxyd",
+  failed: "Could not send it to Oxyd",
 };
 
 const indonesian = chrome.i18n.getUILanguage().startsWith("id");
@@ -30,6 +36,7 @@ const enabled = $<HTMLInputElement>("enabled");
 const minSize = $<HTMLInputElement>("minSize");
 const extensions = $<HTMLTextAreaElement>("extensions");
 const excluded = $<HTMLTextAreaElement>("excluded");
+const videoButton = $<HTMLInputElement>("videoButton");
 const status = $("status");
 
 for (const el of document.querySelectorAll<HTMLElement>("[data-i18n]")) {
@@ -38,6 +45,7 @@ for (const el of document.querySelectorAll<HTMLElement>("[data-i18n]")) {
 
 function fill(s: typeof DEFAULTS) {
   enabled.checked = s.enabled;
+  videoButton.checked = s.videoButton;
   minSize.value = String(Math.round((s.minSize / 1024 / 1024) * 10) / 10);
   extensions.value = s.extensions.join(" ");
   excluded.value = s.excludedDomains.join("\n");
@@ -51,6 +59,17 @@ async function init() {
 }
 
 enabled.addEventListener("change", () => void saveSettings({ enabled: enabled.checked }));
+videoButton.addEventListener("change", () => void saveSettings({ videoButton: videoButton.checked }));
+
+$("pageVideo").addEventListener("click", async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id === undefined) return;
+  const button = $("pageVideo") as HTMLButtonElement;
+  button.disabled = true;
+  const r = (await chrome.runtime.sendMessage({ type: "page-video", tabId: tab.id })) as { ok: boolean } | undefined;
+  button.textContent = r?.ok ? tr("sent", "Sent to Oxyd") : tr("failed", "Could not send it to Oxyd");
+  button.disabled = false;
+});
 
 $("save").addEventListener("click", async () => {
   await saveSettings({

@@ -2,7 +2,7 @@
   import { api } from "../lib/api";
   import { canPause, canStart } from "../lib/actions";
   import * as fmt from "../lib/format";
-  import { errorText, t, type Key } from "../lib/i18n.svelte";
+  import { detailText, errorText, t, type Key } from "../lib/i18n.svelte";
   import { app, beginRefresh, clock, run, selected } from "../lib/store.svelte";
   import SegmentBar from "./SegmentBar.svelte";
   import SpeedChart from "./SpeedChart.svelte";
@@ -65,7 +65,8 @@
   }
 
   // Running downloads too: a dead link is usually still being retried.
-  const canRefresh = $derived(!!d && d.status !== "completed" && d.status !== "cancelled");
+  // Videos find their links again on the page by themselves.
+  const canRefresh = $derived(!!d && !d.media && d.status !== "completed" && d.status !== "cancelled");
   const pct = $derived(d ? fmt.percent(d.downloaded, d.totalSize) : null);
   const moving = $derived(d?.status === "downloading");
   const runningSegs = $derived(d ? d.segments.filter((s) => s.downloaded < s.end - s.start + 1).length : 0);
@@ -91,6 +92,9 @@
           · {t(`st.${d.status}` as Key)}
         {/if}
       </div>
+      {#if d.detail && d.status !== "completed"}
+        <div class="muted line">{detailText(d.detail)}</div>
+      {/if}
     </div>
 
     <div class="buttons">

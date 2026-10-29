@@ -7,6 +7,8 @@ export interface ExtSettings {
   extensions: string[];
   /** Domains whose downloads stay in the browser (sub domains included). */
   excludedDomains: string[];
+  /** Show the "Download" button over videos. */
+  videoButton: boolean;
 }
 
 export const DEFAULT_EXTENSIONS = [
@@ -22,6 +24,7 @@ export const DEFAULTS: ExtSettings = {
   minSize: 1024 * 1024,
   extensions: DEFAULT_EXTENSIONS,
   excludedDomains: [],
+  videoButton: true,
 };
 
 export async function loadSettings(): Promise<ExtSettings> {

@@ -187,6 +187,36 @@ const id = {
   "set.scheduleHint": "Jalankan antrean di malam hari atau saat tarif murah.",
   "set.networkHint": "Untuk jaringan yang mengirim lalu lintas lewat proxy.",
   "set.version": "Versi",
+  "video.title": "Unduh video",
+  "video.quality": "Kualitas",
+  "video.videoGroup": "Video",
+  "video.audioGroup": "Hanya audio",
+  "video.find": "Cari video di halaman ini",
+  "video.pageHint": "Ini halaman web, bukan file. Oxyd bisa mengambil videonya.",
+  "video.reading": "Membaca halaman…",
+  "video.firstTime": "Pertama kali bisa lebih lama: Oxyd mengunduh yt-dlp dulu.",
+  "video.none": "Tidak ada video yang bisa diunduh di halaman ini.",
+  "video.live": "Siaran langsung tidak bisa diunduh.",
+  "video.about": "sekitar",
+  "dt.page": "Membaca halaman video",
+  "dt.tool": "Mengunduh",
+  "dt.merge": "Menggabungkan video dan audio",
+  "dt.mp3": "Mengubah ke MP3",
+  "dt.remux": "Merapikan file video",
+  "dt.ytdlp": "Diunduh lewat yt-dlp",
+  "set.video": "Video dari web",
+  "set.videoHint": "YouTube, Instagram, Facebook, TikTok, X dan situs lain lewat yt-dlp.",
+  "set.ytdlpPath": "Lokasi yt-dlp",
+  "set.ffmpegPath": "Lokasi ffmpeg",
+  "set.pathHint": "kosong = otomatis",
+  "set.autoUpdate": "Perbarui yt-dlp otomatis setiap hari",
+  "set.tools": "Alat",
+  "set.toolMissing": "belum ada, diunduh saat pertama dibutuhkan",
+  "set.toolManaged": "dikelola Oxyd",
+  "set.toolSystem": "dari sistem",
+  "set.updateYtdlp": "Perbarui yt-dlp sekarang",
+  "set.updated": "yt-dlp diperbarui ke",
+  "set.upToDate": "yt-dlp sudah versi terbaru",
 } as const;
 
 export type Key = keyof typeof id;
@@ -380,12 +410,51 @@ const en: Record<Key, string> = {
   "set.scheduleHint": "Run the queue at night or on a cheap tariff.",
   "set.networkHint": "For networks that send traffic through a proxy.",
   "set.version": "Version",
+  "video.title": "Download video",
+  "video.quality": "Quality",
+  "video.videoGroup": "Video",
+  "video.audioGroup": "Audio only",
+  "video.find": "Find videos on this page",
+  "video.pageHint": "This is a web page, not a file. Oxyd can take its video.",
+  "video.reading": "Reading the page…",
+  "video.firstTime": "The first time takes longer: Oxyd fetches yt-dlp first.",
+  "video.none": "No downloadable video on this page.",
+  "video.live": "Live streams cannot be downloaded.",
+  "video.about": "about",
+  "dt.page": "Reading the video page",
+  "dt.tool": "Downloading",
+  "dt.merge": "Merging video and audio",
+  "dt.mp3": "Converting to MP3",
+  "dt.remux": "Tidying up the video file",
+  "dt.ytdlp": "Downloaded through yt-dlp",
+  "set.video": "Videos from the web",
+  "set.videoHint": "YouTube, Instagram, Facebook, TikTok, X and other sites through yt-dlp.",
+  "set.ytdlpPath": "yt-dlp location",
+  "set.ffmpegPath": "ffmpeg location",
+  "set.pathHint": "empty = automatic",
+  "set.autoUpdate": "Update yt-dlp every day",
+  "set.tools": "Tools",
+  "set.toolMissing": "not there yet, fetched the first time it is needed",
+  "set.toolManaged": "kept by Oxyd",
+  "set.toolSystem": "from the system",
+  "set.updateYtdlp": "Update yt-dlp now",
+  "set.updated": "yt-dlp updated to",
+  "set.upToDate": "yt-dlp is up to date",
 };
 
 export const i18n = $state({ lang: "id" as "id" | "en" });
 
 export function t(key: Key): string {
   return i18n.lang === "en" ? en[key] : id[key];
+}
+
+/** What a video download does besides downloading (`page`, `merge`, `tool:yt-dlp:40`). */
+export function detailText(detail: string | null | undefined): string | null {
+  if (!detail) return null;
+  const [kind, name, pct] = detail.split(":");
+  if (kind === "tool") return `${t("dt.tool")} ${name}${pct ? ` ${pct}%` : ""}…`;
+  const key = `dt.${kind}` as Key;
+  return key in id ? t(key) : null;
 }
 
 /** Localized text for an engine error code, if known. */
