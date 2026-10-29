@@ -147,8 +147,15 @@ jobs:
             app/package-lock.json
             extension/package-lock.json
 
+      # RPM versions cannot contain "-", so pre-release versions (0.3.0-beta.1) get no .rpm,
+      # like they get no MSI on Windows.
       - name: Build packages
-        run: bash scripts/build-linux.sh
+        run: |
+          version=$(jq -r .version app/src-tauri/tauri.conf.json)
+          case "$version" in
+            *-*) bash scripts/build-linux.sh deb,appimage ;;
+            *) bash scripts/build-linux.sh ;;
+          esac
 
       - name: Collect release files
         id: collect
@@ -159,7 +166,10 @@ jobs:
           bundle=target/release/bundle
           mkdir -p out
           cp "$(ls $bundle/deb/*.deb | head -1)" "out/Oxyd-$version-amd64.deb"
-          cp "$(ls $bundle/rpm/*.rpm | head -1)" "out/Oxyd-$version-x86_64.rpm"
+          case "$version" in
+            *-*) ;;
+            *) cp "$(ls $bundle/rpm/*.rpm | head -1)" "out/Oxyd-$version-x86_64.rpm" ;;
+          esac
           cp "$(ls $bundle/appimage/*.AppImage | head -1)" "out/Oxyd-$version-x86_64.AppImage"
           chmod +x out/*.AppImage
           (cd out && sha256sum -- * > SHA256SUMS.txt)
