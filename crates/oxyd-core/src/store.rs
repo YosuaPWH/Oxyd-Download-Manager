@@ -9,9 +9,9 @@ use crate::error::Result;
 use crate::filename::Category;
 use crate::segment::{Segment, UNKNOWN_END};
 use crate::settings::Settings;
-use crate::types::{now, DownloadRecord, RequestHeaders, Status};
+use crate::types::{now, DownloadRecord, MediaSpec, RequestHeaders, Status};
 
-const SCHEMA_VERSION: i32 = 3;
+const SCHEMA_VERSION: i32 = 4;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE downloads (
@@ -60,6 +60,9 @@ const MIGRATION_2: &str = "ALTER TABLE downloads ADD COLUMN error_code TEXT;";
 /// The scheduler looks downloads up by status on every change.
 const MIGRATION_3: &str = "CREATE INDEX IF NOT EXISTS idx_downloads_status ON downloads(status);";
 
+/// Videos from web pages (`DownloadRecord::media`), as JSON.
+const MIGRATION_4: &str = "ALTER TABLE downloads ADD COLUMN media_json TEXT;";
+
 #[derive(Debug)]
 pub struct Store {
     conn: Mutex<Connection>,
@@ -67,7 +70,8 @@ pub struct Store {
 
 const COLUMNS: &str = "id, url, final_url, filename, dir, save_path, total_size, downloaded, \
     status, resumable, etag, last_modified, mime, headers_json, category, connections, \
-    speed_limit, checksum, error, position, created_at, updated_at, completed_at, error_code";
+    speed_limit, checksum, error, position, created_at, updated_at, completed_at, error_code, \
+    media_json";
 
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
@@ -112,6 +116,9 @@ impl Store {
         if version < 3 {
             conn.execute_batch(MIGRATION_3)?;
         }
+        if version < 4 {
+            conn.execute_batch(MIGRATION_4)?;
+        }
         if version < SCHEMA_VERSION {
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
@@ -129,7 +136,7 @@ impl Store {
         c.execute(
             &format!(
                 "INSERT INTO downloads ({COLUMNS}) VALUES \
-                 (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24)"
+                 (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)"
             ),
             params![
                 r.id,
@@ -156,6 +163,7 @@ impl Store {
                 r.updated_at,
                 r.completed_at,
                 r.error_code,
+                encode_media(&r.media)?,
             ],
         )?;
         Ok(())
@@ -168,7 +176,8 @@ impl Store {
             "UPDATE downloads SET url=?2, final_url=?3, filename=?4, dir=?5, save_path=?6, \
              total_size=?7, downloaded=?8, status=?9, resumable=?10, etag=?11, last_modified=?12, \
              mime=?13, headers_json=?14, category=?15, connections=?16, speed_limit=?17, \
-             checksum=?18, error=?19, position=?20, updated_at=?21, completed_at=?22,              error_code=?23 WHERE id=?1",
+             checksum=?18, error=?19, position=?20, updated_at=?21, completed_at=?22, \
+             error_code=?23, media_json=?24 WHERE id=?1",
             params![
                 r.id,
                 r.url,
@@ -193,6 +202,7 @@ impl Store {
                 now(),
                 r.completed_at,
                 r.error_code,
+                encode_media(&r.media)?,
             ],
         )?;
         Ok(())
@@ -206,7 +216,7 @@ impl Store {
             "UPDATE downloads SET url=?2, final_url=?3, filename=?4, dir=?5, save_path=?6, \
              total_size=?7, downloaded=?8, status=?9, resumable=?10, etag=?11, last_modified=?12, \
              mime=?13, headers_json=?14, category=?15, connections=?16, checksum=?17, error=?18, \
-             updated_at=?19, completed_at=?20, error_code=?21 WHERE id=?1",
+             updated_at=?19, completed_at=?20, error_code=?21, media_json=?22 WHERE id=?1",
             params![
                 r.id,
                 r.url,
@@ -229,6 +239,7 @@ impl Store {
                 now(),
                 r.completed_at,
                 r.error_code,
+                encode_media(&r.media)?,
             ],
         )?;
         Ok(())
@@ -412,6 +423,10 @@ fn decode_headers(stored: &str) -> RequestHeaders {
         .unwrap_or_default()
 }
 
+fn encode_media(m: &Option<MediaSpec>) -> Result<Option<String>> {
+    Ok(m.as_ref().map(serde_json::to_string).transpose()?)
+}
+
 fn path_str(p: &Path) -> String {
     p.to_string_lossy().into_owned()
 }
@@ -443,6 +458,9 @@ fn row_to_record(r: &Row<'_>) -> rusqlite::Result<DownloadRecord> {
         updated_at: r.get(21)?,
         completed_at: r.get(22)?,
         error_code: r.get(23)?,
+        media: r
+            .get::<_, Option<String>>(24)?
+            .and_then(|m| serde_json::from_str(&m).ok()),
     })
 }
 
@@ -479,6 +497,7 @@ mod tests {
             created_at: 1,
             updated_at: 1,
             completed_at: None,
+            media: None,
         }
     }
 
@@ -518,8 +537,17 @@ mod tests {
 
         r.status = Status::Paused;
         r.downloaded = 15;
+        r.media = Some(MediaSpec {
+            format: "137+140".into(),
+            container: "mp4".into(),
+            streams: vec![10, 5],
+            ..Default::default()
+        });
         s.update(&r).unwrap();
-        assert_eq!(s.get("a").unwrap().unwrap().status, Status::Paused);
+        let back = s.get("a").unwrap().unwrap();
+        assert_eq!(back.status, Status::Paused);
+        assert_eq!(back.media, r.media);
+        s.update_task(&r).unwrap();
         assert_eq!(s.next_position().unwrap(), 2);
 
         s.delete("a").unwrap();

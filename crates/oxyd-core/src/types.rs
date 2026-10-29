@@ -124,6 +124,29 @@ pub struct DownloadRecord {
     pub created_at: i64,
     pub updated_at: i64,
     pub completed_at: Option<i64>,
+    /// Set for a video taken from a web page (YouTube, Instagram, ...): `url` is then the
+    /// page, and the streams are found again with yt-dlp each time the download starts.
+    pub media: Option<MediaSpec>,
+}
+
+/// A video or its audio fetched from a web page.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MediaSpec {
+    /// yt-dlp format ids joined by `+` (`137+140`), or `best`.
+    pub format: String,
+    /// Height of the chosen video, to find the same quality again when a site changes its
+    /// format ids between visits.
+    pub height: Option<u32>,
+    /// Output container (`mp4`, `webm`, `mkv`, `m4a`, `mp3`, ...).
+    pub container: String,
+    /// Keep only the audio, converted to MP3.
+    pub mp3: bool,
+    /// Sizes of the streams being downloaded, in the order they lie in the part file (Oxyd's
+    /// own engine). Empty while nothing is on disk or yt-dlp downloads them itself.
+    pub streams: Vec<u64>,
+    /// yt-dlp downloads this one itself (HLS/DASH fragments, or the engine failed).
+    pub ytdlp: bool,
 }
 
 /// Live state of a download shown by the UI.
@@ -140,6 +163,8 @@ pub struct DownloadInfo {
     pub segments: Vec<Segment>,
     /// Unix time of the next automatic retry after a temporary failure.
     pub retry_at: Option<i64>,
+    /// What a running download does besides downloading ("Merging with ffmpeg").
+    pub detail: Option<String>,
 }
 
 /// Request to add a new download.
@@ -159,6 +184,8 @@ pub struct NewDownload {
     pub start: bool,
     /// Overrides the duplicate policy for this download.
     pub on_conflict: Option<crate::settings::DuplicatePolicy>,
+    /// A video from the web page at `url` (see [`DownloadRecord::media`]).
+    pub media: Option<MediaSpec>,
 }
 
 pub(crate) fn now() -> i64 {

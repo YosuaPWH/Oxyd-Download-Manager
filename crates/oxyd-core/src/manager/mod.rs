@@ -1,5 +1,7 @@
 //! Download manager: queue, task lifecycle, persistence and progress events.
 
+mod media;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
@@ -11,7 +13,7 @@ use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::engine::{run_segments, Job, Shared, WorkerError};
+use crate::engine::{run_segments, Job, Shared, Source, WorkerError};
 use crate::error::{self, Error, Result};
 use crate::events::Event;
 use crate::filename::{self, part_path, Category};
@@ -63,6 +65,7 @@ struct Handle {
     shared: Arc<Shared>,
     speed: Arc<AtomicU64>,
     eta: Arc<AtomicU64>,
+    detail: Arc<Mutex<Option<String>>>,
     join: Option<JoinHandle<()>>,
 }
 
@@ -100,6 +103,10 @@ pub struct Manager {
     retries: Mutex<HashMap<String, AutoRetry>>,
     retry_base_ms: AtomicU64,
     shutting_down: AtomicBool,
+    /// yt-dlp, ffmpeg and deno for videos from web pages.
+    tools: crate::media::Tools,
+    /// Pages yt-dlp read recently.
+    pages: crate::media::Cache,
     rt: tokio::runtime::Handle,
     me: Weak<Manager>,
 }
@@ -137,6 +144,8 @@ impl Manager {
             retries: Mutex::new(HashMap::new()),
             retry_base_ms: AtomicU64::new(DEFAULT_RETRY_BASE.as_millis() as u64),
             shutting_down: AtomicBool::new(false),
+            tools: crate::media::Tools::new(crate::paths::data_dir().join("tools")),
+            pages: Default::default(),
             rt,
             me: me.clone(),
         });
@@ -234,6 +243,7 @@ impl Manager {
                     active_connections: h.shared.active_connections.load(Ordering::Relaxed),
                     segments,
                     retry_at: None,
+                    detail: h.detail.lock().unwrap_or_else(|e| e.into_inner()).clone(),
                 }
             }
             None => {
@@ -253,6 +263,7 @@ impl Manager {
                     active_connections: 0,
                     segments,
                     retry_at,
+                    detail: None,
                 }
             }
         }
@@ -373,6 +384,7 @@ impl Manager {
             created_at: ts,
             updated_at: ts,
             completed_at: None,
+            media: new.media,
         };
         self.store.insert(&rec)?;
         let info = self.info(rec);
@@ -572,6 +584,9 @@ impl Manager {
     fn purge(&self, r: &DownloadRecord, delete_file: bool) {
         if !r.save_path.as_os_str().is_empty() {
             let _ = std::fs::remove_file(part_path(&r.save_path));
+            if r.media.is_some() && r.status != Status::Completed {
+                crate::media::cleanup(&r.save_path);
+            }
             if delete_file && r.status == Status::Completed {
                 let _ = std::fs::remove_file(&r.save_path);
             }
@@ -763,6 +778,7 @@ impl Manager {
             let stop = Arc::new(AtomicU8::new(0));
             let speed = Arc::new(AtomicU64::new(0));
             let eta = Arc::new(AtomicU64::new(NO_ETA));
+            let detail = Arc::new(Mutex::new(None));
             let id = rec.id.clone();
             let key = rec.id.clone();
             let m = me.clone();
@@ -771,6 +787,7 @@ impl Manager {
                 cancel: cancel.clone(),
                 speed: speed.clone(),
                 eta: eta.clone(),
+                detail: detail.clone(),
             };
             let rec = rec.clone();
             let join = self.rt.spawn(async move {
@@ -786,6 +803,7 @@ impl Manager {
                     shared,
                     speed,
                     eta,
+                    detail,
                     join: Some(join),
                 },
             );
@@ -896,6 +914,9 @@ impl Manager {
 
     /// Returns `Ok(true)` when complete and `Ok(false)` when stopped by the user.
     async fn run_inner(&self, rec: &mut DownloadRecord, ctx: &TaskCtx) -> Result<bool> {
+        if rec.media.is_some() {
+            return self.run_media(rec, ctx).await;
+        }
         rec.status = Status::Probing;
         rec.error = None;
         rec.error_code = None;
@@ -1002,8 +1023,11 @@ impl Manager {
         let result: Result<bool> = loop {
             let job = Arc::new(Job {
                 client: client.clone(),
-                url: info.final_url.clone(),
-                headers: rec.headers.clone(),
+                sources: vec![Source {
+                    start: 0,
+                    url: info.final_url.clone(),
+                    headers: rec.headers.clone(),
+                }],
                 file: file.clone(),
                 shared: ctx.shared.clone(),
                 global: self.global.clone(),
@@ -1089,6 +1113,7 @@ struct TaskCtx {
     cancel: CancellationToken,
     speed: Arc<AtomicU64>,
     eta: Arc<AtomicU64>,
+    detail: Arc<Mutex<Option<String>>>,
 }
 
 /// Emits progress 4x per second and checkpoints to disk once per second.
@@ -1188,6 +1213,12 @@ fn paths_eq(a: &Path, b: &Path) -> bool {
 fn reset_progress(store: &Store, r: &mut DownloadRecord) -> Result<()> {
     if !r.save_path.as_os_str().is_empty() {
         let _ = std::fs::remove_file(part_path(&r.save_path));
+    }
+    if let Some(m) = &mut r.media {
+        crate::media::cleanup(&r.save_path);
+        // Start over with Oxyd's engine and fresh links.
+        m.streams.clear();
+        m.ytdlp = false;
     }
     store.clear_segments(&r.id)?;
     r.downloaded = 0;

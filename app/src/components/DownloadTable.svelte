@@ -2,7 +2,7 @@
   import { api } from "../lib/api";
   import { askRemove, canPause, canStart, primaryAction } from "../lib/actions";
   import * as fmt from "../lib/format";
-  import { errorText, t, type Key } from "../lib/i18n.svelte";
+  import { detailText, errorText, t, type Key } from "../lib/i18n.svelte";
   import { app, beginRefresh, clock, matchesSearch, run, visible } from "../lib/store.svelte";
   import type { DownloadInfo } from "../lib/types";
   import Icon from "./Icon.svelte";
@@ -102,6 +102,8 @@
   }
 
   function status(d: DownloadInfo) {
+    const doing = d.detail && d.detail !== "ytdlp" ? detailText(d.detail) : null;
+    if (doing && (d.status === "probing" || d.status === "downloading")) return doing;
     if (d.status === "downloading" && d.activeConnections > 0) return `${t("st.downloading")} · ${d.activeConnections}×`;
     if (d.status === "failed" && d.retryAt) return `${t("st.failed")} · ↻ ${fmt.duration(fmt.until(d.retryAt, clock.now)) || "0s"}`;
     return t(`st.${d.status}` as Key);

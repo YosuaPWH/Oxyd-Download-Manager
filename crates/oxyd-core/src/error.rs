@@ -28,6 +28,12 @@ pub enum Error {
     InvalidState(String),
     #[error("too many retries: {0}")]
     RetriesExhausted(String),
+    /// yt-dlp could not get the video (sign-in required, removed, unsupported site...).
+    #[error("{0}")]
+    Video(String),
+    /// yt-dlp, ffmpeg or deno is missing, could not be installed or failed.
+    #[error("{0}")]
+    Tool(String),
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     #[error("database error: {0}")]
@@ -88,6 +94,8 @@ impl Error {
             Error::NotFound(_) => "missing",
             Error::InvalidState(_) => "invalid_state",
             Error::RetriesExhausted(_) => "retries",
+            Error::Video(_) => "video",
+            Error::Tool(_) => "tool",
             Error::Io(_) => "io",
             Error::Db(_) => "db",
             Error::Json(_) => "json",

@@ -9,18 +9,15 @@ cpSync("static", "build", { recursive: true });
 cpSync("src/popup/popup.html", "build/popup.html");
 cpSync("src/popup/popup.css", "build/popup.css");
 
-const options = {
-  entryPoints: { background: "src/background.ts", popup: "src/popup/popup.ts" },
-  outdir: "build",
-  bundle: true,
-  format: "esm",
-  target: "chrome116",
-  logLevel: "info",
-};
+const common = { outdir: "build", bundle: true, target: "chrome116", logLevel: "info" };
+const builds = [
+  { ...common, entryPoints: { background: "src/background.ts", popup: "src/popup/popup.ts" }, format: "esm" },
+  // Content scripts cannot be modules.
+  { ...common, entryPoints: { content: "src/content.ts" }, format: "iife" },
+];
 
 if (watch) {
-  const ctx = await esbuild.context(options);
-  await ctx.watch();
+  for (const options of builds) await (await esbuild.context(options)).watch();
 } else {
-  await esbuild.build(options);
+  await Promise.all(builds.map((options) => esbuild.build(options)));
 }

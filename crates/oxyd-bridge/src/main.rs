@@ -66,7 +66,12 @@ struct Bridge {
 
 impl Bridge {
     fn forward(&mut self, msg: &Message) -> Message {
-        let launch = matches!(msg, Message::AddDownload(_));
+        // A click starts the app; looking a video up ahead of a click does not.
+        let launch = match msg {
+            Message::AddDownload(_) | Message::AddVideo(_) => true,
+            Message::ProbeVideo(p) => p.launch,
+            _ => false,
+        };
         let mut last_err = String::new();
         for _ in 0..2 {
             match self.exchange(msg, launch) {
@@ -78,12 +83,8 @@ impl Bridge {
                 }
             }
         }
-        let id = match msg {
-            Message::AddDownload(a) => a.id.clone(),
-            _ => String::new(),
-        };
         Message::ack(
-            id,
+            msg.id(),
             AckStatus::Error,
             Some(format!("Oxyd is not reachable: {last_err}")),
         )

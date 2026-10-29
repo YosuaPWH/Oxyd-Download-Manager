@@ -1,7 +1,7 @@
 // Fake backend so the UI can be developed in a plain browser (`npm run dev`).
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import type { DownloadInfo, Settings } from "./types";
+import type { DownloadInfo, Settings, VideoProbe } from "./types";
 
 const MB = 1024 * 1024;
 const now = Math.floor(Date.now() / 1000);
@@ -35,6 +35,8 @@ function dl(p: Partial<DownloadInfo> & Pick<DownloadInfo, "id" | "filename">): D
     activeConnections: 0,
     segments: [],
     retryAt: null,
+    detail: null,
+    media: null,
     ...p,
   };
 }
@@ -119,7 +121,37 @@ const downloads: DownloadInfo[] = [
     position: 6,
     segments: segs(342.6 * MB, 4, [0.4, 0.3, 0.25, 0.2]),
   }),
+  dl({
+    id: "g",
+    filename: "Big Buck Bunny 60fps 4K - Official Blender Foundation Short Film.webm",
+    url: "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+    category: "video",
+    totalSize: 612 * MB,
+    downloaded: 612 * MB,
+    status: "probing",
+    detail: "merge",
+    position: 7,
+    media: { format: "313+251", height: 2160, container: "webm", mp3: false, streams: [590 * MB, 22 * MB], ytdlp: false },
+  }),
 ];
+
+const video: VideoProbe = {
+  pageUrl: "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+  title: "Big Buck Bunny 60fps 4K - Official Blender Foundation Short Film",
+  duration: 635,
+  uploader: "Blender",
+  site: "Youtube",
+  live: false,
+  choices: [
+    { id: "315+251", kind: "video", label: "2160p60", detail: "WEBM · VP9", size: 1210 * MB, container: "webm", height: 2160 },
+    { id: "308+251", kind: "video", label: "1440p60", detail: "WEBM · VP9", size: 520 * MB, container: "webm", height: 1440 },
+    { id: "299+140", kind: "video", label: "1080p60", detail: "MP4 · H.264", size: 310 * MB, container: "mp4", height: 1080 },
+    { id: "298+140", kind: "video", label: "720p60", detail: "MP4 · H.264", size: 160 * MB, container: "mp4", height: 720 },
+    { id: "18", kind: "video", label: "360p", detail: "MP4 · H.264", size: 38 * MB, container: "mp4", height: 360 },
+    { id: "140", kind: "audio", label: "M4A", detail: "AAC · 129 kbps", size: 10 * MB, container: "m4a", height: null },
+    { id: "mp3:251", kind: "audio", label: "MP3", detail: "MP3 · 192 kbps", size: 15 * MB, container: "mp3", height: null },
+  ],
+};
 
 let settings: Settings = {
   downloadDir: "C:\\Users\\me\\Downloads",
@@ -138,6 +170,7 @@ let settings: Settings = {
   language: new URLSearchParams(location.search).get("lang") === "en" ? "en" : "id",
   schedule: { enabled: false, start: null, stop: null },
   afterQueue: "nothing",
+  video: { ytdlpPath: "", ffmpegPath: "", autoUpdate: true },
 };
 
 export function installMock() {
@@ -156,7 +189,22 @@ export function installMock() {
         case "app_info":
           return { version: "0.2.0", dataDir: "C:\\Users\\me\\AppData\\Local\\Oxyd" };
         case "pending_downloads":
-          return [];
+          // `?video` opens the "Download video" dialog as if the browser sent a video.
+          return new URLSearchParams(location.search).has("video")
+            ? [{ key: "v1", url: video.pageUrl, filename: null, size: null, mime: null, referrer: null, source: "chrome", matched: null, video: { probe: video, choice: "299+140" } }]
+            : [];
+        case "probe_video":
+          return video;
+        case "video_file_name":
+          return `${String(a.title).replace(/[\\/:*?"<>|]/g, "_")}.${a.container}`;
+        case "tool_status":
+          return [
+            { tool: "yt-dlp", path: "C:\\Users\\me\\AppData\\Local\\Oxyd\\tools\\yt-dlp\\yt-dlp.exe", version: "2026.10.26", managed: true },
+            { tool: "ffmpeg", path: "C:\\Users\\me\\AppData\\Local\\Oxyd\\tools\\ffmpeg\\ffmpeg.exe", version: "latest", managed: true },
+            { tool: "deno", path: null, version: null, managed: false },
+          ];
+        case "update_ytdlp":
+          return null;
         case "refresh_target":
           return null;
         case "clear_completed":
@@ -182,7 +230,7 @@ export function installMock() {
             etag: '"x"',
             lastModified: null,
             filename: String(a.url).split("/").pop() || "download.bin",
-            mime: "application/octet-stream",
+            mime: /youtube|instagram|facebook|tiktok/.test(String(a.url)) ? "text/html" : "application/octet-stream",
           };
         default:
           return null;
