@@ -187,7 +187,7 @@ export function installMock() {
           settings = a.settings as Settings;
           return settings;
         case "app_info":
-          return { version: "0.3.0-beta.2", dataDir: "C:\\Users\\me\\AppData\\Local\\Oxyd" };
+          return { version: "0.4.0", dataDir: "C:\\Users\\me\\AppData\\Local\\Oxyd" };
         case "pending_downloads":
           // `?video` opens the "Download video" dialog as if the browser sent a video.
           return new URLSearchParams(location.search).has("video")

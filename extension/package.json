@@ -1,7 +1,7 @@
 {
   "name": "oxyd-extension",
   "private": true,
-  "version": "0.3.0-beta.2",
+  "version": "0.4.0",
   "license": "MIT",
   "type": "module",
   "scripts": {
