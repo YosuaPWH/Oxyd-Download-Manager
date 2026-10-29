@@ -17,6 +17,10 @@ pub enum Event {
         download: Box<DownloadInfo>,
     },
     /// Periodic progress of a running download (at most 4 per second).
+    /// `segments` is `None` when the segment map is unchanged since the last
+    /// emit: the UI keeps its previous copy. The map is only re-sent when its
+    /// shape (ranges) changed or, at most, once a second, so the frequent
+    /// ticks stay small instead of re-serialising every segment each time.
     #[serde(rename_all = "camelCase")]
     Progress {
         id: String,
@@ -25,7 +29,7 @@ pub enum Event {
         speed: u64,
         eta: Option<u64>,
         active_connections: u32,
-        segments: Vec<Segment>,
+        segments: Option<Vec<Segment>>,
     },
     Removed {
         id: String,

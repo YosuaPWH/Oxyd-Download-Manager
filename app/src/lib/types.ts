@@ -172,7 +172,8 @@ export type EngineEvent =
       speed: number;
       eta: number | null;
       activeConnections: number;
-      segments: Segment[];
+      /** Null when the segment map is unchanged since the last tick: keep the previous copy. */
+      segments: Segment[] | null;
     }
   | { type: "removed"; id: string }
   | { type: "queueFinished" };

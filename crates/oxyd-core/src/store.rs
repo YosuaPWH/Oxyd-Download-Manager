@@ -315,15 +315,26 @@ impl Store {
         Ok(())
     }
 
-    /// Atomically replace the segments of `id` and its downloaded byte count.
+    /// Atomically save the segments of `id` and its downloaded byte count.
+    /// Rows are upserted in place instead of deleting and re-inserting the
+    /// whole set every second: finished or stalled segments are left
+    /// untouched (the `WHERE` skips no-op updates), and only rows past the
+    /// new segment count are deleted, which happens when segments merge or
+    /// a split list shrinks.
     pub fn save_progress(&self, id: &str, segments: &[Segment]) -> Result<()> {
         let mut c = self.conn();
         let tx = c.transaction()?;
-        tx.execute("DELETE FROM segments WHERE download_id=?1", [id])?;
         {
             let mut ins = tx.prepare(
                 "INSERT INTO segments (download_id, idx, start, \"end\", downloaded) \
-                 VALUES (?1,?2,?3,?4,?5)",
+                 VALUES (?1,?2,?3,?4,?5) \
+                 ON CONFLICT(download_id, idx) DO UPDATE SET \
+                   start = excluded.start, \
+                   \"end\" = excluded.\"end\", \
+                   downloaded = excluded.downloaded \
+                 WHERE segments.start <> excluded.start \
+                    OR segments.\"end\" <> excluded.\"end\" \
+                    OR segments.downloaded <> excluded.downloaded",
             )?;
             for (i, s) in segments.iter().enumerate() {
                 let end = if s.end == UNKNOWN_END {
@@ -340,6 +351,10 @@ impl Store {
                 ])?;
             }
         }
+        tx.execute(
+            "DELETE FROM segments WHERE download_id=?1 AND idx>=?2",
+            params![id, segments.len() as i64],
+        )?;
         let total: u64 = segments.iter().map(|s| s.downloaded).sum();
         tx.execute(
             "UPDATE downloads SET downloaded=?2, updated_at=?3 WHERE id=?1",

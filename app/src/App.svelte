@@ -3,16 +3,16 @@
   import { api } from "./lib/api";
   import * as fmt from "./lib/format";
   import { t, type Key } from "./lib/i18n.svelte";
-  import { app, cancelRefresh, clock, init, isActive, matchesSearch, run, visible, type View } from "./lib/store.svelte";
+  import { app, cancelRefresh, clock, init, isActive, matchesSearch, run, type View } from "./lib/store.svelte";
   import type { Category } from "./lib/types";
   import DetailPanel from "./components/DetailPanel.svelte";
   import DownloadTable from "./components/DownloadTable.svelte";
   import Icon from "./components/Icon.svelte";
-  import NewDownloadDialog from "./components/NewDownloadDialog.svelte";
   import Rail from "./components/Rail.svelte";
-  import RemoveDialog from "./components/RemoveDialog.svelte";
-  import VideoDialog from "./components/VideoDialog.svelte";
-  import SettingsPage from "./components/SettingsPage.svelte";
+  // Settings and dialogs are loaded on demand, not in the initial bundle:
+  // they are only shown after a click, while the list is shown on every
+  // window open. The chunks are local files, so the first open costs one
+  // frame, not a network round trip.
 
   onMount(() => {
     void run(init);
@@ -38,16 +38,44 @@
   const filtered = $derived(
     app.downloads.filter((d) => (!app.category || d.category === app.category) && matchesSearch(d, app.search)),
   );
-  const shown = $derived(filtered.filter((d) => visible(d, app.view)).length);
-  const active = $derived(app.downloads.filter(isActive));
-  const running = $derived(app.downloads.filter((d) => d.status === "downloading"));
-  const totalSpeed = $derived(running.reduce((s, d) => s + d.speed, 0));
+  // One pass instead of one filter per tab: this recomputes on every
+  // progress tick, so five full scans per tick was pure waste.
+  const counts = $derived.by(() => {
+    const c = { all: 0, active: 0, paused: 0, failed: 0, completed: 0 };
+    for (const d of filtered) {
+      c.all++;
+      if (isActive(d)) c.active++;
+      else if (d.status === "paused") c.paused++;
+      else if (d.status === "failed" || d.status === "cancelled") c.failed++;
+      else if (d.status === "completed") c.completed++;
+    }
+    return c;
+  });
+  const shown = $derived(counts[app.view]);
+  // Same idea as `counts`: the header, the summary line and the footer
+  // used to scan the whole list separately on every progress tick.
+  // One pass produces everything they need.
+  const overview = $derived.by(() => {
+    const running: typeof app.downloads = [];
+    const failed: typeof app.downloads = [];
+    let activeCount = 0;
+    let done = 0;
+    for (const d of app.downloads) {
+      if (d.status === "downloading") running.push(d);
+      if (isActive(d)) activeCount++;
+      if (d.status === "failed") failed.push(d);
+      if (d.status === "completed") done++;
+    }
+    return { running, failed, activeCount, done };
+  });
+  const totalSpeed = $derived(overview.running.reduce((s, d) => s + d.speed, 0));
   const pending = $derived(app.pending[0] ?? null);
   const refreshing = $derived(app.downloads.find((d) => d.id === app.refreshing));
 
   /** The line under the title: what is moving, what ends next, what needs attention. */
   const summary = $derived.by(() => {
     const parts: { text: string; num?: string }[][] = [];
+    const running = overview.running;
     if (running.length) {
       parts.push([{ text: `${running.length} ${t("sum.running")} ` }, { text: "", num: fmt.speed(totalSpeed) || "0 B/s" }]);
       const next = running
@@ -58,10 +86,10 @@
         parts.push([{ text: `${name} ${t("sum.finishes")} ` }, { text: "", num: fmt.duration(next.eta) || "0s" }]);
       }
     } else {
-      const queued = active.length;
+      const queued = overview.activeCount;
       parts.push([{ text: queued ? `${queued} ${t("sum.queued")}` : t("sum.idle") }]);
     }
-    const failed = app.downloads.filter((d) => d.status === "failed");
+    const failed = overview.failed;
     if (failed.length) {
       const retry = failed
         .map((d) => d.retryAt)
@@ -73,7 +101,7 @@
           : [{ text: `${failed.length} ${t("sum.failed")}` }],
       );
     } else {
-      const done = app.downloads.filter((d) => d.status === "completed").length;
+      const done = overview.done;
       if (done) parts.push([{ text: `${done} ${t("sum.finished")}` }]);
     }
     return parts;
@@ -129,7 +157,9 @@
   <Rail />
 
   {#if app.page === "settings" && app.settings}
-    <SettingsPage />
+    {#await import("./components/SettingsPage.svelte") then { default: SettingsPage }}
+      <SettingsPage />
+    {/await}
   {:else}
     <div class="page">
       <main>
@@ -178,7 +208,7 @@
             <div class="lines tabs" role="tablist">
               {#each tabs as tab (tab.view)}
                 <button role="tab" aria-selected={app.view === tab.view} onclick={() => (app.view = tab.view)}>
-                  {t(tab.key)}<span class="num count">{filtered.filter((d) => visible(d, tab.view)).length}</span>
+                  {t(tab.key)}<span class="num count">{counts[tab.view]}</span>
                 </button>
               {/each}
             </div>
@@ -213,7 +243,7 @@
       </main>
 
       <footer class="status">
-        <span><span class="num">{active.length}</span> {t("status.active")} · <span class="num">{app.downloads.length}</span> {t("status.total")}</span>
+        <span><span class="num">{overview.activeCount}</span> {t("status.active")} · <span class="num">{app.downloads.length}</span> {t("status.total")}</span>
         <span>
           ↓ <span class="num">{fmt.speed(totalSpeed) || "0 B/s"}</span> ·
           {#if app.settings?.speedLimit}{t("status.limit")} <span class="num">{fmt.speed(app.settings.speedLimit)}</span>{:else}{t("status.noLimit")}{/if}
@@ -228,19 +258,29 @@
 {#if pending}
   {#key pending.key}
     {#if pending.video}
-      <VideoDialog {pending} probe={pending.video.probe} onclose={closePending} />
+      {#await import("./components/VideoDialog.svelte") then { default: VideoDialog }}
+        <VideoDialog {pending} probe={pending.video.probe} onclose={closePending} />
+      {/await}
     {:else}
-      <NewDownloadDialog {pending} onclose={closePending} />
+      {#await import("./components/NewDownloadDialog.svelte") then { default: NewDownloadDialog }}
+        <NewDownloadDialog {pending} onclose={closePending} />
+      {/await}
     {/if}
   {/key}
 {:else if app.videoPage}
-  <VideoDialog probe={app.videoPage} onclose={() => (app.videoPage = null)} />
+  {#await import("./components/VideoDialog.svelte") then { default: VideoDialog }}
+    <VideoDialog probe={app.videoPage} onclose={() => (app.videoPage = null)} />
+  {/await}
 {:else if app.manualUrl !== null}
-  <NewDownloadDialog initialUrl={app.manualUrl} onclose={() => (app.manualUrl = null)} />
+  {#await import("./components/NewDownloadDialog.svelte") then { default: NewDownloadDialog }}
+    <NewDownloadDialog initialUrl={app.manualUrl} onclose={() => (app.manualUrl = null)} />
+  {/await}
 {/if}
 
 {#if app.removing}
-  <RemoveDialog download={app.removing} onclose={() => (app.removing = null)} />
+  {#await import("./components/RemoveDialog.svelte") then { default: RemoveDialog }}
+    <RemoveDialog download={app.removing} onclose={() => (app.removing = null)} />
+  {/await}
 {/if}
 
 {#if app.notice}

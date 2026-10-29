@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import { api } from "../lib/api";
   import { askRemove, canPause, canStart, primaryAction } from "../lib/actions";
   import * as fmt from "../lib/format";
@@ -14,8 +15,39 @@
     ),
   );
 
+  // Windowing: only the rows near the viewport are in the DOM. Without this
+  // a long finished history (hundreds of rows) is rendered, laid out and
+  // kept alive on every 250 ms progress tick, even though most of it is
+  // never on screen. Row and header heights must match the CSS below.
+  const ROW_H = 56;
+  const HEAD_H = 38;
+  const OVERSCAN = 10;
   let menu = $state<{ x: number; y: number; d: DownloadInfo } | null>(null);
   let table: HTMLDivElement;
+  let wrap: HTMLDivElement;
+  let scrollTop = $state(0);
+  let viewH = $state(600);
+
+  const totalH = $derived(HEAD_H + rows.length * ROW_H);
+  const clampedTop = $derived(Math.max(0, Math.min(scrollTop, Math.max(0, totalH - viewH))));
+  const start = $derived(Math.max(0, Math.floor((clampedTop - HEAD_H) / ROW_H) - OVERSCAN));
+  const end = $derived(Math.min(rows.length, Math.ceil((clampedTop + viewH - HEAD_H) / ROW_H) + OVERSCAN));
+  const visibleRows = $derived(rows.slice(start, end));
+
+  function onScroll() {
+    if (!wrap) return;
+    scrollTop = wrap.scrollTop;
+    viewH = wrap.clientHeight;
+  }
+
+  /** Scroll so row `idx` is visible, for rows outside the rendered window. */
+  async function ensureVisible(idx: number, down: boolean) {
+    if (!wrap) return;
+    const top = HEAD_H + idx * ROW_H;
+    if (down) wrap.scrollTop = Math.max(0, top + ROW_H - viewH);
+    else wrap.scrollTop = Math.max(0, top - HEAD_H);
+    await tick();
+  }
 
   function name(d: DownloadInfo) {
     return d.filename || d.url;
@@ -37,11 +69,17 @@
     if (!rows.length) return;
     const i = rows.findIndex((d) => d.id === app.selected);
     const cur = rows[i];
-    const go = (j: number) => {
-      const d = rows[Math.max(0, Math.min(rows.length - 1, j))];
-      app.selected = d.id;
-      table.querySelector<HTMLElement>(`[data-id="${d.id}"]`)?.scrollIntoView({ block: "nearest" });
+    const go = async (j: number) => {
+      // Prevent the browser's own scroll synchronously: the awaits below
+      // must not let it run first, or the list would jump twice.
       e.preventDefault();
+      const idx = Math.max(0, Math.min(rows.length - 1, j));
+      const d = rows[idx];
+      app.selected = d.id;
+      await tick();
+      const el = table.querySelector<HTMLElement>(`[data-id="${d.id}"]`);
+      if (el) el.scrollIntoView({ block: "nearest" });
+      else await ensureVisible(idx, idx > i);
     };
     switch (e.key) {
       case "ArrowDown":
@@ -64,9 +102,20 @@
         return;
       case "ContextMenu":
         if (cur) {
-          const el = table.querySelector<HTMLElement>(`[data-id="${cur.id}"]`)!.getBoundingClientRect();
-          openMenu(el.left + 40, el.bottom, cur);
           e.preventDefault();
+          void (async () => {
+            let el = table.querySelector<HTMLElement>(`[data-id="${cur.id}"]`);
+            if (!el) {
+              // Selected row is outside the rendered window: bring it in
+              // first instead of throwing on a missing element.
+              await ensureVisible(i, false);
+              el = table.querySelector<HTMLElement>(`[data-id="${cur.id}"]`);
+            }
+            if (el) {
+              const r = el.getBoundingClientRect();
+              openMenu(r.left + 40, r.bottom, cur);
+            }
+          })();
         }
     }
   }
@@ -112,7 +161,7 @@
 
 <svelte:window onclick={() => (menu = null)} onblur={() => (menu = null)} />
 
-<div class="wrap">
+<div class="wrap" bind:this={wrap} bind:clientHeight={viewH} onscroll={onScroll}>
   <div
     class="table"
     role="grid"
@@ -131,7 +180,11 @@
       <div role="columnheader" class="st">{t("col.status")}</div>
       <div role="columnheader"><span class="sr-only">{t("act.more")}</span></div>
     </div>
-    {#each rows as d (d.id)}
+    {#if rows.length}
+      <!-- Spacers keep the scrollbar and total height identical to the full list. -->
+      <div style:height="{start * ROW_H}px" aria-hidden="true"></div>
+    {/if}
+    {#each visibleRows as d (d.id)}
       {@const pct = fmt.percent(d.downloaded, d.totalSize)}
       {@const moving = d.status === "downloading"}
       <!-- Keyboard navigation is handled by the grid (arrow keys, Enter, Delete). -->
@@ -172,13 +225,16 @@
           </button>
         </div>
       </div>
+    {/each}
+    {#if rows.length}
+      <div style:height="{(rows.length - end) * ROW_H}px" aria-hidden="true"></div>
     {:else}
       <div class="empty">
         <h2>{t("empty.title")}</h2>
         <p class="muted">{t("empty.body")}</p>
         <button class="primary" onclick={() => (app.manualUrl = "")}><Icon name="add" size={14} />{t("tb.add")}</button>
       </div>
-    {/each}
+    {/if}
   </div>
 </div>
 

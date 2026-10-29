@@ -567,7 +567,7 @@ impl Manager {
                     speed,
                     eta,
                     active_connections: 1,
-                    segments: ctx.shared.snapshot(),
+                    segments: Some(ctx.shared.snapshot()),
                 });
             }
         };

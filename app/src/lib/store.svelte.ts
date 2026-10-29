@@ -95,7 +95,10 @@ function apply(e: EngineEvent) {
         d.speed = e.speed;
         d.eta = e.eta;
         d.activeConnections = e.activeConnections;
-        d.segments = e.segments;
+        // The backend omits the segment map on most ticks (see events.rs):
+        // only replace it when a map was actually sent, so the detail panel
+        // keeps showing the last map instead of blanking out.
+        if (e.segments) d.segments = e.segments;
       }
       break;
     }

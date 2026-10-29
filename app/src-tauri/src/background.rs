@@ -33,25 +33,39 @@ pub fn forward_events(app: &AppHandle) {
             if app.get_webview_window("main").is_some() {
                 let _ = app.emit("oxyd://event", &ev);
             }
-            let settings = app.state::<AppState>().mgr.settings();
-            let lang = settings.language.as_str();
+            // Settings used to be cloned (including paths and strings) for
+            // every event, including 4-per-second progress ticks, even though
+            // only completion, failure and queue-finished need them. Read
+            // them only for those events.
             match &ev {
-                Event::Completed { download } if settings.notifications => {
-                    notify(
-                        &app,
-                        tr(lang, "notify.completed"),
-                        &download.record.filename,
-                    );
+                Event::Completed { download } => {
+                    let settings = app.state::<AppState>().mgr.settings();
+                    if settings.notifications {
+                        notify(
+                            &app,
+                            tr(settings.language.as_str(), "notify.completed"),
+                            &download.record.filename,
+                        );
+                    }
                 }
-                Event::Failed { download } if settings.notifications => {
-                    let body = format!(
-                        "{}\n{}",
-                        download.record.filename,
-                        download.record.error.clone().unwrap_or_default()
-                    );
-                    notify(&app, tr(lang, "notify.failed"), &body);
+                Event::Failed { download } => {
+                    let settings = app.state::<AppState>().mgr.settings();
+                    if settings.notifications {
+                        notify(
+                            &app,
+                            tr(settings.language.as_str(), "notify.failed"),
+                            &format!(
+                                "{}\n{}",
+                                download.record.filename,
+                                download.record.error.clone().unwrap_or_default()
+                            ),
+                        );
+                    }
                 }
-                Event::QueueFinished => after_queue(&app, settings.after_queue, lang),
+                Event::QueueFinished => {
+                    let settings = app.state::<AppState>().mgr.settings();
+                    after_queue(&app, settings.after_queue, settings.language.as_str());
+                }
                 _ => {}
             }
         }

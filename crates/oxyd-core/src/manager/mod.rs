@@ -1117,6 +1117,10 @@ struct TaskCtx {
 }
 
 /// Emits progress 4x per second and checkpoints to disk once per second.
+/// The segment map is only re-sent when its shape changed or once a second:
+/// the table and the detail numbers do not need it, and only the detail
+/// panel's segment bar reads it, so sending it on every tick only grows the
+/// IPC payload and the UI work for no visible change.
 async fn ticker(
     mgr: Weak<Manager>,
     id: String,
@@ -1131,6 +1135,7 @@ async fn ticker(
     let mut last_t = Instant::now();
     let mut ema = 0.0f64;
     let mut n = 0u32;
+    let mut last_shape: Vec<(u64, u64)> = Vec::new();
     loop {
         tokio::select! {
             _ = stop.cancelled() => return,
@@ -1155,6 +1160,15 @@ async fn ticker(
         };
         ctx.speed.store(speed, Ordering::Relaxed);
         ctx.eta.store(eta.unwrap_or(NO_ETA), Ordering::Relaxed);
+        n += 1;
+        let shape: Vec<(u64, u64)> = segments.iter().map(|s| (s.start, s.end)).collect();
+        let shape_changed = shape != last_shape;
+        if shape_changed {
+            last_shape = shape;
+        }
+        // First tick after a shape change, plus the once-a-second tick that
+        // already checkpoints, carry the map; the other ticks omit it.
+        let include_segments = shape_changed || n.is_multiple_of(CHECKPOINT_EVERY);
         mgr.emit(Event::Progress {
             id: id.clone(),
             downloaded: done,
@@ -1162,9 +1176,8 @@ async fn ticker(
             speed,
             eta,
             active_connections: ctx.shared.active_connections.load(Ordering::Relaxed),
-            segments: segments.clone(),
+            segments: include_segments.then(|| segments.clone()),
         });
-        n += 1;
         if n.is_multiple_of(CHECKPOINT_EVERY) {
             // Flush data before recording progress so the record never runs ahead of disk.
             if file.sync().await.is_ok() {
