@@ -3069,7 +3069,7 @@ dependencies = [
 
 [[package]]
 name = "oxyd-app"
-version = "0.3.0-beta.1"
+version = "0.3.0-beta.2"
 dependencies = [
  "chrono",
  "directories",
@@ -3095,7 +3095,7 @@ dependencies = [
 
 [[package]]
 name = "oxyd-bridge"
-version = "0.3.0-beta.1"
+version = "0.3.0-beta.2"
 dependencies = [
  "directories",
  "oxyd-protocol",
@@ -3109,7 +3109,7 @@ dependencies = [
 
 [[package]]
 name = "oxyd-cli"
-version = "0.3.0-beta.1"
+version = "0.3.0-beta.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -3121,7 +3121,7 @@ dependencies = [
 
 [[package]]
 name = "oxyd-core"
-version = "0.3.0-beta.1"
+version = "0.3.0-beta.2"
 dependencies = [
  "bytes",
  "directories",
@@ -3150,7 +3150,7 @@ dependencies = [
 
 [[package]]
 name = "oxyd-protocol"
-version = "0.3.0-beta.1"
+version = "0.3.0-beta.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -4945,7 +4945,7 @@ dependencies = [
 
 [[package]]
 name = "test-server"
-version = "0.3.0-beta.1"
+version = "0.3.0-beta.2"
 dependencies = [
  "axum",
  "bytes",
