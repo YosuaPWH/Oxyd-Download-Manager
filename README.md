@@ -7,10 +7,11 @@ A fast, lightweight download manager for **Windows and Linux** in the spirit of 
 Download Manager. Oxyd splits every file into segments that download in parallel, survives
 crashes and lost connections, picks up downloads from Chrome, Edge and other Chromium
 browsers, and lets you continue a download from where it stopped even after its link has
-expired.
+expired. Files, videos from web pages, torrents and FTP all land in one list, sorted into
+queues that run on their own schedule.
 
 <p align="center">
-  <img src="docs/images/downloads-dark.png" alt="Oxyd main window, dark theme: download list with the segment map and speed of the selected download" width="900">
+  <img src="docs/images/downloads-dark.png" alt="Oxyd main window, dark theme: sidebar with file types and queues, the download list, and one lane per connection of the selected download" width="900">
 </p>
 
 > The screenshots show sample downloads served by the local test server in this repository.
@@ -43,7 +44,13 @@ expired.
 
 ## Contents
 
-- [Platforms](#platforms) · [Design](#design) · [Everyday use](#everyday-use)
+- [Platforms](#platforms) · [Design](#design)
+- [Everyday use](#everyday-use): [adding](#adding-downloads) · [batch](#many-downloads-at-once) ·
+  [new link](#continuing-downloads-even-with-a-new-link) · [videos](#videos-from-web-pages) ·
+  [queues](#queues) · [torrents and FTP](#torrents-and-ftp) ·
+  [grabber](#grabbing-the-links-of-a-page) · [tools](#tools-for-finished-files) ·
+  [progress and mini windows](#progress-and-mini-windows) ·
+  [limits and schedule](#limits-retries-and-schedule) · [settings](#settings)
 - [Browser extension](#browser-extension) · [How it works](#how-it-works) · [Install](#install)
 - [Build from source](#build-from-source) · [Repository layout](#repository-layout)
 - [Documentation](#documentation) · [License](#license)
@@ -83,20 +90,22 @@ light window. The feature analysis and the mockups it was built from are in
 **Layout**
 
 - **Sidebar**: the Oxyd mark (a ring of eight segments, one lit), *All downloads*,
-  *Unfinished* and *Finished*, the seven file types with their counts, and the total speed
-  with its last minute as a sparkline. On narrow windows it shrinks to icons.
+  *Unfinished* and *Finished*, the seven file types with their counts, the queues with what
+  still waits in each, and the total speed with its last minute as a sparkline. On narrow
+  windows it shrinks to icons.
 - **Toolbar**: *Add URL*, *Batch*, resume / pause / remove for the selected downloads, resume
-  all, pause all, clear finished, the search box and the switch for the bottom pane.
+  all, pause all, clear finished, the link grabber, the mini window, the search box and the
+  switch for the bottom pane.
 - **Title row**: what you are looking at, one line that says what matters now ("2 downloading
   at 14.2 MB/s · Ubuntu finishes in 2m 49s · 1 failed, retrying in 0:24") and the status
   filter (*All*, *Running*, *Paused*, *Failed*, *Finished*) with counts.
-- **Download list**: file type, name and site, size, status, progress, speed, time left and
-  when it was added. Click a column header to sort by it; a third click returns to queue
+- **Download list**: file type, name and site (torrents and FTP say so), size, status,
+  progress, speed, time left and when it was added. Click a column header to sort by it; a third click returns to queue
   order. Select several rows with Ctrl or Shift click, the checkboxes or Ctrl+A and act on
   all of them at once. Rows are 44px, or 32px in *compact* density.
 - **Bottom pane** (Ctrl+I): *Connections* shows the file map and one lane per connection
   with its byte range and what it still has to fetch, each in its own colour from copper to
-  patina; *Speed* shows the last minute with the current, average and peak speed; *Info*
+  patina (a torrent or an FTP download is one lane); *Speed* shows the last minute with the current, average and peak speed; *Info*
   holds the path, the URL, a per-download speed limit and the link refresh controls.
 - **Status bar**: the combined speed, running downloads, the schedule and the speed limit,
   which can be switched on and off right there.
@@ -123,6 +132,7 @@ underneath.
 | Menu key / right click | Context menu |
 | Ctrl+N | New download |
 | Ctrl+B | Batch download |
+| Ctrl+G | Grab the links of a page |
 | Ctrl+V | Download the links on the clipboard (outside a text field) |
 | Ctrl+I | Show or hide the bottom pane |
 | Ctrl+F | Search by name or URL (Esc clears) |
@@ -223,6 +233,10 @@ can run two downloads at 2 MB/s from 23:00 while the main queue stays as it is. 
 queue, the pencil edits it, and *Move to queue* in the right-click menu moves the selected
 downloads. Deleting a queue moves its downloads back to the main queue.
 
+<p align="center">
+  <img src="docs/images/queue-dark.png" alt="A queue with two downloads at once, a speed limit and a schedule" width="800">
+</p>
+
 ### Torrents and FTP
 
 Paste a **magnet link** into *Add URL*, drop it on the window, or open a `.torrent` file with
@@ -245,6 +259,10 @@ follow the pages the start page links to, one or two levels deep, staying on the
 by default, and reads at most 40 pages. The page is sent as the referer when the files are
 downloaded. Pages are read as plain HTML, so links a script adds after loading are not seen.
 
+<p align="center">
+  <img src="docs/images/grabber-dark.png" alt="The link grabber listing the files of a page by type" width="800">
+</p>
+
 ### Tools for finished files
 
 Right-click one or more finished downloads and choose **Tools**:
@@ -255,6 +273,10 @@ Right-click one or more finished downloads and choose **Tools**:
 
 A job shows its progress at the bottom right and can be cancelled; the original file is never
 replaced. The media tools use the ffmpeg Oxyd already manages for videos, one job at a time.
+
+<p align="center">
+  <img src="docs/images/tools-dark.png" alt="The tools dialog: convert, make smaller, ZIP" width="800">
+</p>
 
 ### Progress and mini windows
 
@@ -268,10 +290,15 @@ The **mini window** (toolbar) stays on top of other windows: total speed, the do
 finishes next, and a place to drop links, which start at once. Each of these windows is a web
 view of its own and costs memory while it is open.
 
-### Queue, limits and schedule
+| Progress window | Mini window |
+|---|---|
+| <img src="docs/images/progress-window-dark.png" alt="Progress window of one download" width="460"> | <img src="docs/images/mini-window-dark.png" alt="Mini window with the total speed and the download that finishes next" width="300"> |
 
-- Run up to 3 downloads at once by default (1 to 20); the rest wait in the queue, and you can
-  move items up or down from the context menu.
+### Limits, retries and schedule
+
+- The main queue runs up to 3 downloads at once by default (1 to 20); the rest wait, and you
+  can move items up or down from the context menu. Other [queues](#queues) have their own
+  number.
 - Limit the speed globally or per download (for example `500 KB` or `2 MB`); the limit can be
   changed while a download runs.
 - Failed downloads that were only unlucky (network down, server busy) retry by themselves,
@@ -279,9 +306,11 @@ view of its own and costs memory while it is open.
   missing files do not retry.
 - The speed limit chip in the status bar switches the global limit on and off and offers
   common values, without opening Settings.
-- *Settings → Schedule* starts the queue and pauses everything at chosen times, on the days
-  of the week you pick (none picked means every day), and can put the computer to sleep or
-  shut it down when the queue finishes.
+- *Settings → Schedule* starts the main queue and pauses it at chosen times, on the days of
+  the week you pick (none picked means every day); every other queue has the same schedule
+  of its own in its dialog. The day only decides the start: a stop after midnight still ends
+  what the evening before began. When every queue has finished, Oxyd can put the computer to
+  sleep or shut it down.
 - A finished download shows *Open* and *Open folder* at the bottom right and plays a short
   tone, which *Settings → General* can turn off.
 
@@ -293,11 +322,12 @@ view of its own and costs memory while it is open.
 
 | Tab | What you can set |
 |---|---|
-| General | Language, theme, start automatically when you sign in, notifications |
+| General | Language, theme, start automatically when you sign in, notifications, a progress window for new downloads, the tone when a download finishes |
+| Appearance | Accent colour, comfortable or compact rows, the glass effect |
 | Downloads | Default folder, a sub folder per category, connections per download (1–32), simultaneous downloads, global speed limit, what to do with duplicate names |
 | Browser & integration | Show the confirmation dialog for browser downloads, watch the clipboard for file links |
 | Videos from the web | Which yt-dlp, ffmpeg and deno are used, update yt-dlp now or every day, your own yt-dlp or ffmpeg |
-| Schedule | Start and stop times, action when the queue finishes |
+| Schedule | Start and stop times and days of the main queue, action when the queues finish |
 | Network | HTTP, HTTPS or SOCKS5 proxy |
 
 ## Browser extension
@@ -367,6 +397,29 @@ starts the app first if needed.
 5. **Be polite.** Failed requests retry with exponential backoff and `Retry-After`; when a
    server answers 429 or 503, connections are given up immediately and added back slowly.
 
+**Queues.** Each queue counts its own running downloads and starts the next one that waits
+in it, so a full main queue never holds back another queue. A queue with a speed limit shares
+one token bucket between its downloads, on top of the global limit and the per-download one.
+
+**FTP.** A small client of Oxyd's own: it logs in (anonymous unless the link carries a name),
+asks for the size, opens a passive data connection to the address of the control connection
+(servers behind NAT announce addresses that cannot be reached) and writes into the same
+`.oxydpart` file, checkpointed like an HTTP download, so pause and crash recovery are the
+same; resuming sends `REST` with the bytes already on disk.
+
+**Torrents.** [librqbit](https://github.com/ikatson/rqbit) does the transfer; Oxyd maps its
+state onto a row of the list. The session starts with the first torrent and finds peers
+through DHT, trackers and the local network. Data already in the target folder is hashed and
+kept. A torrent that is complete leaves the session, which is why Oxyd does not seed. A
+torrent with no peer and no byte for three minutes is reported as stalled and retried later
+like a lost connection.
+
+**Grabber and tools.** The grabber fetches pages with the app's own HTTP client (same proxy)
+and scans the HTML for `href`, `src`, `srcset`, `data-src` and `poster`; it reads at most 2 MB
+of a page, 40 pages and 2000 links. Convert and *make smaller* run ffmpeg with its progress
+output; *make smaller* computes the video bitrate from the length of the file so the result
+fits the size, with 96 kbit/s audio.
+
 **Videos.** The extension sends the page address and that site's cookies; the app reads the
 page with yt-dlp (`-J`, cookies through a temporary file only your user can read) and offers a
 short list of qualities. The chosen formats' sizes and Range support are checked; plain files
@@ -376,7 +429,8 @@ video and ffmpeg merges both (`-c copy`); if that fails or is stopped, the part 
 back together so no progress is lost. Other streams go to yt-dlp with its own `.part` files.
 
 **Privacy.** Cookies and authorisation headers are kept only while a download needs them and
-deleted when it completes. On Windows they are encrypted with DPAPI for your user account; on
+deleted when it completes. They are sent to the site they were given for and to no other:
+when a link redirects to another site, the requests to that site carry none of them. On Windows they are encrypted with DPAPI for your user account; on
 Linux the database lives in a folder only your user can open. Links in the log files are
 reduced to their host and path, and there is no telemetry.
 
@@ -482,7 +536,8 @@ Requirements: Rust stable and Node.js 22 or newer, plus
   On Fedora: `sudo dnf install webkit2gtk4.1-devel libappindicator-gtk3-devel librsvg2-devel patchelf`.
 
 ```bash
-cargo test --workspace                 # engine, protocol and bridge tests
+cargo test --workspace                 # engine, protocol, bridge and app tests
+(cd app && npm install && npm test)    # unit tests of the interface
 cd app && npm install && npx tauri dev # desktop app with hot reload
 cd extension && npm install && npm run build   # extension into extension/build
 ```
@@ -517,22 +572,32 @@ On Linux a development build registers its own `oxyd-bridge` for your user when 
 | `OXYD_LOG=debug` | Raises the log level |
 | `OXYD_PIPE` | Another pipe name (Windows) or socket path (Linux) between bridge and app; the default socket is `$XDG_RUNTIME_DIR/oxyd.sock` |
 | `OXYD_APP` | The app the bridge starts when it is not running |
+| `OXYD_FFMPEG`, `OXYD_YTDLP`, `OXYD_DENO` | Use this copy of the tool |
+
+Some tests skip themselves when the machine lacks what they need and say so: the media tool
+tests without `ffmpeg` on the PATH, the torrent test between two sessions without IPv6
+sockets.
 
 ## Repository layout
 
 | Folder | Contents |
 |---|---|
-| `crates/oxyd-core` | Download engine: probe, segments, workers, limiter, SQLite, queue and manager; `media/` for videos from web pages (yt-dlp, ffmpeg, tool downloads) |
+| `crates/oxyd-core` | Download engine: probe, segments, workers, limiter, SQLite, queues and manager; `media/` for videos from web pages and the convert / shrink / ZIP tools (yt-dlp, ffmpeg, tool downloads); `ftp.rs`, `grabber.rs`, and `torrent.rs` behind the `torrent` feature, which only the desktop app turns on |
 | `crates/oxyd-cli` | `oxyd-cli`, a command line front end for the engine |
 | `crates/oxyd-protocol` | Message types, framing, the secured named pipe (Windows) and Unix socket (Linux) |
 | `crates/oxyd-bridge` | `oxyd-bridge`, the native messaging host |
-| `app/` | Tauri app (`src-tauri/`) and the Svelte interface (`src/`) |
+| `app/` | Tauri app (`src-tauri/`) and the Svelte interface (`src/`): one bundle for the main window, the mini window and the progress windows |
 | `extension/` | Chromium extension (TypeScript, esbuild) |
 | `installer/`, `scripts/` | NSIS hooks, WiX fragment for the MSI, Windows and Linux package builds, dev registration, kill/resume test |
 | `test-server/` | Local HTTP server used by the tests and benchmarks |
 
 ## Documentation
 
+- [CLAUDE.md](CLAUDE.md): what Oxyd is for, the rules its design follows, how to check a
+  change, and what is known to be unfinished or untested.
+- [docs/design/redesign-board.html](docs/design/redesign-board.html): the feature analysis
+  against Prism and the mockups the interface was built from (an HTML fragment; open it in a
+  browser).
 - [docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md): measured speed and memory improvements,
   reliability and security fixes, and what is still open.
 - [docs/PRD.md](docs/PRD.md) and [docs/PLAN.md](docs/PLAN.md): the product requirements and
