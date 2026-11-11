@@ -135,6 +135,36 @@ const downloads: DownloadInfo[] = [
   }),
 ];
 
+downloads.push(
+  dl({
+    id: "h",
+    filename: "apod-2026-11-10-orion.jpg",
+    url: "https://apod.nasa.gov/apod/image/2611/orion.jpg",
+    category: "image",
+    totalSize: 6.4 * MB,
+    downloaded: 6.4 * MB,
+    status: "completed",
+    createdAt: now - 86400,
+    completedAt: now - 86300,
+    position: 8,
+  }),
+  dl({
+    id: "i",
+    filename: "dataset-openimages-subset.tar.zst",
+    url: "https://data.example.org/openimages/dataset-openimages-subset.tar.zst",
+    category: "archive",
+    totalSize: 18400 * MB,
+    downloaded: 8100 * MB,
+    status: "paused",
+    createdAt: now - 3 * 86400,
+    position: 9,
+    connections: 16,
+    segments: segs(18400 * MB, 16, [0.5, 0.45, 0.4, 0.5, 0.42, 0.44, 0.47, 0.41, 0.46, 0.43, 0.4, 0.48, 0.45, 0.42, 0.44, 0.39]),
+  }),
+);
+// Spread the sample downloads over the day so "Added" shows real times.
+downloads.slice(0, 7).forEach((d, i) => (d.createdAt = now - 600 - i * 1740));
+
 const video: VideoProbe = {
   pageUrl: "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
   title: "Big Buck Bunny 60fps 4K - Official Blender Foundation Short Film",
@@ -168,9 +198,13 @@ let settings: Settings = {
   theme: "system",
   // `?lang=en` shows the English interface (used for the README screenshots).
   language: new URLSearchParams(location.search).get("lang") === "en" ? "en" : "id",
-  schedule: { enabled: false, start: null, stop: null },
+  schedule: { enabled: true, start: "01:00", stop: "06:30", days: [0, 1, 2, 3, 4] },
   afterQueue: "nothing",
   video: { ytdlpPath: "", ffmpegPath: "", autoUpdate: true },
+  accent: "oxide",
+  density: "comfortable",
+  glass: true,
+  sound: true,
 };
 
 export function installMock() {
@@ -180,7 +214,18 @@ export function installMock() {
       const a = (args ?? {}) as Record<string, unknown>;
       switch (cmd) {
         case "list_downloads":
-          return downloads;
+          return new URLSearchParams(location.search).has("empty") ? [] : downloads;
+        case "add_download": {
+          const url = String((a.req as { url: string }).url);
+          const name = decodeURIComponent(url.split("/").pop() || "download.bin");
+          const d = dl({ id: `n${downloads.length}`, filename: name, url, position: downloads.length + 1, createdAt: Math.floor(Date.now() / 1000), status: (a.req as { start: boolean }).start ? "queued" : "paused" });
+          downloads.push(d);
+          void emit("oxyd://event", { type: "added", download: d });
+          return d;
+        }
+        case "remove_download":
+          void emit("oxyd://event", { type: "removed", id: a.id });
+          return null;
         case "get_settings":
           return settings;
         case "set_settings":

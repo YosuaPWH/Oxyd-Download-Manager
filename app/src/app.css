@@ -1,30 +1,75 @@
-/* Data terminal: colour only on data and selection; surfaces split by one tone step.
-   Light is the same system with the steps reversed. */
+/* Oxyd design tokens.
+
+   Data lies on a calm sheet; colour appears only on what is moving. The chrome around the
+   sheet (sidebar, status bar) is a tinted panel that picks up the accent as a faint light in
+   the window's corner.
+
+   <html data-theme="dark|light" data-accent="oxide|copper|azure|violet|rose|graphite"
+         data-density="comfortable|compact" class="no-glass?">
+
+   `data-theme` is always set (index.html resolves "follow system" before first paint), so the
+   dark values live in one block. Status colours never follow the accent. The lane ramp
+   (--lane-1 … 8, copper to patina) is only for connections: lane n uses --lane-((n-1)%8+1). */
 :root {
-  --ground: #f6f6f7;
-  --surface: #ffffff;
-  --raised: #efeff1;
-  --border: #e4e4e7;
-  --rule: #ededf0;
-  --control: #c9c9cf;
-  --text: #111113;
-  --muted: #5f6168;
-  --accent: #1d5fbf;
-  --track: #e4e4e7;
-  --done: #a3a3aa;
-  --primary-bg: #111113;
-  --primary-ink: #ffffff;
-  --negative: #c4242a;
-  --neg-bg: #ffedea;
-  --positive: #247b50;
-  --pos-bg: #dcfae5;
-  --warning: #92400e;
-  --warn-bg: #fffbeb;
-  --card-shadow: none;
-  --card-border: var(--border);
-  --float-shadow: 0 12px 28px rgba(17, 17, 19, 0.16);
-  --scrim: rgba(17, 17, 19, 0.35);
-  --radius: 6px;
+  /* Accents: text colour, solid fill and ink on the fill, per theme. */
+  --a-l: #0b7566;
+  --a-ls: #0c7f6f;
+  --a-lk: #ffffff;
+  --a-d: #45c4b0;
+  --a-ds: #2aa896;
+  --a-dk: #04130f;
+
+  --ground: #e6eae9;
+  --surface: #fbfcfc;
+  --raised: #ffffff;
+  --sunken: #eef1f0;
+  --panel: rgb(255 255 255 / 0.55);
+  --border: rgb(15 20 19 / 0.1);
+  --rule: rgb(15 20 19 / 0.065);
+  --control: rgb(15 20 19 / 0.17);
+  --hover: rgb(15 20 19 / 0.045);
+  --pressed: rgb(15 20 19 / 0.08);
+  --text: #0f1413;
+  --muted: #55605d;
+  --faint: #6a7572;
+  --accent: var(--a-l);
+  --accent-solid: var(--a-ls);
+  --accent-ink: var(--a-lk);
+  --track: rgb(15 20 19 / 0.09);
+  --done: #9aa3a1;
+  --negative: #c2332f;
+  --positive: #0a7d50;
+  --warning: #96590a;
+  --info: #0b6c9c;
+  --lane-1: #b9622b;
+  --lane-2: #a47708;
+  --lane-3: #6d8612;
+  --lane-4: #18885a;
+  --lane-5: #0c7f6f;
+  --lane-6: #0b78a8;
+  --lane-7: #3a63d6;
+  --lane-8: #6a4fd8;
+  --float-shadow: 0 0 0 1px rgb(15 20 19 / 0.06), 0 14px 36px rgb(15 20 19 / 0.16);
+  --sheet-shadow: 0 0 0 1px rgb(15 20 19 / 0.06), 0 1px 2px rgb(15 20 19 / 0.05);
+  --scrim: rgb(15 20 19 / 0.32);
+
+  /* Derived: one definition for both themes. */
+  --accent-soft: color-mix(in srgb, var(--accent) 13%, transparent);
+  --accent-softer: color-mix(in srgb, var(--accent) 7%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 38%, transparent);
+  --neg-bg: color-mix(in srgb, var(--negative) 13%, transparent);
+  --pos-bg: color-mix(in srgb, var(--positive) 13%, transparent);
+  --warn-bg: color-mix(in srgb, var(--warning) 14%, transparent);
+  --primary-bg: var(--accent-solid);
+  --primary-ink: var(--accent-ink);
+  --card-shadow: var(--sheet-shadow);
+  --card-border: transparent;
+
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
+  --control-h: 30px;
+  --row-h: 44px;
   --font: "Public Sans Variable", "Public Sans", "Segoe UI", system-ui, sans-serif;
   --font-num: "JetBrains Mono Variable", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
   color-scheme: light;
@@ -35,60 +80,86 @@
   background: var(--ground);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --ground: #171719;
-    --surface: #131217;
-    --raised: #212023;
-    --border: #222224;
-    --rule: #1b1a1f;
-    --control: #3a3a3e;
-    --text: #ffffff;
-    --muted: #8a8c92;
-    --accent: #4a8ad6;
-    --track: #2a292e;
-    --done: #5c5c63;
-    --primary-bg: #ffffff;
-    --primary-ink: #111113;
-    --negative: #e5566f;
-    --neg-bg: #2c1a20;
-    --positive: #5fc39c;
-    --pos-bg: #1b2828;
-    --warning: #d9a441;
-    --warn-bg: #2a2416;
-    --card-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
-    --card-border: transparent;
-    --float-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
-    --scrim: rgba(0, 0, 0, 0.55);
-    color-scheme: dark;
-  }
+:root[data-theme="dark"] {
+  --ground: #0a0c0c;
+  --surface: #101314;
+  --raised: #171b1c;
+  --sunken: #0c0f0f;
+  --panel: rgb(23 27 28 / 0.6);
+  --border: rgb(255 255 255 / 0.1);
+  --rule: rgb(255 255 255 / 0.06);
+  --control: rgb(255 255 255 / 0.16);
+  --hover: rgb(255 255 255 / 0.045);
+  --pressed: rgb(255 255 255 / 0.08);
+  --text: #e9eeed;
+  --muted: #a5afad;
+  --faint: #838e8c;
+  --accent: var(--a-d);
+  --accent-solid: var(--a-ds);
+  --accent-ink: var(--a-dk);
+  --track: rgb(255 255 255 / 0.08);
+  --done: #59625f;
+  --negative: #f0706b;
+  --positive: #4cc38a;
+  --warning: #e8b04a;
+  --info: #5cb8e8;
+  --lane-1: #e0915a;
+  --lane-2: #e8b04a;
+  --lane-3: #b9cc5a;
+  --lane-4: #5fcf8e;
+  --lane-5: #45c4b0;
+  --lane-6: #4bb3e0;
+  --lane-7: #6f95f5;
+  --lane-8: #a58cf5;
+  --float-shadow: 0 0 0 1px rgb(255 255 255 / 0.07), 0 16px 40px rgb(0 0 0 / 0.55);
+  --sheet-shadow: 0 0 0 1px rgb(255 255 255 / 0.055);
+  --scrim: rgb(0 0 0 / 0.55);
+  color-scheme: dark;
 }
 
-:root[data-theme="dark"] {
-  --ground: #171719;
-  --surface: #131217;
-  --raised: #212023;
-  --border: #222224;
-  --rule: #1b1a1f;
-  --control: #3a3a3e;
-  --text: #ffffff;
-  --muted: #8a8c92;
-  --accent: #4a8ad6;
-  --track: #2a292e;
-  --done: #5c5c63;
-  --primary-bg: #ffffff;
-  --primary-ink: #111113;
-  --negative: #e5566f;
-  --neg-bg: #2c1a20;
-  --positive: #5fc39c;
-  --pos-bg: #1b2828;
-  --warning: #d9a441;
-  --warn-bg: #2a2416;
-  --card-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
-  --card-border: transparent;
-  --float-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
-  --scrim: rgba(0, 0, 0, 0.55);
-  color-scheme: dark;
+:root[data-accent="copper"] {
+  --a-l: #a4501c;
+  --a-ls: #ad5620;
+  --a-lk: #ffffff;
+  --a-d: #e69a66;
+  --a-ds: #d5814a;
+  --a-dk: #1a0c03;
+}
+:root[data-accent="azure"] {
+  --a-l: #1d5fbf;
+  --a-ls: #2466c8;
+  --a-lk: #ffffff;
+  --a-d: #74aaf7;
+  --a-ds: #3f80e6;
+  --a-dk: #ffffff;
+}
+:root[data-accent="violet"] {
+  --a-l: #5a43cf;
+  --a-ls: #604ad6;
+  --a-lk: #ffffff;
+  --a-d: #a99bff;
+  --a-ds: #7462ea;
+  --a-dk: #ffffff;
+}
+:root[data-accent="rose"] {
+  --a-l: #b82d57;
+  --a-ls: #c2335e;
+  --a-lk: #ffffff;
+  --a-d: #f58ba6;
+  --a-ds: #cf4169;
+  --a-dk: #ffffff;
+}
+:root[data-accent="graphite"] {
+  --a-l: #2b3230;
+  --a-ls: #222827;
+  --a-lk: #ffffff;
+  --a-d: #d5dcda;
+  --a-ds: #e4e9e8;
+  --a-dk: #0f1413;
+}
+
+:root[data-density="compact"] {
+  --row-h: 32px;
 }
 
 * {
@@ -116,52 +187,54 @@ textarea {
   color: inherit;
 }
 
-/* Buttons: an outlined pill by default, a filled pill for the one primary action. */
+/* Buttons: outlined by default, filled with the accent for the one primary action. */
 button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 34px;
-  padding: 0 14px;
+  height: var(--control-h);
+  padding: 0 12px;
   border: 1px solid var(--control);
-  border-radius: 999px;
+  border-radius: var(--radius);
   background: transparent;
+  font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  transition: background-color 0.12s, border-color 0.12s;
+  transition: background-color 0.12s, border-color 0.12s, opacity 0.12s;
 }
 
 button:hover:not(:disabled) {
-  background: var(--raised);
+  background: var(--hover);
 }
 
 button:active:not(:disabled) {
-  transform: translateY(1px);
+  background: var(--pressed);
 }
 
 button:disabled {
-  color: var(--muted);
+  color: var(--faint);
   border-color: var(--border);
   cursor: not-allowed;
+  opacity: 0.6;
 }
 
 button.primary {
-  border-color: var(--primary-bg);
-  background: var(--primary-bg);
-  color: var(--primary-ink);
+  border-color: transparent;
+  background: var(--accent-solid);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 
 button.primary:hover:not(:disabled) {
-  background: var(--primary-bg);
-  opacity: 0.88;
+  background: var(--accent-solid);
+  opacity: 0.9;
 }
 
 button.primary:disabled {
-  border-color: var(--raised);
-  background: var(--raised);
-  color: var(--muted);
+  background: var(--pressed);
+  color: var(--faint);
+  opacity: 1;
 }
 
 button.danger {
@@ -173,16 +246,20 @@ button.ghost {
 }
 
 button.icon {
-  width: 32px;
-  height: 32px;
+  width: var(--control-h);
+  height: var(--control-h);
   padding: 0;
   border: 0;
-  border-radius: var(--radius);
   color: var(--muted);
 }
 
 button.icon:hover:not(:disabled) {
   color: var(--text);
+}
+
+button.icon[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 :focus-visible {
@@ -195,41 +272,52 @@ input[type="number"],
 input[type="time"],
 input[type="search"],
 input:not([type]),
-select {
-  height: 34px;
-  padding: 0 12px;
+select,
+textarea {
+  height: var(--control-h);
+  padding: 0 10px;
   border: 1px solid var(--control);
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--sunken);
   min-width: 0;
 }
 
-input::placeholder {
-  color: var(--muted);
+textarea {
+  height: auto;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--faint);
   opacity: 1;
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 input:disabled,
 select:disabled {
-  color: var(--muted);
-  background: var(--raised);
+  color: var(--faint);
+  opacity: 0.7;
 }
 
-input[type="range"] {
-  accent-color: var(--accent);
+input[type="range"],
+input[type="checkbox"] {
+  accent-color: var(--accent-solid);
 }
 
 /* A checkbox drawn as a switch: `<input type="checkbox" class="switch" role="switch">`. */
 input.switch {
   appearance: none;
   flex: none;
-  width: 30px;
+  width: 32px;
   height: 18px;
   margin: 0;
   padding: 2px;
@@ -245,16 +333,17 @@ input.switch::before {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--surface);
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
   transition: transform 0.15s;
 }
 
 input.switch:checked {
-  background: var(--text);
+  background: var(--accent-solid);
 }
 
 input.switch:checked::before {
-  transform: translateX(12px);
+  transform: translateX(14px);
 }
 
 label.check {
@@ -264,44 +353,51 @@ label.check {
   cursor: pointer;
 }
 
-/* Underline choices: the selection is one 1px accent line as wide as its label. */
+/* Segmented choice: `<div class="lines" role="radiogroup"><button role="radio" aria-checked>`.
+   (The class keeps its old name; it used to be drawn as underlines.) */
 .lines {
-  display: flex;
-  gap: 20px;
-  border-bottom: 1px solid var(--border);
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--rule);
 }
 
 .lines button {
-  height: 34px;
-  padding: 0;
+  height: 24px;
+  padding: 0 10px;
   border: 0;
-  border-bottom: 1px solid transparent;
-  border-radius: 0;
-  margin-bottom: -1px;
+  border-radius: 7px;
+  font-size: 12px;
   color: var(--muted);
-  background: transparent;
 }
 
 .lines button:hover:not(:disabled) {
-  background: transparent;
   color: var(--text);
 }
 
 .lines button[aria-selected="true"],
 .lines button[aria-checked="true"] {
   color: var(--text);
-  border-bottom-color: var(--accent);
+  font-weight: 600;
+  background: var(--raised);
+  box-shadow: 0 0 0 1px var(--rule), 0 1px 2px rgb(0 0 0 / 0.16);
 }
 
 .muted {
   color: var(--muted);
 }
 
+.faint {
+  color: var(--faint);
+}
+
 /* Every figure: digits that stack. */
 .num {
   font-family: var(--font-num);
   font-variant-numeric: tabular-nums;
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .mono {
@@ -330,9 +426,9 @@ label.check {
   align-items: center;
   height: 20px;
   padding: 0 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 500;
+  border-radius: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -349,6 +445,63 @@ label.check {
 .pill.warn {
   background: var(--warn-bg);
   color: var(--warning);
+}
+
+.pill.accent {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+kbd {
+  font: 10.5px var(--font-num);
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--faint);
+}
+
+/* Floating menus (context menu, popovers). */
+.menu {
+  position: fixed;
+  z-index: 40;
+  min-width: 220px;
+  padding: 4px;
+  background: var(--raised);
+  border-radius: 10px;
+  box-shadow: var(--float-shadow);
+}
+
+.menu button {
+  width: 100%;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-sm);
+  justify-content: flex-start;
+  padding: 0 10px;
+  gap: 10px;
+  font-weight: 400;
+}
+
+.menu hr {
+  border: none;
+  border-top: 1px solid var(--rule);
+  margin: 4px 0;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--control);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 @media (prefers-reduced-motion: reduce) {

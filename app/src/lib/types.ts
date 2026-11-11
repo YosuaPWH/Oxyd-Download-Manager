@@ -7,7 +7,7 @@ export type Status =
   | "failed"
   | "cancelled";
 
-export type Category = "video" | "music" | "document" | "archive" | "program" | "other";
+export type Category = "video" | "music" | "image" | "document" | "archive" | "program" | "other";
 
 export interface Segment {
   start: number;
@@ -116,10 +116,18 @@ export interface Settings {
   proxy: string | null;
   theme: "system" | "light" | "dark";
   language: "id" | "en";
-  schedule: { enabled: boolean; start: string | null; stop: string | null };
+  /** `days`: 0 = Monday … 6 = Sunday; empty = every day. */
+  schedule: { enabled: boolean; start: string | null; stop: string | null; days: number[] };
   afterQueue: AfterQueue;
   video: { ytdlpPath: string; ffmpegPath: string; autoUpdate: boolean };
+  accent: Accent;
+  density: "comfortable" | "compact";
+  glass: boolean;
+  sound: boolean;
 }
+
+export const ACCENTS = ["oxide", "copper", "azure", "violet", "rose", "graphite"] as const;
+export type Accent = (typeof ACCENTS)[number];
 
 export interface PendingMatch {
   id: string;

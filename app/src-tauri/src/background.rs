@@ -117,10 +117,14 @@ pub fn scheduler(app: &AppHandle) {
                 continue;
             }
             let now = Local::now();
+            // Only the start looks at the day: a stop after midnight must still end what
+            // the day before started.
+            let start_today = s.runs_on(now.weekday().num_days_from_monday());
             let hm = format!("{:02}:{:02}", now.hour(), now.minute());
             let minute = now.ordinal() * 1440 + now.hour() * 60 + now.minute();
             for (when, what) in [(&s.start, "start"), (&s.stop, "stop")] {
                 if when.as_deref() != Some(hm.as_str())
+                    || (what == "start" && !start_today)
                     || last_fired == Some((now.year() as u32, minute, what))
                 {
                     continue;

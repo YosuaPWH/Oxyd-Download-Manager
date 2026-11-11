@@ -2,7 +2,7 @@
   /** Speed samples, one per second, oldest first (up to 61: the last minute). */
   let { samples, title }: { samples: number[]; title: string } = $props();
 
-  const W = 336;
+  const W = 560;
   const H = 152;
   const left = 36;
   const top = 8;
@@ -45,6 +45,7 @@
     <text x={left - 8} y={tk.y + 4} text-anchor="end">{tk.v}</text>
   {/each}
   {#if samples.length > 1}
+    <polygon class="area" points="{points.split(' ')[0].split(',')[0]},{top + plot} {points} {W},{top + plot}" />
     <polyline {points} />
   {/if}
   <text x={left} y={H - 4}>−60s</text>
@@ -55,7 +56,6 @@
 <style>
   svg {
     display: block;
-    max-width: 420px;
     overflow: visible;
   }
   .grid {
@@ -76,10 +76,13 @@
     font-size: 12px;
     color: var(--muted);
   }
+  .area {
+    fill: var(--accent-softer);
+  }
   polyline {
     fill: none;
     stroke: var(--accent);
-    stroke-width: 2;
+    stroke-width: 1.6;
     stroke-linejoin: round;
   }
 </style>
