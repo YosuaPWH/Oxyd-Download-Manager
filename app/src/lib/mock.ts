@@ -1,7 +1,7 @@
 // Fake backend so the UI can be developed in a plain browser (`npm run dev`).
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import type { DownloadInfo, Settings, VideoProbe } from "./types";
+import type { DownloadInfo, GrabResult, Queue, Settings, VideoProbe } from "./types";
 
 const MB = 1024 * 1024;
 const now = Math.floor(Date.now() / 1000);
@@ -37,6 +37,8 @@ function dl(p: Partial<DownloadInfo> & Pick<DownloadInfo, "id" | "filename">): D
     retryAt: null,
     detail: null,
     media: null,
+    queue: "main",
+    kind: "http",
     ...p,
   };
 }
@@ -135,6 +137,65 @@ const downloads: DownloadInfo[] = [
   }),
 ];
 
+downloads.push(
+  dl({
+    id: "h",
+    filename: "apod-2026-11-10-orion.jpg",
+    url: "https://apod.nasa.gov/apod/image/2611/orion.jpg",
+    category: "image",
+    totalSize: 6.4 * MB,
+    downloaded: 6.4 * MB,
+    status: "completed",
+    createdAt: now - 86400,
+    completedAt: now - 86300,
+    position: 8,
+  }),
+  dl({
+    id: "i",
+    filename: "dataset-openimages-subset.tar.zst",
+    url: "https://data.example.org/openimages/dataset-openimages-subset.tar.zst",
+    category: "archive",
+    totalSize: 18400 * MB,
+    downloaded: 8100 * MB,
+    status: "paused",
+    createdAt: now - 3 * 86400,
+    position: 9,
+    connections: 16,
+    segments: segs(18400 * MB, 16, [0.5, 0.45, 0.4, 0.5, 0.42, 0.44, 0.47, 0.41, 0.46, 0.43, 0.4, 0.48, 0.45, 0.42, 0.44, 0.39]),
+  }),
+);
+downloads.push(
+  dl({
+    id: "j",
+    filename: "debian-13.1.0-amd64-netinst.iso",
+    url: "magnet:?xt=urn:btih:6f84758b0ddd8dc05840bf932a77935d8b5b8b93",
+    category: "archive",
+    kind: "torrent",
+    queue: "night",
+    totalSize: 754 * MB,
+    downloaded: 412 * MB,
+    status: "downloading",
+    speed: 3.1 * MB,
+    eta: 110,
+    activeConnections: 23,
+    position: 10,
+    segments: [{ start: 0, end: 754 * MB - 1, downloaded: 412 * MB }],
+  }),
+  dl({
+    id: "k",
+    filename: "gcc-15.2.0.tar.xz",
+    url: "ftp://ftp.gnu.org/gnu/gcc/gcc-15.2.0/gcc-15.2.0.tar.xz",
+    category: "archive",
+    kind: "ftp",
+    queue: "night",
+    totalSize: 98 * MB,
+    position: 11,
+  }),
+);
+// Spread the sample downloads over the day so "Added" shows real times.
+downloads.slice(0, 7).forEach((d, i) => (d.createdAt = now - 600 - i * 1740));
+for (const d of downloads.slice(9)) d.createdAt = now - 240;
+
 const video: VideoProbe = {
   pageUrl: "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
   title: "Big Buck Bunny 60fps 4K - Official Blender Foundation Short Film",
@@ -168,10 +229,20 @@ let settings: Settings = {
   theme: "system",
   // `?lang=en` shows the English interface (used for the README screenshots).
   language: new URLSearchParams(location.search).get("lang") === "en" ? "en" : "id",
-  schedule: { enabled: false, start: null, stop: null },
+  schedule: { enabled: true, start: "01:00", stop: "06:30", days: [0, 1, 2, 3, 4] },
   afterQueue: "nothing",
   video: { ytdlpPath: "", ffmpegPath: "", autoUpdate: true },
+  accent: "oxide",
+  density: "comfortable",
+  glass: true,
+  sound: true,
+  progressWindow: true,
 };
+
+let queues: Queue[] = [
+  { id: "main", name: "", maxActive: 3, speedLimit: null, schedule: { enabled: true, start: "01:00", stop: "06:30", days: [0, 1, 2, 3, 4] } },
+  { id: "night", name: "Night", maxActive: 2, speedLimit: 2 * MB, schedule: { enabled: true, start: "23:00", stop: "06:00", days: [] } },
+];
 
 export function installMock() {
   mockWindows("main");
@@ -180,7 +251,69 @@ export function installMock() {
       const a = (args ?? {}) as Record<string, unknown>;
       switch (cmd) {
         case "list_downloads":
-          return downloads;
+          return new URLSearchParams(location.search).has("empty") ? [] : downloads;
+        case "add_download": {
+          const url = String((a.req as { url: string }).url);
+          const name = decodeURIComponent(url.split("/").pop() || "download.bin");
+          const d = dl({ id: `n${downloads.length}`, filename: name, url, position: downloads.length + 1, createdAt: Math.floor(Date.now() / 1000), status: (a.req as { start: boolean }).start ? "queued" : "paused" });
+          downloads.push(d);
+          void emit("oxyd://event", { type: "added", download: d });
+          return d;
+        }
+        case "list_queues":
+          return queues;
+        case "save_queue": {
+          const q = a.queue as Queue;
+          if (!q.id) q.id = `q${queues.length}`;
+          queues = queues.some((x) => x.id === q.id) ? queues.map((x) => (x.id === q.id ? q : x)) : [...queues, q];
+          void emit("oxyd://event", { type: "queues", queues });
+          return q;
+        }
+        case "delete_queue":
+          queues = queues.filter((x) => x.id !== a.id);
+          void emit("oxyd://event", { type: "queues", queues });
+          return null;
+        case "move_to_queue":
+          for (const d of downloads) {
+            if ((a.ids as string[]).includes(d.id)) {
+              d.queue = a.queue as string;
+              void emit("oxyd://event", { type: "updated", download: d });
+            }
+          }
+          return null;
+        case "grab_page": {
+          const base = "https://images.example.org/gallery";
+          const items: GrabResult["items"] = [
+            ...Array.from({ length: 14 }, (_, i) => ({ url: `${base}/photo-${String(i + 1).padStart(3, "0")}.jpg`, name: `photo-${String(i + 1).padStart(3, "0")}.jpg`, category: "image" as const, page: String(a.url) })),
+            { url: `${base}/gallery-full.zip`, name: "gallery-full.zip", category: "archive", page: String(a.url) },
+            { url: "https://cdn.example.org/making-of.mp4", name: "making-of.mp4", category: "video", page: String(a.url) },
+            { url: `${base}/credits.pdf`, name: "credits.pdf", category: "document", page: String(a.url) },
+          ];
+          return { items, pages: 3, skipped: 0, truncated: false } satisfies GrabResult;
+        }
+        case "run_tool": {
+          const jobId = `job${Date.now()}`;
+          const first = downloads.find((d) => d.id === (a.ids as string[])[0]);
+          const kind = (a.job as { type: string }).type;
+          let progress = 0;
+          const tick = () => {
+            progress = Math.min(1, progress + 0.04);
+            void emit("oxyd://event", {
+              type: "tool",
+              job: { id: jobId, kind, name: first?.filename ?? "", state: progress >= 1 ? "done" : "running", progress, done: progress >= 1 ? 1 : 0, total: 1, output: progress >= 1 ? `C:\\Users\\me\\Downloads\\${first?.filename.replace(/\.[^.]+$/, "")}.${kind === "zip" ? "zip" : "mp3"}` : null, error: null },
+            });
+            if (progress < 1) setTimeout(tick, 250);
+          };
+          tick();
+          return jobId;
+        }
+        case "toggle_mini":
+          return false;
+        case "mini_open":
+          return false;
+        case "remove_download":
+          void emit("oxyd://event", { type: "removed", id: a.id });
+          return null;
         case "get_settings":
           return settings;
         case "set_settings":

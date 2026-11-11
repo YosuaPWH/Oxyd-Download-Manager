@@ -3,7 +3,8 @@
   import * as fmt from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import { app, saveSettings } from "../lib/store.svelte";
-  import type { Settings, ToolStatus } from "../lib/types";
+  import { t as tr, type Key } from "../lib/i18n.svelte";
+  import { ACCENTS, type Settings, type ToolStatus } from "../lib/types";
 
   let s = $state<Settings>(structuredClone($state.snapshot(app.settings!)));
   let limit = $state(fmt.rateInput(s.speedLimit));
@@ -33,12 +34,29 @@
           enabled: next.schedule.enabled,
           start: next.schedule.start || null,
           stop: next.schedule.stop || null,
+          days: next.schedule.days,
         },
       });
       savedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     } catch (e) {
       error = errorMessage(e);
     }
+  }
+
+  // The swatches show each accent as it looks on the current theme's buttons.
+  const SWATCH: Record<(typeof ACCENTS)[number], string> = {
+    oxide: "#2aa896",
+    copper: "#c8713a",
+    azure: "#3f80e6",
+    violet: "#7462ea",
+    rose: "#cf4169",
+    graphite: "#8a9391",
+  };
+  const DAYS = [0, 1, 2, 3, 4, 5, 6];
+
+  function toggleDay(d: number) {
+    const days = s.schedule.days;
+    s.schedule.days = days.includes(d) ? days.filter((x) => x !== d) : [...days, d].sort();
   }
 
   function applyLimit() {
@@ -117,6 +135,48 @@
         <label class="item">
           <span>{t("set.notifications")}</span>
           <input type="checkbox" class="switch" role="switch" bind:checked={s.notifications} />
+        </label>
+        <label class="item">
+          <span>{t("set.progressWindow")}<span class="hint">{t("set.progressWindowHint")}</span></span>
+          <input type="checkbox" class="switch" role="switch" bind:checked={s.progressWindow} />
+        </label>
+        <label class="item">
+          <span>{t("set.sound")}</span>
+          <input type="checkbox" class="switch" role="switch" bind:checked={s.sound} />
+        </label>
+      </div>
+    </section>
+
+    <section>
+      <div class="label"><h2>{t("set.appearance")}</h2><p>{t("set.appearanceHint")}</p></div>
+      <div class="panel">
+        <div class="item">
+          <span id="s-accent">{t("set.accent")}</span>
+          <div class="swatches" role="radiogroup" aria-labelledby="s-accent">
+            {#each ACCENTS as a (a)}
+              <button
+                class="swatch"
+                role="radio"
+                aria-checked={s.accent === a}
+                aria-label={tr(`accent.${a}` as Key)}
+                title={tr(`accent.${a}` as Key)}
+                style:--c={SWATCH[a]}
+                onclick={() => (s.accent = a)}
+              ></button>
+            {/each}
+          </div>
+        </div>
+        <div class="item">
+          <span id="s-density">{t("set.density")}</span>
+          <div class="lines" role="radiogroup" aria-labelledby="s-density">
+            {#each [["comfortable", "set.densityComfortable"], ["compact", "set.densityCompact"]] as const as [v, key] (v)}
+              <button role="radio" aria-checked={s.density === v} onclick={() => (s.density = v)}>{t(key)}</button>
+            {/each}
+          </div>
+        </div>
+        <label class="item">
+          <span>{t("set.glass")}<span class="hint">{t("set.glassHint")}</span></span>
+          <input type="checkbox" class="switch" role="switch" bind:checked={s.glass} />
         </label>
       </div>
     </section>
@@ -229,6 +289,16 @@
           <input id="s-stop" class="num" type="time" bind:value={s.schedule.stop} disabled={!s.schedule.enabled} />
         </div>
         <div class="item">
+          <span id="s-days">{t("set.scheduleDays")}<span class="hint">{t("set.scheduleDaysHint")}</span></span>
+          <div class="days" role="group" aria-labelledby="s-days">
+            {#each DAYS as d (d)}
+              <button aria-pressed={s.schedule.days.includes(d)} disabled={!s.schedule.enabled} onclick={() => toggleDay(d)}>
+                {tr(`day.${d}` as Key)}
+              </button>
+            {/each}
+          </div>
+        </div>
+        <div class="item">
           <label for="s-after">{t("set.afterQueue")}</label>
           <select id="s-after" bind:value={s.afterQueue}>
             <option value="nothing">{t("set.afterNothing")}</option>
@@ -257,8 +327,9 @@
   main {
     flex: 1;
     min-width: 0;
+    min-height: 0;
     overflow-y: auto;
-    padding: 28px 32px 48px;
+    padding: 20px 24px 40px;
   }
   .column {
     max-width: 1100px;
@@ -269,27 +340,27 @@
     flex-wrap: wrap;
     align-items: flex-end;
     gap: 16px;
-    padding-bottom: 28px;
+    padding-bottom: 20px;
   }
   .grow {
     flex: 1 1 300px;
   }
   h1 {
     margin: 0;
-    font-size: 26px;
-    line-height: 32px;
+    font-size: 18px;
+    line-height: 24px;
     font-weight: 600;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.015em;
   }
   header p {
-    margin: 6px 0 0;
-    font-size: 14px;
+    margin: 2px 0 0;
+    font-size: 12.5px;
   }
   section {
     display: flex;
     flex-wrap: wrap;
-    gap: 20px 48px;
-    padding: 32px 0;
+    gap: 16px 48px;
+    padding: 24px 0;
     border-top: 1px solid var(--border);
   }
   .label {
@@ -298,8 +369,8 @@
   }
   .label h2 {
     margin: 0;
-    font-size: 16px;
-    line-height: 22px;
+    font-size: 14px;
+    line-height: 20px;
     font-weight: 600;
   }
   .label p {
@@ -309,10 +380,10 @@
   .panel {
     flex: 999 1 480px;
     min-width: 0;
-    padding: 4px 20px;
-    border-radius: var(--radius);
-    background: var(--surface);
-    border: 1px solid var(--card-border);
+    padding: 2px 16px;
+    border-radius: 10px;
+    background: var(--raised);
+    box-shadow: var(--sheet-shadow);
   }
   .item {
     display: flex;
@@ -320,10 +391,9 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px 16px;
-    min-height: 56px;
-    padding: 10px 0;
+    min-height: 48px;
+    padding: 8px 0;
     border-top: 1px solid var(--rule);
-    font-size: 14px;
   }
   .item:first-child {
     border-top: 0;
@@ -385,6 +455,43 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .swatches {
+    display: flex;
+    gap: 10px;
+  }
+  .swatch {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: var(--c);
+  }
+  .swatch:hover:not(:disabled) {
+    background: var(--c);
+    transform: scale(1.1);
+  }
+  .swatch[aria-checked="true"] {
+    box-shadow: 0 0 0 2px var(--raised), 0 0 0 4px var(--text);
+  }
+  .days {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .days button {
+    min-width: 38px;
+    padding: 0 6px;
+    font-size: 12px;
+    color: var(--muted);
+    border-color: var(--border);
+  }
+  .days button[aria-pressed="true"] {
+    color: var(--accent);
+    font-weight: 600;
+    border-color: var(--accent-line);
+    background: var(--accent-soft);
   }
   .version {
     padding-top: 32px;

@@ -54,6 +54,48 @@ impl Status {
     }
 }
 
+/// How a download is fetched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    /// HTTP(S), segmented when the server allows it.
+    #[default]
+    Http,
+    /// Plain FTP over one connection, resumed with `REST`.
+    Ftp,
+    /// A magnet link or `.torrent` file; `url` is the link or the file's path.
+    Torrent,
+}
+
+impl Kind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Kind::Http => "http",
+            Kind::Ftp => "ftp",
+            Kind::Torrent => "torrent",
+        }
+    }
+
+    /// The kind of a new download from its address. `torrent` marks a `.torrent` file.
+    pub fn of(url: &str, torrent: bool) -> crate::Result<Self> {
+        if torrent || url.starts_with("magnet:") {
+            return Ok(Kind::Torrent);
+        }
+        match crate::probe::check_url(url)?.scheme() {
+            "ftp" => Ok(Kind::Ftp),
+            _ => Ok(Kind::Http),
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "ftp" => Kind::Ftp,
+            "torrent" => Kind::Torrent,
+            _ => Kind::Http,
+        }
+    }
+}
+
 /// Extra request headers forwarded from the browser.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -68,6 +110,40 @@ pub struct RequestHeaders {
 impl RequestHeaders {
     pub fn is_empty(&self) -> bool {
         *self == RequestHeaders::default()
+    }
+
+    /// The headers to send to `target`, reached by redirects from `original`. Cookies and
+    /// credentials belong to the site they were given for: on another origin (scheme, host
+    /// or port) they are left out, as a browser would.
+    pub fn for_target(&self, original: &str, target: &str) -> RequestHeaders {
+        let origin = |u: &str| {
+            reqwest::Url::parse(u).ok().map(|u| {
+                (
+                    u.scheme().to_string(),
+                    u.host_str().map(str::to_ascii_lowercase),
+                    u.port_or_known_default(),
+                )
+            })
+        };
+        if origin(original).is_some() && origin(original) == origin(target) {
+            return self.clone();
+        }
+        let secret = |name: &str| {
+            ["cookie", "authorization", "proxy-authorization"]
+                .contains(&name.to_ascii_lowercase().as_str())
+        };
+        RequestHeaders {
+            cookie: None,
+            authorization: None,
+            referer: self.referer.clone(),
+            user_agent: self.user_agent.clone(),
+            extra: self
+                .extra
+                .iter()
+                .filter(|(k, _)| !secret(k))
+                .cloned()
+                .collect(),
+        }
     }
 
     pub(crate) fn apply(&self, mut rb: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
@@ -127,6 +203,9 @@ pub struct DownloadRecord {
     /// Set for a video taken from a web page (YouTube, Instagram, ...): `url` is then the
     /// page, and the streams are found again with yt-dlp each time the download starts.
     pub media: Option<MediaSpec>,
+    /// Queue the download waits in (see [`crate::queue`]).
+    pub queue: String,
+    pub kind: Kind,
 }
 
 /// A video or its audio fetched from a web page.
@@ -186,6 +265,10 @@ pub struct NewDownload {
     pub on_conflict: Option<crate::settings::DuplicatePolicy>,
     /// A video from the web page at `url` (see [`DownloadRecord::media`]).
     pub media: Option<MediaSpec>,
+    /// Queue to add it to; the main queue when missing or unknown.
+    pub queue: Option<String>,
+    /// `url` is a `.torrent` file (a path or an http link) whose content is wanted.
+    pub torrent: bool,
 }
 
 pub(crate) fn now() -> i64 {
@@ -193,4 +276,40 @@ pub(crate) fn now() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn credentials_stay_on_their_origin() {
+        let h = RequestHeaders {
+            cookie: Some("session=1".into()),
+            authorization: Some("Bearer x".into()),
+            referer: Some("https://site.example/page".into()),
+            user_agent: Some("UA".into()),
+            extra: vec![
+                ("Cookie".into(), "a=b".into()),
+                ("X-Test".into(), "1".into()),
+            ],
+        };
+        let from = "https://site.example/get?id=1";
+        assert_eq!(
+            h.for_target(from, "https://SITE.example:443/files/a.zip"),
+            h
+        );
+        for other in [
+            "https://cdn.example/a.zip",
+            "http://site.example/a.zip",
+            "https://site.example:8443/a.zip",
+            "not a url",
+        ] {
+            let sent = h.for_target(from, other);
+            assert_eq!(sent.cookie, None, "{other}");
+            assert_eq!(sent.authorization, None, "{other}");
+            assert_eq!(sent.extra, vec![("X-Test".to_string(), "1".to_string())]);
+            assert_eq!(sent.referer, h.referer);
+        }
+    }
 }

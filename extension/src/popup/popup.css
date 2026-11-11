@@ -1,23 +1,26 @@
+/* Same palette as the app (app/src/app.css): cool neutrals and the patina accent. */
 :root {
   color-scheme: light dark;
-  --bg: #ffffff;
-  --text: #1c2129;
-  --muted: #677283;
-  --border: #dde1e7;
-  --accent: #2563eb;
-  --ok: #15803d;
-  --bad: #c62828;
+  --bg: #fbfcfc;
+  --text: #0f1413;
+  --muted: #55605d;
+  --border: rgb(15 20 19 / 0.17);
+  --accent: #0c7f6f;
+  --accent-ink: #ffffff;
+  --ok: #0a7d50;
+  --bad: #c2332f;
   font: 13px "Segoe UI", system-ui, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1c2027;
-    --text: #e6e9ee;
-    --muted: #96a0b0;
-    --border: #2f3541;
-    --accent: #5b8cff;
-    --ok: #4ade80;
-    --bad: #f87171;
+    --bg: #101314;
+    --text: #e9eeed;
+    --muted: #a5afad;
+    --border: rgb(255 255 255 / 0.16);
+    --accent: #2aa896;
+    --accent-ink: #04130f;
+    --ok: #4cc38a;
+    --bad: #f0706b;
   }
 }
 body {
@@ -70,14 +73,22 @@ textarea {
 button {
   padding: 6px 10px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
   cursor: pointer;
 }
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+input[type="checkbox"] {
+  accent-color: var(--accent);
 }
 details {
   display: grid;

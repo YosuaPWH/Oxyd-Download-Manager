@@ -92,6 +92,7 @@
     position: fixed;
     inset: 0;
     background: var(--scrim);
+    backdrop-filter: blur(3px);
     display: grid;
     place-items: center;
     z-index: 50;
@@ -102,8 +103,7 @@
     display: flex;
     flex-direction: column;
     background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: 14px;
     box-shadow: var(--float-shadow);
     outline: none;
   }

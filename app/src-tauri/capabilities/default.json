@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions of the main window",
-  "windows": ["main"],
-  "permissions": ["core:default"]
+  "description": "Permissions of the main, the mini and the progress windows",
+  "windows": ["main", "mini", "progress-*"],
+  "permissions": ["core:default", "core:window:allow-start-dragging", "core:window:allow-close", "core:window:allow-set-title"]
 }

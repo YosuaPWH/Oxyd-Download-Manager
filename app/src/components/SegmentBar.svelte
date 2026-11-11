@@ -13,7 +13,7 @@
   );
 </script>
 
-<!-- One cell per connection's range; a finished range turns grey, a running one fills in the accent. -->
+<!-- One cell per connection's range, each in its lane colour; a finished range turns grey. -->
 <div class="bar" role="img" aria-label="{segments.length} segments">
   {#if !segments.length && total && downloaded >= total}
     <div class="seg" style:left="0" style:width="100%"><div class="fill done" style:width="100%"></div></div>
@@ -28,7 +28,7 @@
         style:width="{(len / size) * 100}%"
         title="#{i + 1}: {s.start}–{end} · {p.toFixed(0)}%"
       >
-        <div class="fill" class:done={p >= 100} style:width="{p}%"></div>
+        <div class="fill" class:done={p >= 100} style:width="{p}%" style:background={p >= 100 ? undefined : `var(--lane-${(i % 8) + 1})`}></div>
       </div>
     {/each}
   {/if}
@@ -37,7 +37,8 @@
 <style>
   .bar {
     position: relative;
-    height: 12px;
+    height: 10px;
+    border-radius: 3px;
     background: var(--track);
     overflow: hidden;
   }
@@ -45,7 +46,7 @@
     position: absolute;
     top: 0;
     bottom: 0;
-    box-shadow: inset -2px 0 0 var(--surface);
+    box-shadow: inset -1px 0 0 var(--surface);
   }
   .fill {
     height: 100%;

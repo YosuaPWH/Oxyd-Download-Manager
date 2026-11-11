@@ -34,6 +34,9 @@ pub enum Error {
     /// yt-dlp, ffmpeg or deno is missing, could not be installed or failed.
     #[error("{0}")]
     Tool(String),
+    /// A torrent could not be read or downloaded.
+    #[error("{0}")]
+    Torrent(String),
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     #[error("database error: {0}")]
@@ -96,6 +99,7 @@ impl Error {
             Error::RetriesExhausted(_) => "retries",
             Error::Video(_) => "video",
             Error::Tool(_) => "tool",
+            Error::Torrent(_) => "torrent",
             Error::Io(_) => "io",
             Error::Db(_) => "db",
             Error::Json(_) => "json",

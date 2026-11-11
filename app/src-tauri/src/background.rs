@@ -1,10 +1,11 @@
 //! Background loops: event forwarding and notifications, the scheduler and the clipboard
 //! monitor.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::{Datelike, Local, Timelike};
-use oxyd_core::{AfterQueue, Event, Manager, Status};
+use oxyd_core::{AfterQueue, Event};
 use tauri::{AppHandle, Emitter, Manager as _};
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
 use tauri_plugin_notification::NotificationExt as _;
@@ -30,7 +31,7 @@ pub fn forward_events(app: &AppHandle) {
             };
             // Without a window nobody listens: skip serializing every progress tick.
             // The UI loads the full list when the window opens.
-            if app.get_webview_window("main").is_some() {
+            if !app.webview_windows().is_empty() {
                 let _ = app.emit("oxyd://event", &ev);
             }
             // Settings used to be cloned (including paths and strings) for
@@ -38,6 +39,13 @@ pub fn forward_events(app: &AppHandle) {
             // only completion, failure and queue-finished need them. Read
             // them only for those events.
             match &ev {
+                // A download that starts right away gets its progress window.
+                Event::Added { download }
+                    if download.record.status == oxyd_core::Status::Queued
+                        && app.state::<AppState>().mgr.settings().progress_window =>
+                {
+                    crate::want_progress(&app, &download.record.id);
+                }
                 Event::Completed { download } => {
                     let settings = app.state::<AppState>().mgr.settings();
                     if settings.notifications {
@@ -101,68 +109,136 @@ fn after_queue(app: &AppHandle, action: AfterQueue, lang: &str) {
     }
 }
 
-/// Start and stop the queue at the configured times.
+/// Start and stop every queue at its configured times.
 pub fn scheduler(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let mut last_fired: Option<(u32, u32, &'static str)> = None;
-        // Downloads the schedule paused; only these (and never-started ones) resume.
-        let mut paused_by_schedule: Vec<String> = Vec::new();
+        // Per queue and action: the minute it last fired, so it fires once.
+        let mut last_fired: HashMap<(String, &'static str), (i32, u32)> = HashMap::new();
+        // Downloads a schedule paused; only these (and never-started ones) resume.
+        let mut paused_by_schedule: HashMap<String, Vec<String>> = HashMap::new();
         let mut tick = tokio::time::interval(Duration::from_secs(15));
         loop {
             tick.tick().await;
             let state = app.state::<AppState>();
-            let s = state.mgr.settings().schedule;
-            if !s.enabled {
-                continue;
-            }
             let now = Local::now();
             let hm = format!("{:02}:{:02}", now.hour(), now.minute());
-            let minute = now.ordinal() * 1440 + now.hour() * 60 + now.minute();
-            for (when, what) in [(&s.start, "start"), (&s.stop, "stop")] {
-                if when.as_deref() != Some(hm.as_str())
-                    || last_fired == Some((now.year() as u32, minute, what))
-                {
+            let minute = (
+                now.year(),
+                now.ordinal() * 1440 + now.hour() * 60 + now.minute(),
+            );
+            for queue in state.mgr.queues() {
+                let s = &queue.schedule;
+                if !s.enabled {
                     continue;
                 }
-                last_fired = Some((now.year() as u32, minute, what));
-                tracing::info!(what, "schedule fired");
-                let r = if what == "start" {
-                    start_scheduled(&state.mgr, &std::mem::take(&mut paused_by_schedule))
-                } else {
-                    stop_scheduled(&state.mgr).map(|ids| paused_by_schedule.extend(ids))
-                };
-                if let Err(e) = r {
-                    tracing::warn!("schedule action failed: {e}");
+                // Only the start looks at the day: a stop after midnight must still end
+                // what the day before started.
+                let start_today = s.runs_on(now.weekday().num_days_from_monday());
+                for (when, what) in [(&s.start, "start"), (&s.stop, "stop")] {
+                    let key = (queue.id.clone(), what);
+                    if when.as_deref() != Some(hm.as_str())
+                        || (what == "start" && !start_today)
+                        || last_fired.get(&key) == Some(&minute)
+                    {
+                        continue;
+                    }
+                    last_fired.insert(key, minute);
+                    tracing::info!(queue = %queue.id, what, "schedule fired");
+                    let r = if what == "start" {
+                        let paused = paused_by_schedule.remove(&queue.id).unwrap_or_default();
+                        state.mgr.start_queue(&queue.id, &paused)
+                    } else {
+                        state.mgr.pause_queue(&queue.id).map(|ids| {
+                            paused_by_schedule
+                                .entry(queue.id.clone())
+                                .or_default()
+                                .extend(ids)
+                        })
+                    };
+                    if let Err(e) = r {
+                        tracing::warn!("schedule action failed: {e}");
+                    }
                 }
             }
         }
     });
 }
 
-/// Pause everything that runs or waits and return what was paused.
-fn stop_scheduled(mgr: &Manager) -> oxyd_core::Result<Vec<String>> {
-    let ids: Vec<String> = mgr
-        .list()?
-        .into_iter()
-        .filter(|d| d.record.status == Status::Queued || d.record.status.is_active())
-        .map(|d| d.record.id)
-        .collect();
-    mgr.pause_all()?;
-    Ok(ids)
-}
-
-/// Resume what the schedule paused plus downloads added for later that never started.
-/// Downloads the user paused by hand stay paused.
-fn start_scheduled(mgr: &Manager, paused: &[String]) -> oxyd_core::Result<()> {
-    for d in mgr.list()? {
-        let r = &d.record;
-        let later = r.downloaded == 0;
-        if r.status == Status::Paused && (later || paused.contains(&r.id)) {
-            mgr.start(&r.id)?;
+/// Open the progress windows that were asked for (see `AppState::progress_wanted`).
+///
+/// Opening is retried every two seconds: a window that could not be created (the app was
+/// still starting, the main thread was busy) is not lost. A window the user closed is not
+/// reopened, because its entry left the list the moment the window existed.
+pub fn progress_windows(app: &AppHandle) {
+    const MAX_ATTEMPTS: u8 = 15;
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(2));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            let state = app.state::<AppState>();
+            let empty = state
+                .progress_wanted
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_empty();
+            if empty {
+                // Nothing to open: sleep until a download asks for its window.
+                state.progress_wake.notified().await;
+                continue;
+            }
+            let wanted: Vec<(String, u8)> = state
+                .progress_wanted
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            let mut open = app
+                .webview_windows()
+                .keys()
+                .filter(|l| l.starts_with("progress-"))
+                .count();
+            let mut done: Vec<String> = Vec::new();
+            for (id, attempts) in &wanted {
+                let exists = app.get_webview_window(&crate::progress_label(id)).is_some();
+                let info = state.mgr.get(id).ok();
+                let alive = info.as_ref().is_some_and(|d| {
+                    d.record.status == oxyd_core::Status::Queued || d.record.status.is_active()
+                });
+                if exists || !alive || *attempts >= MAX_ATTEMPTS {
+                    done.push(id.clone());
+                    continue;
+                }
+                if open >= crate::MAX_PROGRESS_WINDOWS {
+                    // Shown in the list only; asking by hand still opens its window.
+                    done.push(id.clone());
+                    continue;
+                }
+                open += 1;
+                let (handle, id, title) = (
+                    app.clone(),
+                    id.clone(),
+                    info.map(|d| d.record.filename).unwrap_or_default(),
+                );
+                let _ = app.run_on_main_thread(move || {
+                    if let Err(e) = crate::open_progress(&handle, &id, &title) {
+                        tracing::warn!("cannot open the progress window, will retry: {e}");
+                    }
+                });
+            }
+            {
+                let mut list = state
+                    .progress_wanted
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                list.retain(|(id, _)| !done.contains(id));
+                for (_, attempts) in list.iter_mut() {
+                    *attempts += 1;
+                }
+            }
+            tick.tick().await;
         }
-    }
-    Ok(())
+    });
 }
 
 /// Offer downloads for file links copied to the clipboard.

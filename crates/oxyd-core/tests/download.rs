@@ -6,7 +6,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use oxyd_core::store::Store;
-use oxyd_core::{DownloadInfo, Event, Manager, NewDownload, RequestHeaders, Settings, Status};
+use oxyd_core::{
+    DownloadInfo, Event, Manager, NewDownload, Queue, RequestHeaders, Settings, Status, MAIN_QUEUE,
+};
 
 const MB: u64 = 1024 * 1024;
 
@@ -738,4 +740,117 @@ async fn refresh_link_takes_over_a_running_download() {
     assert!(info.record.downloaded >= MB / 2, "progress kept");
     m.start(&id).unwrap();
     assert_completed(&wait(&m, &id).await, size);
+}
+
+#[tokio::test]
+async fn queues_run_side_by_side_with_their_own_limits() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    m.set_settings(Settings {
+        max_active: 1,
+        ..settings(dir.path())
+    })
+    .unwrap();
+    let night = m
+        .save_queue(Queue {
+            name: "  Night  ".into(),
+            max_active: 1,
+            speed_limit: Some(MB / 2),
+            ..Queue::default()
+        })
+        .unwrap();
+    assert_eq!(night.name, "Night");
+    assert_eq!(m.queues().len(), 2);
+
+    let a = add(&m, format!("{base}/file/{}?rate=524288", MB), 1);
+    let b = add(&m, format!("{base}/file/{}", MB), 1);
+    let started = Instant::now();
+    let c = m
+        .add(NewDownload {
+            url: format!("{base}/file/{}", MB),
+            filename: Some("night.bin".into()),
+            queue: Some(night.id.clone()),
+            start: true,
+            ..Default::default()
+        })
+        .unwrap()
+        .record
+        .id;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    // The main queue is full, the other queue is not.
+    assert_eq!(m.get(&b).unwrap().record.status, Status::Queued);
+    assert_ne!(m.get(&c).unwrap().record.status, Status::Queued);
+    assert_completed(&wait(&m, &c).await, MB);
+    // 1 MiB at the queue's 512 KiB/s.
+    assert!(
+        started.elapsed() >= Duration::from_millis(1500),
+        "queue limit ignored: {:?}",
+        started.elapsed()
+    );
+    wait(&m, &a).await;
+    assert_completed(&wait(&m, &b).await, MB);
+
+    // Moving and deleting.
+    m.move_to_queue(std::slice::from_ref(&b), &night.id)
+        .unwrap();
+    assert_eq!(m.get(&b).unwrap().record.queue, night.id);
+    m.delete_queue(&night.id).unwrap();
+    assert_eq!(m.get(&b).unwrap().record.queue, MAIN_QUEUE);
+    assert_eq!(m.get(&c).unwrap().record.queue, MAIN_QUEUE);
+    assert!(m.delete_queue(MAIN_QUEUE).is_err());
+    assert!(
+        m.save_queue(Queue::default()).is_err(),
+        "a queue needs a name"
+    );
+}
+
+#[tokio::test]
+async fn the_main_queue_is_the_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let mut main = m.queues().remove(0);
+    assert!(main.is_main());
+    main.max_active = 7;
+    main.schedule.enabled = true;
+    main.schedule.days = vec![5, 6];
+    m.save_queue(main).unwrap();
+    let s = m.settings();
+    assert_eq!(s.max_active, 7);
+    assert_eq!(s.schedule.days, vec![5, 6]);
+}
+
+#[tokio::test]
+async fn cookies_do_not_follow_a_redirect_to_another_site() {
+    let site = server().await;
+    let cdn = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let headers = RequestHeaders {
+        cookie: Some("session=1".into()),
+        authorization: Some("Bearer secret".into()),
+        ..Default::default()
+    };
+    let add = |to: String, name: &str| {
+        m.add(NewDownload {
+            url: format!(
+                "{site}/goto?to={}",
+                to.replace('?', "%3F").replace('&', "%26")
+            ),
+            filename: Some(name.into()),
+            headers: headers.clone(),
+            connections: Some(4),
+            start: true,
+            ..Default::default()
+        })
+        .unwrap()
+        .record
+        .id
+    };
+    // Another origin refuses every request that carries a cookie: all segments must pass.
+    let other = add(format!("{cdn}/file/{}?nocookie=1", 2 * MB), "cdn.bin");
+    assert_completed(&wait(&m, &other).await, 2 * MB);
+    // The same origin still gets them: this file needs the cookie on every request.
+    let same = add(format!("{site}/file/{}?cookie=session", 2 * MB), "same.bin");
+    assert_completed(&wait(&m, &same).await, 2 * MB);
 }

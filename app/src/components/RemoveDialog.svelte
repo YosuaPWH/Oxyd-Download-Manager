@@ -5,20 +5,31 @@
   import type { DownloadInfo } from "../lib/types";
   import Modal from "./Modal.svelte";
 
-  let { download, onclose }: { download: DownloadInfo; onclose: () => void } = $props();
+  let { downloads, onclose }: { downloads: DownloadInfo[]; onclose: () => void } = $props();
   let deleteFile = $state(false);
 
+  const hasFiles = $derived(downloads.some((d) => d.status === "completed"));
+
   function confirm() {
-    const id = download.id;
+    const list = downloads.map((d) => ({ id: d.id, done: d.status === "completed" }));
     const del = deleteFile;
     onclose();
-    void run(() => api.remove(id, del));
+    void run(async () => {
+      for (const d of list) await api.remove(d.id, del && d.done);
+    });
   }
 </script>
 
-<Modal title={t("rm.title")} {onclose} width={440}>
-  <p class="name ellipsis">{download.filename || download.url}</p>
-  {#if download.status === "completed"}
+<Modal title={downloads.length > 1 ? `${t("rm.titleMany")} (${downloads.length})` : t("rm.title")} {onclose} width={440}>
+  <ul>
+    {#each downloads.slice(0, 5) as d (d.id)}
+      <li class="ellipsis">{d.filename || d.url}</li>
+    {/each}
+    {#if downloads.length > 5}
+      <li class="muted">+<span class="num">{downloads.length - 5}</span> {t("new.more")}</li>
+    {/if}
+  </ul>
+  {#if hasFiles}
     <label class="check"><input type="checkbox" bind:checked={deleteFile} />{t("rm.deleteFile")}</label>
   {/if}
   {#snippet footer()}
@@ -28,8 +39,16 @@
 </Modal>
 
 <style>
-  .name {
+  ul {
     margin: 0 0 12px;
-    font-weight: 600;
+    padding: 0;
+    list-style: none;
+  }
+  li {
+    line-height: 22px;
+    font-weight: 500;
+  }
+  li.muted {
+    font-weight: 400;
   }
 </style>

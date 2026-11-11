@@ -125,6 +125,7 @@ pub fn part_path(final_path: &Path) -> PathBuf {
 pub enum Category {
     Video,
     Music,
+    Image,
     Document,
     Archive,
     Program,
@@ -132,9 +133,10 @@ pub enum Category {
 }
 
 impl Category {
-    pub const ALL: [Category; 6] = [
+    pub const ALL: [Category; 7] = [
         Category::Video,
         Category::Music,
+        Category::Image,
         Category::Document,
         Category::Archive,
         Category::Program,
@@ -148,6 +150,8 @@ impl Category {
             "mp4" | "mkv" | "avi" | "mov" | "wmv" | "flv" | "webm" | "m4v" | "mpg" | "mpeg"
             | "3gp" | "ts" => Category::Video,
             "mp3" | "wav" | "flac" | "aac" | "ogg" | "m4a" | "wma" | "opus" => Category::Music,
+            "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "svg" | "tif" | "tiff" | "heic"
+            | "avif" | "ico" | "psd" => Category::Image,
             "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "txt" | "rtf" | "odt"
             | "ods" | "odp" | "epub" | "csv" | "md" => Category::Document,
             "zip" | "rar" | "7z" | "tar" | "gz" | "bz2" | "xz" | "tgz" | "iso" | "zst" | "cab" => {
@@ -164,6 +168,7 @@ impl Category {
         match self {
             Category::Video => "video",
             Category::Music => "music",
+            Category::Image => "image",
             Category::Document => "document",
             Category::Archive => "archive",
             Category::Program => "program",
@@ -183,6 +188,7 @@ impl Category {
         match self {
             Category::Video => "Video",
             Category::Music => "Musik",
+            Category::Image => "Gambar",
             Category::Document => "Dokumen",
             Category::Archive => "Arsip",
             Category::Program => "Program",
@@ -266,6 +272,8 @@ mod tests {
         assert_eq!(Category::from_name("movie.MKV"), Category::Video);
         assert_eq!(Category::from_name("setup.exe"), Category::Program);
         assert_eq!(Category::from_name("x.tar.gz"), Category::Archive);
+        assert_eq!(Category::from_name("photo.JPEG"), Category::Image);
+        assert_eq!(Category::parse("image"), Category::Image);
         assert_eq!(Category::from_name("readme"), Category::Other);
     }
 }

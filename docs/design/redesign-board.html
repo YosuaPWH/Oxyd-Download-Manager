@@ -1,0 +1,318 @@
+<title>Oxyd Redesign Board</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: a design board read top to bottom — decisions first, then the window drawn at
+   real size inside its own scroller, then the new pieces one by one. */
+:root {
+  --canvas: #e6eae9; --sheet: #fbfcfc; --raised: #ffffff; --sunken: #eef1f0;
+  --line: rgba(15, 20, 19, 0.1); --rule: rgba(15, 20, 19, 0.065);
+  --hover: rgba(15, 20, 19, 0.045);
+  --text: #0f1413; --text-2: #48524f; --text-3: #5f6a67;
+  --accent: #0b7566; --accent-solid: #0c7f6f; --accent-ink: #ffffff;
+  --accent-soft: rgba(12, 127, 111, 0.11); --accent-line: rgba(12, 127, 111, 0.36);
+  --ok: #0a7d50; --warn: #96590a; --bad: #c2332f; --info: #0b6c9c;
+  --l1: #b9622b; --l2: #a47708; --l3: #6d8612; --l4: #18885a; --l5: #0c7f6f; --l6: #0b78a8; --l7: #3a63d6; --l8: #6a4fd8;
+  --shadow: 0 1px 0 rgba(15,20,19,.04), 0 10px 30px rgba(15,20,19,.10);
+  --sans: "Public Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --canvas: #0a0c0c; --sheet: #101314; --raised: #171b1c; --sunken: #0c0f0f;
+  --line: rgba(255,255,255,.1); --rule: rgba(255,255,255,.06); --hover: rgba(255,255,255,.045);
+  --text: #e9eeed; --text-2: #a5afad; --text-3: #838e8c;
+  --accent: #45c4b0; --accent-solid: #2aa896; --accent-ink: #04130f;
+  --accent-soft: rgba(69,196,176,.14); --accent-line: rgba(69,196,176,.38);
+  --ok: #4cc38a; --warn: #e8b04a; --bad: #f0706b; --info: #5cb8e8;
+  --l1: #e0915a; --l2: #e8b04a; --l3: #b9cc5a; --l4: #5fcf8e; --l5: #45c4b0; --l6: #4bb3e0; --l7: #6f95f5; --l8: #a58cf5;
+  --shadow: 0 0 0 1px rgba(255,255,255,.05), 0 16px 40px rgba(0,0,0,.5);
+  color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --canvas: #0a0c0c; --sheet: #101314; --raised: #171b1c; --sunken: #0c0f0f;
+  --line: rgba(255,255,255,.1); --rule: rgba(255,255,255,.06); --hover: rgba(255,255,255,.045);
+  --text: #e9eeed; --text-2: #a5afad; --text-3: #838e8c;
+  --accent: #45c4b0; --accent-solid: #2aa896; --accent-ink: #04130f;
+  --accent-soft: rgba(69,196,176,.14); --accent-line: rgba(69,196,176,.38);
+  --ok: #4cc38a; --warn: #e8b04a; --bad: #f0706b; --info: #5cb8e8;
+  --l1: #e0915a; --l2: #e8b04a; --l3: #b9cc5a; --l4: #5fcf8e; --l5: #45c4b0; --l6: #4bb3e0; --l7: #6f95f5; --l8: #a58cf5;
+  --shadow: 0 0 0 1px rgba(255,255,255,.05), 0 16px 40px rgba(0,0,0,.5);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--canvas); color: var(--text); font: 14px/1.55 var(--sans);
+  padding-block: 40px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.page { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
+h1 { font-size: 30px; line-height: 1.15; letter-spacing: -.02em; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 19px; letter-spacing: -.01em; margin: 0; font-weight: 600; }
+h3 { font-size: 13px; margin: 0; font-weight: 600; }
+p { margin: 0; color: var(--text-2); max-width: 68ch; }
+.eyebrow { font: 500 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.head { display: flex; flex-direction: column; gap: 10px; }
+.sec { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.scroll { overflow-x: auto; border-radius: 14px; }
+table.plan { width: 100%; min-width: 760px; border-collapse: collapse; background: var(--sheet); font-size: 13px; }
+.plan th { text-align: left; font-weight: 500; color: var(--text-3); font-size: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.plan td { padding: 11px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; color: var(--text-2); }
+.plan td:first-child { color: var(--text); font-weight: 500; white-space: nowrap; }
+.plan tr:last-child td { border-bottom: 0; }
+.tag { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px; border-radius: 5px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.tag.now { background: var(--accent-soft); color: var(--accent); }
+.tag.later { background: var(--hover); color: var(--text-3); }
+.tag.keep { background: var(--hover); color: var(--text-2); }
+
+/* ---------- the window ---------- */
+.win { min-width: 1120px; height: 690px; display: grid; grid-template-columns: 216px 1fr; gap: 8px; padding: 8px; background: var(--canvas);
+  background-image: radial-gradient(520px 300px at 0% 0%, var(--accent-soft), transparent 70%); border: 1px solid var(--line); border-radius: 14px; font-size: 13px; line-height: 1.4; }
+.side { display: flex; flex-direction: column; gap: 2px; padding: 12px 8px 8px; border-radius: 12px; background: color-mix(in srgb, var(--raised) 62%, transparent); border: 1px solid var(--rule); }
+.brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 12px; font-weight: 700; font-size: 15px; letter-spacing: -.01em; }
+.nav { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 8px; border-radius: 7px; color: var(--text-2); }
+.nav svg { flex: none; opacity: .85; }
+.nav b { font-weight: 500; flex: 1; }
+.nav i { font: normal 11.5px var(--mono); color: var(--text-3); }
+.nav.on { background: var(--accent-soft); color: var(--text); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.cap { padding: 14px 8px 4px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+.speed { margin-top: auto; padding: 10px 12px 8px; border-radius: 10px; background: var(--sunken); border: 1px solid var(--rule); }
+.speed .big { font: 600 24px/1.1 var(--mono); letter-spacing: -.03em; }
+.speed .big small { font-size: 12px; font-weight: 500; color: var(--text-2); letter-spacing: 0; }
+.row2 { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); }
+.main { display: flex; flex-direction: column; min-width: 0; border-radius: 12px; background: var(--sheet); border: 1px solid var(--rule); overflow: hidden; }
+.tb { display: flex; align-items: center; gap: 4px; height: 50px; padding: 0 12px; border-bottom: 1px solid var(--rule); }
+.btn { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--text); font: 500 13px var(--sans); }
+.btn.pri { background: var(--accent-solid); border-color: transparent; color: var(--accent-ink); font-weight: 600; }
+.ib { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; color: var(--text-2); }
+.ib.dim { opacity: .4; }
+.sep { width: 1px; height: 18px; margin: 0 6px; background: var(--line); }
+.search { margin-left: auto; display: flex; align-items: center; gap: 8px; width: 240px; height: 30px; padding: 0 10px; border-radius: 8px; background: var(--sunken); border: 1px solid var(--rule); color: var(--text-3); }
+.search kbd { margin-left: auto; font: 10.5px var(--mono); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line); }
+.tr { display: flex; align-items: center; gap: 16px; padding: 12px 16px 10px; }
+.tr h4 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.015em; }
+.tr small { display: block; font-size: 12px; color: var(--text-3); margin-top: 1px; }
+.seg { margin-left: auto; display: flex; padding: 2px; border-radius: 9px; background: var(--sunken); border: 1px solid var(--rule); }
+.seg span { padding: 4px 10px; border-radius: 7px; font-size: 12px; color: var(--text-2); display: flex; gap: 6px; }
+.seg span.on { background: var(--raised); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.18); font-weight: 600; }
+.seg i { font: normal 11px var(--mono); color: var(--text-3); }
+.grid { display: grid; grid-template-columns: 28px 30px minmax(0,1fr) 74px 132px 190px 84px 70px 96px; column-gap: 12px; align-items: center; padding: 0 16px; }
+.hd { height: 30px; font-size: 11.5px; color: var(--text-3); border-bottom: 1px solid var(--rule); }
+.r { text-align: right; }
+.dl { height: 44px; border-bottom: 1px solid var(--rule); }
+.dl.sel { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.cb { width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid var(--line); }
+.dl.sel .cb { background: var(--accent-solid); border-color: transparent; }
+.tile { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: var(--sunken); border: 1px solid var(--rule); font: 600 9px var(--mono); letter-spacing: .02em; }
+.nm { min-width: 0; }
+.nm b, .nm small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nm b { font-weight: 500; }
+.nm small { font-size: 11.5px; color: var(--text-3); }
+.st { display: flex; align-items: center; gap: 7px; font-size: 12.5px; white-space: nowrap; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.pg { display: flex; flex-direction: column; gap: 5px; }
+.pg div { display: flex; justify-content: space-between; font: 11.5px var(--mono); color: var(--text-3); }
+.pg div b { color: var(--text); font-weight: 500; }
+.bar { height: 3px; border-radius: 2px; background: var(--hover); overflow: hidden; }
+.bar u { display: block; height: 100%; border-radius: 2px; }
+.insp { margin-top: auto; border-top: 1px solid var(--line); background: var(--sheet); }
+.tabs { display: flex; align-items: center; gap: 18px; height: 34px; padding: 0 16px; border-bottom: 1px solid var(--rule); font-size: 12.5px; color: var(--text-3); }
+.tabs .on { color: var(--text); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); align-self: stretch; display: flex; align-items: center; }
+.tabs .file { margin-left: auto; color: var(--text-2); display: flex; gap: 8px; align-items: center; }
+.map { display: flex; gap: 2px; height: 8px; margin: 12px 16px 10px; }
+.map u { flex: 1; border-radius: 2px; background: var(--hover); position: relative; overflow: hidden; }
+.map u::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--w); background: var(--c); }
+.lanes { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 28px; padding: 0 16px 12px; }
+.lane { display: grid; grid-template-columns: 20px 1fr 118px 70px; gap: 10px; align-items: center; font: 11px var(--mono); color: var(--text-3); }
+.lane .bar { height: 4px; }
+.lane b { color: var(--text-2); font-weight: 400; text-align: right; }
+.sb { display: flex; align-items: center; gap: 16px; height: 28px; padding: 0 16px; border-top: 1px solid var(--rule); font-size: 11.5px; color: var(--text-3); background: var(--sunken); }
+.sb b { color: var(--text); font: 500 11.5px var(--mono); }
+.sb .chip { margin-left: auto; display: flex; gap: 6px; align-items: center; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--line); color: var(--text-2); }
+
+/* ---------- pieces ---------- */
+.pieces { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+.piece { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.piece > p { font-size: 13px; }
+.dialog { background: var(--raised); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 16px; display: flex; flex-direction: column; gap: 12px; font-size: 13px; }
+.field { border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); padding: 8px 10px; font: 12px/1.6 var(--mono); color: var(--text-2); overflow-wrap: anywhere; }
+.field em { font-style: normal; color: var(--accent); font-weight: 600; }
+.list { display: flex; flex-direction: column; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+.list div { display: flex; gap: 10px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--rule); font: 12px var(--mono); color: var(--text-2); }
+.list div:last-child { border: 0; color: var(--text-3); }
+.foot { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+.foot span { margin-right: auto; color: var(--text-3); font-size: 12px; }
+.sw { display: flex; gap: 10px; flex-wrap: wrap; }
+.sw i { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--raised); box-shadow: 0 0 0 1px var(--line); }
+.sw i.on { box-shadow: 0 0 0 2px var(--text); }
+.days { display: flex; gap: 6px; flex-wrap: wrap; }
+.days span { width: 36px; height: 30px; display: grid; place-items: center; border-radius: 8px; border: 1px solid var(--line); font-size: 12px; color: var(--text-3); }
+.days span.on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent); font-weight: 600; }
+.kv { display: flex; justify-content: space-between; gap: 12px; align-items: center; color: var(--text-2); }
+.toast { display: flex; gap: 12px; align-items: center; }
+.ring { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); flex: none; }
+.ramp { display: flex; height: 26px; border-radius: 8px; overflow: hidden; }
+.ramp i { flex: 1; }
+ul.notes { margin: 0; padding-left: 18px; color: var(--text-2); display: flex; flex-direction: column; gap: 6px; max-width: 72ch; }
+</style>
+
+<div class="page">
+  <header class="head">
+    <span class="eyebrow">Oxyd 0.5 · papan desain</span>
+    <h1>Oxyd dirancang ulang dengan Prism sebagai panduan</h1>
+    <p>Prism memberi tiga hal yang belum dimiliki Oxyd: navigasi samping yang selalu terlihat, tabel yang bisa dikerjakan banyak baris sekaligus, dan panel koneksi yang memperlihatkan tiap sambungan. Oxyd mengambil ketiganya, lalu menambahkan antrean, torrent, FTP, grabber, alat media, serta jendela progres dan mini, dengan ukuran aplikasi tetap jauh di bawah 50 MB.</p>
+  </header>
+
+  <section class="sec">
+    <h2>Analisa fitur</h2>
+    <div class="scroll"><table class="plan">
+      <thead><tr><th>Fitur di Prism</th><th>Kondisi Oxyd sekarang</th><th>Keputusan</th><th>Alasan</th></tr></thead>
+      <tbody>
+        <tr><td>Sidebar pustaka + kategori</td><td>Rel ikon 56px, kategori di dalam dropdown</td><td><span class="tag now">Dibangun</span></td><td>Jumlah per kategori dan per status terlihat tanpa klik.</td></tr>
+        <tr><td>Toolbar aksi + pilih banyak</td><td>Satu baris terpilih, aksi lewat menu</td><td><span class="tag now">Dibangun</span></td><td>Jeda, lanjut, dan hapus banyak download sekaligus; Ctrl/Shift klik dan Ctrl+A.</td></tr>
+        <tr><td>Kolom bisa diurutkan, mode padat</td><td>Urutan antrean saja, baris 56px</td><td><span class="tag now">Dibangun</span></td><td>Baris 44px (nyaman) atau 32px (padat); urut menurut nama, ukuran, progres, kecepatan, tanggal.</td></tr>
+        <tr><td>Panel bawah: Koneksi, Kecepatan, Info</td><td>Kartu detail di kanan, satu batang segmen</td><td><span class="tag now">Dibangun</span></td><td>Satu jalur per koneksi dengan rentang byte; tabel mendapat lebar penuh.</td></tr>
+        <tr><td>Download batch (pola URL)</td><td>Tidak ada</td><td><span class="tag now">Dibangun</span></td><td>Tempel banyak link atau tulis <span class="num">file[001-100].zip</span>.</td></tr>
+        <tr><td>Seret link ke jendela</td><td>Tidak ada</td><td><span class="tag now">Dibangun</span></td><td>Satu link membuka dialog biasa, beberapa link membuka batch.</td></tr>
+        <tr><td>Tampilan: aksen, kepadatan, kaca</td><td>Hanya terang/gelap</td><td><span class="tag now">Dibangun</span></td><td>Enam warna aksen, dua kepadatan, kaca bisa dimatikan.</td></tr>
+        <tr><td>Penjadwal dengan hari</td><td>Jam mulai dan berhenti, setiap hari</td><td><span class="tag now">Dibangun</span></td><td>Pilih hari dalam seminggu; logika jatuh tempo diuji di inti.</td></tr>
+        <tr><td>Pembatas kecepatan cepat</td><td>Hanya di Pengaturan</td><td><span class="tag now">Dibangun</span></td><td>Saklar di bilah status, dengan nilai terakhir yang diingat.</td></tr>
+        <tr><td>Dialog selesai + suara</td><td>Notifikasi sistem saja</td><td><span class="tag now">Dibangun</span></td><td>Toast dengan Buka dan Buka folder; nada pendek yang bisa dimatikan.</td></tr>
+        <tr><td>Kategori Gambar</td><td>Enam kategori</td><td><span class="tag now">Dibangun</span></td><td>jpg, png, webp, gif, svg dan sejenisnya tidak lagi jatuh ke Lainnya.</td></tr>
+        <tr><td>Segmentasi dinamis, lanjut setelah crash, refresh link</td><td>Sudah ada</td><td><span class="tag keep">Dipertahankan</span></td><td>Mesin Oxyd sudah setara; tidak disentuh.</td></tr>
+        <tr><td>Banyak antrean bernama</td><td>Satu antrean</td><td><span class="tag now">Dibangun</span></td><td>Tiap antrean punya jumlah download bersamaan, batas kecepatan, dan jadwal sendiri.</td></tr>
+        <tr><td>Site grabber</td><td>Tidak ada</td><td><span class="tag now">Dibangun</span></td><td>Membaca halaman sampai dua tingkat tanpa dependensi baru.</td></tr>
+        <tr><td>Torrent dan FTP</td><td>Tidak ada</td><td><span class="tag now">Dibangun</span></td><td>Torrent lewat librqbit; FTP dengan klien kecil sendiri. Tanpa seeding setelah selesai, tanpa FTPS.</td></tr>
+        <tr><td>Alat media</td><td>Tidak ada</td><td><span class="tag now">Dibangun</span></td><td>Konversi, perkecil, dan ZIP dengan ffmpeg yang sudah dikelola Oxyd.</td></tr>
+        <tr><td>Jendela progres</td><td>Tidak ada</td><td><span class="tag now">Dibangun</span></td><td>Satu jendela per download, paling banyak enam; pembukaan yang gagal dicoba lagi.</td></tr>
+        <tr><td>Jendela mini dan drop zone</td><td>Tidak ada</td><td><span class="tag now">Dibangun</span></td><td>Digabung jadi satu jendela: kecepatan total dan tempat melepas link.</td></tr>
+        <tr><td>Tombol tutup pada tombol video</td><td>Tidak ada</td><td><span class="tag now">Dibangun</span></td><td>Per video atau post sampai halaman dimuat ulang; disembunyikan saat layar penuh.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="sec">
+    <div class="head"><h2>Jendela utama</h2>
+    <p>Data berada di lembar yang tenang; warna hanya muncul pada yang bergerak. Jalur koneksi memakai gradasi oksidasi, dari tembaga ke patina, sebagai ciri Oxyd. Gambar ini mengikuti tema terang atau gelap halaman.</p></div>
+    <div class="scroll"><div class="win" id="win"></div></div>
+  </section>
+
+  <section class="sec">
+    <h2>Bagian baru</h2>
+    <div class="pieces">
+      <div class="piece">
+        <h3>Download batch</h3>
+        <p>Rentang angka mempertahankan nol di depan; rentang huruf juga didukung. Daftar hasil bisa dicentang satu per satu sebelum ditambahkan.</p>
+        <div class="dialog">
+          <div class="field">https://cdn.example.org/set/photo-<em>[001-120]</em>.jpg<br>https://example.org/disk-<em>[a-c]</em>.iso</div>
+          <div class="list">
+            <div><span class="cb" style="background:var(--accent-solid);border-color:transparent"></span>photo-001.jpg</div>
+            <div><span class="cb" style="background:var(--accent-solid);border-color:transparent"></span>photo-002.jpg</div>
+            <div><span class="cb" style="background:var(--accent-solid);border-color:transparent"></span>photo-003.jpg</div>
+            <div>… 120 lagi</div>
+          </div>
+          <div class="foot"><span><b class="num">123</b> link · 0 duplikat</span><span class="btn">Nanti</span><span class="btn pri">Tambah 123</span></div>
+        </div>
+      </div>
+      <div class="piece">
+        <h3>Tampilan</h3>
+        <p>Aksen mewarnai pilihan, tombol utama, dan cahaya di sudut jendela. Status (selesai, jeda, gagal) tidak ikut berubah.</p>
+        <div class="dialog">
+          <div class="kv"><span>Warna aksen</span><div class="sw"><i class="on" style="background:#2aa896"></i><i style="background:#c8713a"></i><i style="background:#3b7be0"></i><i style="background:#7a63e8"></i><i style="background:#d04a72"></i><i style="background:#8a9391"></i></div></div>
+          <div class="kv"><span>Kepadatan baris</span><div class="seg"><span class="on">Nyaman</span><span>Padat</span></div></div>
+          <div class="kv"><span>Efek kaca</span><div class="seg"><span class="on">Nyala</span><span>Mati</span></div></div>
+          <div class="kv"><span>Suara saat selesai</span><div class="seg"><span class="on">Nyala</span><span>Mati</span></div></div>
+        </div>
+      </div>
+      <div class="piece">
+        <h3>Penjadwal dengan hari</h3>
+        <p>Antrean mulai dan berhenti hanya pada hari yang dipilih. Tanpa pilihan berarti setiap hari, seperti sekarang.</p>
+        <div class="dialog">
+          <div class="days"><span class="on">Sen</span><span class="on">Sel</span><span class="on">Rab</span><span class="on">Kam</span><span class="on">Jum</span><span>Sab</span><span>Min</span></div>
+          <div class="kv"><span>Mulai</span><b class="num">01:00</b></div>
+          <div class="kv"><span>Berhenti</span><b class="num">06:30</b></div>
+        </div>
+      </div>
+      <div class="piece">
+        <h3>Selesai</h3>
+        <p>Muncul di kanan bawah selama delapan detik. Download yang selesai saat jendela tertutup tetap memakai notifikasi sistem.</p>
+        <div class="dialog toast">
+          <div class="ring"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></div>
+          <div style="min-width:0;flex:1"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">blender-4.2.3-windows-x64.msi</b><span style="color:var(--text-3);font-size:12px"><span class="num">342.6 MB</span> dalam <span class="num">1m 52s</span></span></div>
+          <span class="btn">Buka</span>
+        </div>
+      </div>
+      <div class="piece">
+        <h3>Gradasi koneksi</h3>
+        <p>Koneksi ke-n memakai warna ke-n. Gradasi ini hanya dipakai di peta file dan jalur koneksi, tidak untuk tombol atau status.</p>
+        <div class="ramp"><i style="background:var(--l1)"></i><i style="background:var(--l2)"></i><i style="background:var(--l3)"></i><i style="background:var(--l4)"></i><i style="background:var(--l5)"></i><i style="background:var(--l6)"></i><i style="background:var(--l7)"></i><i style="background:var(--l8)"></i></div>
+      </div>
+      <div class="piece">
+        <h3>Yang tidak berubah</h3>
+        <ul class="notes">
+          <li>Public Sans untuk teks dan JetBrains Mono untuk setiap angka.</li>
+          <li>Tanda cincin delapan segmen, sekarang dengan warna aksen.</li>
+          <li>Pintasan lama tetap berlaku; ditambah Ctrl+A, Ctrl+B (batch), dan Ctrl+I (panel bawah).</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+const I = {
+  all: "M4 6h16M4 12h16M4 18h16", clock: "M12 8v4l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", check: "M5 13l4 4L19 7",
+  video: "M4 6h11v12H4zM15 10l5-3v10l-5-3", music: "M9 18V5l11-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z",
+  doc: "M7 3h7l5 5v13H7zM14 3v5h5", zip: "M4 7h16v13H4zM3 3h18v4H3zM10 11h4", app: "M4 5h16v14H4zM4 9h16", img: "M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4",
+  other: "M6 3h9l4 4v14H6z", gear: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM4 12h2M18 12h2M12 4v2M12 18v2", plus: "M12 5v14M5 12h14",
+  play: "M7 5l12 7-12 7z", pause: "M8 5v14M16 5v14", trash: "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13", layers: "M12 3l9 5-9 5-9-5zM3 13l9 5 9-5",
+  gauge: "M4 18a8 8 0 1 1 16 0M12 18l4-6", search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-3.5-3.5", cols: "M4 5h16v14H4zM10 5v14M15 5v14", panel: "M4 5h16v14H4zM4 14h16",
+};
+const ic = (n, s = 16) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${I[n]}"/></svg>`;
+const nav = (i, t, c, on) => `<div class="nav${on ? " on" : ""}">${ic(i)}<b>${t}</b><i>${c}</i></div>`;
+const rows = [
+  ["ISO", "ubuntu-24.04-desktop-amd64.iso", "releases.ubuntu.com · Arsip", "5.66 GB", "Mengunduh · 8×", "accent", 45.1, "2.55 / 5.66 GB", "11.0 MB/s", "4m 50s", "10.12", 1],
+  ["MSI", "blender-4.2.3-windows-x64.msi", "download.blender.org · Program", "342.6 MB", "Mengunduh · 4×", "accent", 43.4, "148 / 342.6 MB", "2.78 MB/s", "1m 10s", "10.09"],
+  ["WEBM", "Big Buck Bunny 60fps 4K.webm", "youtube.com · 2160p · Video", "612 MB", "Menggabungkan", "info", 100, "612 MB", "—", "—", "09.58"],
+  ["EXE", "VSCodeUserSetup-x64.exe", "update.code.visualstudio.com · Program", "98.0 MB", "Dijeda", "warn", 41.8, "41.0 / 98.0 MB", "—", "—", "09.40"],
+  ["PDF", "artemis-ii-press-kit.pdf", "www.nasa.gov · Dokumen", "12.0 MB", "Gagal · ↻ 12s", "bad", 0, "0 / 12.0 MB", "—", "—", "09.31"],
+  ["MP3", "podcast-ep42.mp3", "cdn.longtailpod.fm · Musik", "64.0 MB", "Antre", "text-3", 0, "0 / 64.0 MB", "—", "—", "09.30"],
+  ["MP4", "Big_Buck_Bunny_4K.mp4", "download.blender.org · Video", "890.0 MB", "Selesai", "ok", 100, "890.0 MB", "—", "—", "Kemarin"],
+];
+const lanes = [62, 41, 47, 30, 52, 36, 44, 31];
+const rng = ["0 B–724 MB", "724 MB–1.41 GB", "1.41–2.12 GB", "2.12–2.83 GB", "2.83–3.54 GB", "3.54–4.24 GB", "4.24–4.95 GB", "4.95–5.66 GB"];
+const spd = ["1.6", "1.2", "1.5", "1.1", "1.6", "1.3", "1.4", "1.3"];
+document.getElementById("win").innerHTML = `
+<aside class="side">
+  <div class="brand"><svg width="24" height="24" viewBox="0 0 28 28" fill="none" stroke-width="3" stroke="currentColor"><path d="M14 3A11 11 0 0 1 21.78 6.22" stroke="var(--accent)"/><path d="M22.5 7A11 11 0 0 1 25 14M25 15A11 11 0 0 1 21.78 21.78M21 22.5A11 11 0 0 1 14 25M13 25A11 11 0 0 1 6.22 21.78M5.5 21A11 11 0 0 1 3 14M3 13A11 11 0 0 1 6.22 6.22M7 5.5A11 11 0 0 1 13 3"/></svg>Oxyd</div>
+  ${nav("all", "Semua download", 7, 1)}${nav("clock", "Belum selesai", 6)}${nav("check", "Selesai", 1)}
+  <div class="cap">Kategori</div>
+  ${nav("video", "Video", 2)}${nav("music", "Musik", 1)}${nav("img", "Gambar", 0)}${nav("doc", "Dokumen", 1)}${nav("zip", "Arsip", 1)}${nav("app", "Program", 2)}${nav("other", "Lainnya", 0)}
+  <div class="speed">
+    <div class="row2"><span>KECEPATAN TOTAL</span><span style="color:var(--accent)">2 aktif</span></div>
+    <div class="big">13.8 <small>MB/s</small></div>
+    <svg viewBox="0 0 180 34" width="100%" height="34" preserveAspectRatio="none"><path d="M0 26 L14 22 28 24 42 15 56 18 70 11 84 14 98 8 112 12 126 9 140 13 154 7 168 10 180 8 V34 H0Z" fill="var(--accent-soft)" stroke="none"/><path d="M0 26 L14 22 28 24 42 15 56 18 70 11 84 14 98 8 112 12 126 9 140 13 154 7 168 10 180 8" fill="none" stroke="var(--accent)" stroke-width="1.5"/></svg>
+    <div class="row2"><span>Batas: mati</span><span>Puncak <span class="num">14.6</span></span></div>
+  </div>
+  <div class="nav" style="margin-top:6px">${ic("gear")}<b>Pengaturan</b></div>
+</aside>
+<div class="main">
+  <div class="tb">
+    <span class="btn pri">${ic("plus", 14)}Tambah URL</span><span class="btn">${ic("layers", 14)}Batch</span>
+    <span class="sep"></span><span class="ib dim">${ic("play")}</span><span class="ib">${ic("pause")}</span><span class="ib">${ic("trash")}</span>
+    <span class="sep"></span><span class="ib">${ic("gauge")}</span>
+    <div class="search">${ic("search", 14)}Cari download<kbd>Ctrl F</kbd></div>
+    <span class="ib">${ic("cols")}</span><span class="ib">${ic("panel")}</span>
+  </div>
+  <div class="tr"><div><h4>Semua download</h4><small>7 item · 2 mengunduh · 7.08 GB total</small></div>
+    <div class="seg"><span class="on">Semua<i>7</i></span><span>Berjalan<i>4</i></span><span>Dijeda<i>1</i></span><span>Gagal<i>1</i></span><span>Selesai<i>1</i></span></div></div>
+  <div class="grid hd"><span></span><span></span><span>Nama</span><span class="r">Ukuran</span><span>Status</span><span>Progres</span><span class="r">Kecepatan</span><span class="r">Sisa</span><span class="r">Ditambahkan ↓</span></div>
+  ${rows.map((r) => `<div class="grid dl${r[11] ? " sel" : ""}"><span class="cb"></span><span class="tile">${r[0]}</span><div class="nm"><b>${r[1]}</b><small>${r[2]}</small></div>
+    <span class="r num">${r[3]}</span><span class="st" style="color:var(--${r[5] === "accent" ? "accent" : r[5]})"><i class="dot" style="background:currentColor"></i>${r[4]}</span>
+    <div class="pg"><div><b>${r[6].toFixed(1)}%</b><span>${r[7]}</span></div><div class="bar"><u style="width:${r[6]}%;background:var(--${r[5] === "accent" ? "accent" : r[5] === "text-3" ? "text-3" : r[5]})"></u></div></div>
+    <span class="r num">${r[8]}</span><span class="r num">${r[9]}</span><span class="r num" style="color:var(--text-3)">${r[10]}</span></div>`).join("")}
+  <div class="insp">
+    <div class="tabs"><span class="on">Koneksi</span><span>Kecepatan</span><span>Info</span><span class="file">ubuntu-24.04-desktop-amd64.iso <span class="tag now">8 koneksi</span></span></div>
+    <div class="map">${lanes.map((w, i) => `<u style="--w:${w}%;--c:var(--l${i + 1})"></u>`).join("")}</div>
+    <div class="lanes">${lanes.map((w, i) => `<div class="lane"><span>${String(i + 1).padStart(2, "0")}</span><div class="bar"><u style="width:${w}%;background:var(--l${i + 1})"></u></div><b>${rng[i]}</b><b>${spd[i]} MB/s</b></div>`).join("")}</div>
+  </div>
+  <div class="sb"><span>↓ <b>13.8 MB/s</b></span><span><b>4</b> aktif · <b>7</b> total</span><span>Jadwal: Sen–Jum <b>01:00</b></span><span class="chip">${ic("gauge", 12)}Batas mati</span><span>Oxyd <b>0.5.0</b></span></div>
+</div>`;
+</script>

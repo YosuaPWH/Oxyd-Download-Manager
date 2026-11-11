@@ -7,7 +7,7 @@ export type Status =
   | "failed"
   | "cancelled";
 
-export type Category = "video" | "music" | "document" | "archive" | "program" | "other";
+export type Category = "video" | "music" | "image" | "document" | "archive" | "program" | "other";
 
 export interface Segment {
   start: number;
@@ -50,6 +50,65 @@ export interface DownloadInfo {
   detail: string | null;
   /** Set for a video taken from a web page; `url` is then the page. */
   media: MediaSpec | null;
+  /** Id of the queue the download waits in. */
+  queue: string;
+  kind: Kind;
+}
+
+export type Kind = "http" | "ftp" | "torrent";
+
+export const MAIN_QUEUE = "main";
+
+export interface Schedule {
+  enabled: boolean;
+  start: string | null;
+  stop: string | null;
+  /** 0 = Monday … 6 = Sunday; empty = every day. */
+  days: number[];
+}
+
+/** A named queue. The main queue has the id "main" and an empty name. */
+export interface Queue {
+  id: string;
+  name: string;
+  maxActive: number;
+  speedLimit: number | null;
+  schedule: Schedule;
+}
+
+export interface GrabItem {
+  url: string;
+  name: string;
+  category: Category;
+  /** Page the link was found on. */
+  page: string;
+}
+
+export interface GrabResult {
+  items: GrabItem[];
+  pages: number;
+  skipped: number;
+  truncated: boolean;
+}
+
+export const CONVERT_FORMATS = ["mp4", "mkv", "webm", "mp3", "m4a"] as const;
+
+export type ToolJob =
+  | { type: "convert"; format: (typeof CONVERT_FORMATS)[number] }
+  | { type: "shrink"; megabytes: number }
+  | { type: "zip"; name: string };
+
+/** A tool job as the backend reports it. */
+export interface JobStatus {
+  id: string;
+  kind: "convert" | "shrink" | "zip";
+  name: string;
+  state: "waiting" | "running" | "done" | "failed" | "cancelled";
+  progress: number;
+  done: number;
+  total: number;
+  output: string | null;
+  error: string | null;
 }
 
 export interface MediaSpec {
@@ -116,10 +175,19 @@ export interface Settings {
   proxy: string | null;
   theme: "system" | "light" | "dark";
   language: "id" | "en";
-  schedule: { enabled: boolean; start: string | null; stop: string | null };
+  schedule: Schedule;
   afterQueue: AfterQueue;
   video: { ytdlpPath: string; ffmpegPath: string; autoUpdate: boolean };
+  accent: Accent;
+  density: "comfortable" | "compact";
+  glass: boolean;
+  sound: boolean;
+  /** Open a progress window for every download that starts right away. */
+  progressWindow: boolean;
 }
+
+export const ACCENTS = ["oxide", "copper", "azure", "violet", "rose", "graphite"] as const;
+export type Accent = (typeof ACCENTS)[number];
 
 export interface PendingMatch {
   id: string;
@@ -160,6 +228,10 @@ export interface NewDownload {
   sizeHint?: number | null;
   start: boolean;
   onConflict?: DuplicatePolicy | null;
+  queue?: string | null;
+  /** `url` is a .torrent file (path or link) whose content is wanted. */
+  torrent?: boolean;
+  headers?: { referer?: string | null };
 }
 
 export type EngineEvent =
@@ -176,6 +248,8 @@ export type EngineEvent =
       segments: Segment[] | null;
     }
   | { type: "removed"; id: string }
+  | { type: "queues"; queues: Queue[] }
+  | { type: "tool"; job: JobStatus }
   | { type: "queueFinished" };
 
 export interface CmdError {

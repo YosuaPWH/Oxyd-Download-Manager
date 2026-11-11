@@ -9,15 +9,20 @@ mod engine;
 pub mod error;
 pub mod events;
 pub mod filename;
+pub mod ftp;
+pub mod grabber;
 pub mod limiter;
 mod manager;
 pub mod media;
 pub mod paths;
 pub mod probe;
+pub mod queue;
 pub mod secret;
 pub mod segment;
 pub mod settings;
 pub mod store;
+#[cfg(feature = "torrent")]
+pub mod torrent;
 pub mod types;
 pub mod writer;
 
@@ -26,6 +31,9 @@ pub use events::Event;
 pub use filename::Category;
 pub use manager::Manager;
 pub use probe::ProbeInfo;
+pub use queue::{Queue, MAIN_QUEUE};
 pub use segment::Segment;
 pub use settings::{AfterQueue, DuplicatePolicy, Schedule, Settings, VideoSettings};
-pub use types::{DownloadInfo, DownloadRecord, MediaSpec, NewDownload, RequestHeaders, Status};
+pub use types::{
+    DownloadInfo, DownloadRecord, Kind, MediaSpec, NewDownload, RequestHeaders, Status,
+};

@@ -17,7 +17,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-oxyd-core = { workspace = true }
+oxyd-core = { workspace = true, features = ["torrent"] }
 oxyd-protocol = { workspace = true, features = ["server"] }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-single-instance = "2"

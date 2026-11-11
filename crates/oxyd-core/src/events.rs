@@ -42,6 +42,35 @@ pub enum Event {
     Failed {
         download: Box<DownloadInfo>,
     },
+    /// A queue was added, changed or removed: the complete list.
+    Queues {
+        queues: Vec<crate::queue::Queue>,
+    },
+    /// A tool job (convert, shrink, ZIP) started, moved on or ended.
+    Tool {
+        job: JobStatus,
+    },
     /// Nothing is queued or running any more after at least one download ran.
     QueueFinished,
+}
+
+/// State of a tool job, see [`Manager::run_tool`](crate::Manager::run_tool).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobStatus {
+    pub id: String,
+    /// `convert`, `shrink` or `zip`.
+    pub kind: &'static str,
+    /// The file being worked on.
+    pub name: String,
+    /// `waiting`, `running`, `done`, `failed` or `cancelled`.
+    pub state: &'static str,
+    /// 0.0..=1.0 of the current file.
+    pub progress: f32,
+    /// Files of the job that are finished, and how many it has.
+    pub done: u32,
+    pub total: u32,
+    /// The file the job wrote last.
+    pub output: Option<std::path::PathBuf>,
+    pub error: Option<String>,
 }

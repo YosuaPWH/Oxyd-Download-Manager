@@ -25,8 +25,21 @@ expired.
 - **Videos from web pages**: hover a video on YouTube, Instagram, Facebook, TikTok, X and the
   other sites yt-dlp knows and pick a quality, or just the MP3; video and audio download in
   parallel and are merged without re-encoding
-- **Small**: the Windows installer is about 5 MB and the app uses about 21 MB in the tray
-- **Light and dark** themes that follow your system, in English and Indonesian
+- **Small**: the Linux release binary is about 28 MB with BitTorrent built in and compresses
+  to about 8 MB, so the installers stay far below 50 MB. (Before torrents were added the
+  Windows installer was about 5 MB and the app used about 21 MB in the tray; the BitTorrent
+  session only starts with the first torrent, but those two figures were not measured again.)
+- **Torrents and FTP**: magnet links, `.torrent` files and `ftp://` links are downloads like
+  any other
+- **Named queues**, each with its own concurrency, speed limit and schedule
+- **Site grabber**: list every file a page links to and pick what to download
+- **Tools** for finished files: convert, make smaller, ZIP
+- **Progress windows** and an always-on-top **mini window** that takes dropped links
+- **Batch downloads**: paste many links or write `file[001-100].zip`; drag links onto the
+  window
+- **Work on many downloads at once**: multi-select, sortable columns, one lane per connection
+- **Light and dark** themes that follow your system, six accent colours, in English and
+  Indonesian
 
 ## Contents
 
@@ -52,11 +65,16 @@ parts that talk to the operating system differ.
 
 ## Design
 
-Oxyd is a single window built like a monitoring screen: neutral surfaces, colour only on what
-is moving, and every figure (sizes, speeds, times) in JetBrains Mono so the digits stack while
-they change; the text is Public Sans. Both fonts ship with the app, so it works offline. It
-is built with Svelte 5 inside a Tauri 2 shell, so it starts fast and looks the same on
-Windows and Linux.
+Oxyd is a single window: a sidebar for where you are, a calm sheet for the data, and colour
+only on what is moving. Every figure (sizes, speeds, times) is set in JetBrains Mono so the
+digits stack while they change; the text is Public Sans. Both fonts ship with the app, so it
+works offline. It is built with Svelte 5 inside a Tauri 2 shell, so it starts fast and looks
+the same on Windows and Linux.
+
+The layout follows the direction of [Prism](https://github.com/YosuaPWH/prism-download-manager)
+(sidebar, action toolbar, bottom pane with one lane per connection) while staying a single
+light window. The feature analysis and the mockups it was built from are in
+[docs/design/redesign-board.html](docs/design/redesign-board.html).
 
 | Dark | Light |
 |---|---|
@@ -64,21 +82,30 @@ Windows and Linux.
 
 **Layout**
 
-- **Rail**: the Oxyd mark (a ring of eight segments, one lit) with *Downloads* and *Settings*.
-  The selected place is marked by a 1px accent line, the same mark every selection uses.
-- **Title row**: one line that says what matters now ("2 downloading at 14.2 MB/s · Ubuntu
-  finishes in 2m 49s · 1 failed, retrying in 0:24"), *Resume all*, *Pause all* and *Add URL*.
-- **Tabs and filters**: *All*, *Running*, *Paused*, *Failed*, *Finished* with counts, a search
-  box and a file type filter (Video, Music, Documents, Archives, Programs, Other).
-- **Download list**: name with its type and site, size, progress, speed, time left and status.
-  Only running downloads are drawn in the accent; a failed one carries a red tag with its retry
-  countdown. Each row has a menu button as well as the right-click menu.
-- **Detail card**: the selected download's progress in large figures, its actions, the segment
-  map (one cell per connection, showing which part of the file each has fetched), the speed
-  over the last minute, where it is saved, a per-download speed limit and the link refresh
-  controls. On narrow windows the card moves under the list.
-- **Settings**: its own page in five sections; every change saves itself.
-- **Status bar**: running downloads, the combined speed and the speed limit.
+- **Sidebar**: the Oxyd mark (a ring of eight segments, one lit), *All downloads*,
+  *Unfinished* and *Finished*, the seven file types with their counts, and the total speed
+  with its last minute as a sparkline. On narrow windows it shrinks to icons.
+- **Toolbar**: *Add URL*, *Batch*, resume / pause / remove for the selected downloads, resume
+  all, pause all, clear finished, the search box and the switch for the bottom pane.
+- **Title row**: what you are looking at, one line that says what matters now ("2 downloading
+  at 14.2 MB/s · Ubuntu finishes in 2m 49s · 1 failed, retrying in 0:24") and the status
+  filter (*All*, *Running*, *Paused*, *Failed*, *Finished*) with counts.
+- **Download list**: file type, name and site, size, status, progress, speed, time left and
+  when it was added. Click a column header to sort by it; a third click returns to queue
+  order. Select several rows with Ctrl or Shift click, the checkboxes or Ctrl+A and act on
+  all of them at once. Rows are 44px, or 32px in *compact* density.
+- **Bottom pane** (Ctrl+I): *Connections* shows the file map and one lane per connection
+  with its byte range and what it still has to fetch, each in its own colour from copper to
+  patina; *Speed* shows the last minute with the current, average and peak speed; *Info*
+  holds the path, the URL, a per-download speed limit and the link refresh controls.
+- **Status bar**: the combined speed, running downloads, the schedule and the speed limit,
+  which can be switched on and off right there.
+- **Settings**: its own page in seven sections; every change saves itself.
+
+**Appearance.** *Settings → Appearance* offers six accent colours (patina, copper, azure,
+violet, rose, graphite), comfortable or compact rows, and a switch for the translucent
+sidebar for weak GPUs and remote desktops. Status colours (finished, paused, failed) never
+follow the accent.
 
 **Theme and language.** *Settings → General* offers *Follow system*, *Light* and *Dark*, and
 English or Indonesian. Error messages are translated too, with the technical detail
@@ -90,9 +117,14 @@ underneath.
 |---|---|
 | ↑ ↓ Home End | Move the selection |
 | Enter / Space | Pause a running download, resume a stopped one, open a finished file |
-| Delete | Remove the selected download |
+| Ctrl / Shift + click, Shift + ↑ ↓ | Select several downloads |
+| Ctrl+A | Select every download in the list |
+| Delete | Remove the selected downloads |
 | Menu key / right click | Context menu |
 | Ctrl+N | New download |
+| Ctrl+B | Batch download |
+| Ctrl+V | Download the links on the clipboard (outside a text field) |
+| Ctrl+I | Show or hide the bottom pane |
 | Ctrl+F | Search by name or URL (Esc clears) |
 | Ctrl+, | Settings |
 | Esc, Tab | Close the top dialog; focus stays inside it |
@@ -118,6 +150,20 @@ you can rename automatically or overwrite.
 <p align="center">
   <img src="docs/images/add-url-dark.png" alt="New download dialog recognising an unfinished download" width="800">
 </p>
+
+### Many downloads at once
+
+**Batch** (Ctrl+B) takes any number of links, one per line. A range in square brackets is
+expanded: `photo-[001-120].jpg` becomes 120 links and keeps its leading zeros, `[a-c]` runs
+through letters and `[0-100:10]` counts in steps. Every resulting link can be unticked before
+it is added, and repeated links are skipped. A batch holds at most 1000 links.
+
+<p align="center">
+  <img src="docs/images/batch-dark.png" alt="Batch dialog expanding two patterns into 123 links" width="800">
+</p>
+
+You can also **drag links** from the browser onto the window, or press **Ctrl+V** with links
+on the clipboard: one link opens *New download*, several open the batch.
 
 ### Continuing downloads, even with a new link
 
@@ -169,6 +215,59 @@ on request and accepts your own yt-dlp or ffmpeg.
 
 Download only what you have the right to: many sites' terms forbid downloading their videos.
 
+### Queues
+
+The sidebar lists the queues. Every download belongs to one; a queue runs its own number of
+downloads at once, can cap their combined speed and has its own schedule, so a *Night* queue
+can run two downloads at 2 MB/s from 23:00 while the main queue stays as it is. **+** makes a
+queue, the pencil edits it, and *Move to queue* in the right-click menu moves the selected
+downloads. Deleting a queue moves its downloads back to the main queue.
+
+### Torrents and FTP
+
+Paste a **magnet link** into *Add URL*, drop it on the window, or open a `.torrent` file with
+the magnet button of the dialog. A torrent is one row of the list: it can wait in a queue, be
+paused and resumed, and data that is already on disk is checked and kept. Oxyd stops when a
+torrent is complete; it uploads to other peers while it downloads, as the protocol expects,
+but does not keep seeding. All files of a torrent are downloaded.
+
+`ftp://` links work through *Add URL* and the batch dialog: plain FTP in passive mode over one
+connection, resumed from the last byte with `REST`. FTPS is not supported.
+
+BitTorrent needs IPv6 sockets to exist on the system (they do by default on Windows and
+Linux); where they are switched off, a torrent fails with a message that says so.
+
+### Grabbing the links of a page
+
+**Grab links from a page** (the globe in the toolbar, Ctrl+G) reads a page and lists every
+link to a video, music file, image, document, archive or program, grouped by type. It can
+follow the pages the start page links to, one or two levels deep, staying on the same site
+by default, and reads at most 40 pages. The page is sent as the referer when the files are
+downloaded. Pages are read as plain HTML, so links a script adds after loading are not seen.
+
+### Tools for finished files
+
+Right-click one or more finished downloads and choose **Tools**:
+
+- **Convert** to MP4, MKV (no re-encoding), WebM, MP3 or M4A;
+- **Make smaller**: re-encode a video so it fits a size in megabytes;
+- **ZIP** the selected files and folders into one archive.
+
+A job shows its progress at the bottom right and can be cancelled; the original file is never
+replaced. The media tools use the ffmpeg Oxyd already manages for videos, one job at a time.
+
+### Progress and mini windows
+
+Every download that starts right away opens a small **progress window** with its speed, time
+left, segment map and *Pause* / *Cancel* (*Open* when it is done). At most six are open at
+once, and *Settings → General* switches them off; *Show progress window* in the right-click
+menu opens one by hand. A window that could not be opened is tried again every two seconds
+while its download runs, and one you closed stays closed.
+
+The **mini window** (toolbar) stays on top of other windows: total speed, the download that
+finishes next, and a place to drop links, which start at once. Each of these windows is a web
+view of its own and costs memory while it is open.
+
 ### Queue, limits and schedule
 
 - Run up to 3 downloads at once by default (1 to 20); the rest wait in the queue, and you can
@@ -178,8 +277,13 @@ Download only what you have the right to: many sites' terms forbid downloading t
 - Failed downloads that were only unlucky (network down, server busy) retry by themselves,
   waiting 30 seconds and doubling up to 10 minutes, and show a countdown. Expired links and
   missing files do not retry.
-- *Settings → Schedule* starts the queue and pauses everything at chosen times, and can put
-  the computer to sleep or shut it down when the queue finishes.
+- The speed limit chip in the status bar switches the global limit on and off and offers
+  common values, without opening Settings.
+- *Settings → Schedule* starts the queue and pauses everything at chosen times, on the days
+  of the week you pick (none picked means every day), and can put the computer to sleep or
+  shut it down when the queue finishes.
+- A finished download shows *Open* and *Open folder* at the bottom right and plays a short
+  tone, which *Settings → General* can turn off.
 
 ### Settings
 
@@ -202,6 +306,8 @@ A Manifest V3 extension for Chrome, Edge and other Chromium browsers sends downl
 The extension only talks to the app through a small native helper (`oxyd-bridge`), and no
 network port is opened. Firefox is not supported yet.
 
+- Cookies and login headers are only sent to the site they came from: after a redirect to
+  another site (a CDN) they are left out.
 - **Captures** downloads by file type, with a minimum size of 1 MB by default; blob and data
   URLs are always left to the browser. Cookies (including HttpOnly), referer and user agent
   are passed along so sites that need a login still work.
@@ -210,8 +316,11 @@ network port is opened. Firefox is not supported yet.
   within 3 seconds.
 - **Right-click a link** and choose *Download with Oxyd*; press **Alt+Shift+O** to let the
   next download stay in the browser.
-- **Download button on videos** (see [Videos from web pages](#videos-from-web-pages)). It can
-  be switched off in the popup. To list the streams of pages yt-dlp does not know, the
+- **Download button on videos** (see [Videos from web pages](#videos-from-web-pages)). The
+  **×** next to it hides the button for that video or post until the page is loaded again;
+  other videos keep theirs, and *Download video with Oxyd* in the right-click menu still
+  works for a hidden one. In fullscreen the button and its menu are not shown at all, also
+  for a player inside a frame. It can be switched off in the popup. To list the streams of pages yt-dlp does not know, the
   extension notes which responses a tab received were video, audio or HLS/DASH manifests
   (`webRequest`, read-only); that list stays in the browser session.
 - The popup shows whether the app is reachable and lets you switch capturing off, change the
