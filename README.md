@@ -25,7 +25,10 @@ expired.
 - **Videos from web pages**: hover a video on YouTube, Instagram, Facebook, TikTok, X and the
   other sites yt-dlp knows and pick a quality, or just the MP3; video and audio download in
   parallel and are merged without re-encoding
-- **Small**: the Windows installer is about 5 MB and the app uses about 21 MB in the tray
+- **Small**: the Linux release binary is about 28 MB with BitTorrent built in and compresses
+  to about 8 MB, so the installers stay far below 50 MB. (Before torrents were added the
+  Windows installer was about 5 MB and the app used about 21 MB in the tray; the BitTorrent
+  session only starts with the first torrent, but those two figures were not measured again.)
 - **Torrents and FTP**: magnet links, `.torrent` files and `ftp://` links are downloads like
   any other
 - **Named queues**, each with its own concurrency, speed limit and schedule
