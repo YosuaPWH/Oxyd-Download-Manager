@@ -33,6 +33,8 @@ pub struct Shared {
     pub active_connections: AtomicU32,
     pub conn_limit: AtomicU32,
     pub limiter: Limiter,
+    /// Limit shared by every download of the same queue.
+    pub group: Option<Arc<Limiter>>,
     /// Connections the user asked for; `conn_limit` drops below it while throttled.
     max_conn: u32,
     created: Instant,
@@ -49,11 +51,22 @@ impl Shared {
             active_connections: AtomicU32::new(0),
             conn_limit: AtomicU32::new(connections.max(1)),
             limiter: Limiter::new(speed_limit),
+            group: None,
             max_conn: connections.max(1),
             created: Instant::now(),
             last_throttle_ms: AtomicU64::new(0),
             rates: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Share `group` with the other downloads of the queue.
+    pub fn with_group(mut self, group: Option<Arc<Limiter>>) -> Self {
+        self.group = group;
+        self
+    }
+
+    fn group_limited(&self) -> bool {
+        self.group.as_ref().is_some_and(|g| g.rate().is_some())
     }
 
     fn rates(&self) -> std::sync::MutexGuard<'_, HashMap<usize, (Instant, u64)>> {
@@ -149,7 +162,9 @@ pub(crate) struct Job {
 impl Job {
     /// Whether any speed limit applies (skips the limiter on the hot path otherwise).
     fn limited(&self) -> bool {
-        self.global.rate().is_some() || self.shared.limiter.rate().is_some()
+        self.global.rate().is_some()
+            || self.shared.limiter.rate().is_some()
+            || self.shared.group_limited()
     }
 
     /// The source holding part file offset `pos`.
@@ -316,6 +331,9 @@ async fn fetch(job: &Job, idx: usize, from: u64, end: u64) -> Result<(), Attempt
                 _ = job.cancel.cancelled() => {}
                 _ = async {
                     job.global.acquire(n).await;
+                    if let Some(group) = &job.shared.group {
+                        group.acquire(n).await;
+                    }
                     job.shared.limiter.acquire(n).await;
                 } => {}
             }

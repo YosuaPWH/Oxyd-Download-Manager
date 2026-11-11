@@ -54,6 +54,48 @@ impl Status {
     }
 }
 
+/// How a download is fetched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    /// HTTP(S), segmented when the server allows it.
+    #[default]
+    Http,
+    /// Plain FTP over one connection, resumed with `REST`.
+    Ftp,
+    /// A magnet link or `.torrent` file; `url` is the link or the file's path.
+    Torrent,
+}
+
+impl Kind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Kind::Http => "http",
+            Kind::Ftp => "ftp",
+            Kind::Torrent => "torrent",
+        }
+    }
+
+    /// The kind of a new download from its address. `torrent` marks a `.torrent` file.
+    pub fn of(url: &str, torrent: bool) -> crate::Result<Self> {
+        if torrent || url.starts_with("magnet:") {
+            return Ok(Kind::Torrent);
+        }
+        match crate::probe::check_url(url)?.scheme() {
+            "ftp" => Ok(Kind::Ftp),
+            _ => Ok(Kind::Http),
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "ftp" => Kind::Ftp,
+            "torrent" => Kind::Torrent,
+            _ => Kind::Http,
+        }
+    }
+}
+
 /// Extra request headers forwarded from the browser.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -127,6 +169,9 @@ pub struct DownloadRecord {
     /// Set for a video taken from a web page (YouTube, Instagram, ...): `url` is then the
     /// page, and the streams are found again with yt-dlp each time the download starts.
     pub media: Option<MediaSpec>,
+    /// Queue the download waits in (see [`crate::queue`]).
+    pub queue: String,
+    pub kind: Kind,
 }
 
 /// A video or its audio fetched from a web page.
@@ -186,6 +231,10 @@ pub struct NewDownload {
     pub on_conflict: Option<crate::settings::DuplicatePolicy>,
     /// A video from the web page at `url` (see [`DownloadRecord::media`]).
     pub media: Option<MediaSpec>,
+    /// Queue to add it to; the main queue when missing or unknown.
+    pub queue: Option<String>,
+    /// `url` is a `.torrent` file (a path or an http link) whose content is wanted.
+    pub torrent: bool,
 }
 
 pub(crate) fn now() -> i64 {

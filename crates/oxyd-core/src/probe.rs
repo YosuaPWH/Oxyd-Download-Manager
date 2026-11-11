@@ -53,7 +53,7 @@ pub fn build_client(proxy: Option<&str>) -> Result<Client> {
 pub(crate) fn check_url(url: &str) -> Result<reqwest::Url> {
     let u = reqwest::Url::parse(url).map_err(|e| Error::InvalidUrl(format!("{url}: {e}")))?;
     match u.scheme() {
-        "http" | "https" => Ok(u),
+        "http" | "https" | "ftp" => Ok(u),
         s => Err(Error::InvalidUrl(format!("unsupported scheme {s}"))),
     }
 }

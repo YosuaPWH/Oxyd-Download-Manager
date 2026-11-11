@@ -123,7 +123,15 @@ async fn serve_blob(Path(name): Path<String>, headers: HeaderMap) -> Response {
     let size = data.len() as u64;
     let b = Response::builder()
         .header(header::ACCEPT_RANGES, "bytes")
-        .header(header::CONTENT_TYPE, "application/octet-stream");
+        .header(
+            header::CONTENT_TYPE,
+            // Pages for the link grabber.
+            if name.ends_with(".html") {
+                "text/html; charset=utf-8"
+            } else {
+                "application/octet-stream"
+            },
+        );
     match parse_range(&headers, size) {
         Some((s, e)) => b
             .status(StatusCode::PARTIAL_CONTENT)

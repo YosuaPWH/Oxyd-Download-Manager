@@ -1,6 +1,8 @@
 //! Download manager: queue, task lifecycle, persistence and progress events.
 
+mod ftp;
 mod media;
+mod tools;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -19,10 +21,11 @@ use crate::events::Event;
 use crate::filename::{self, part_path, Category};
 use crate::limiter::Limiter;
 use crate::probe::{self, ProbeInfo};
+use crate::queue::{Queue, MAIN_QUEUE};
 use crate::segment::{self, Segment};
 use crate::settings::{DuplicatePolicy, Settings};
 use crate::store::Store;
-use crate::types::{now, DownloadInfo, DownloadRecord, NewDownload, RequestHeaders, Status};
+use crate::types::{now, DownloadInfo, DownloadRecord, Kind, NewDownload, RequestHeaders, Status};
 use crate::writer::{self, SharedFile};
 
 const TICK: Duration = Duration::from_millis(250);
@@ -60,6 +63,8 @@ impl Stop {
 }
 
 struct Handle {
+    /// Queue the download runs in, for the per-queue concurrency.
+    queue: String,
     cancel: CancellationToken,
     stop: Arc<AtomicU8>,
     shared: Arc<Shared>,
@@ -103,6 +108,14 @@ pub struct Manager {
     retries: Mutex<HashMap<String, AutoRetry>>,
     retry_base_ms: AtomicU64,
     shutting_down: AtomicBool,
+    /// The queues the user made (the main queue is built from the settings).
+    queues: RwLock<Vec<Queue>>,
+    /// One shared limiter per queue, created when its first download starts.
+    queue_limiters: Mutex<HashMap<String, Arc<Limiter>>>,
+    /// Running tool jobs (convert, shrink, ZIP), to cancel them.
+    tool_jobs: Mutex<HashMap<String, CancellationToken>>,
+    /// One encoder at a time: ffmpeg already uses every core.
+    tool_slot: Arc<tokio::sync::Semaphore>,
     /// yt-dlp, ffmpeg and deno for videos from web pages.
     tools: crate::media::Tools,
     /// Pages yt-dlp read recently.
@@ -133,7 +146,12 @@ impl Manager {
         let (events, _) = broadcast::channel(1024);
         let global = Arc::new(Limiter::new(settings.speed_limit));
         let rt = tokio::runtime::Handle::current();
+        let queues = store.list_queues()?;
         let mgr = Arc::new_cyclic(|me| Manager {
+            queues: RwLock::new(queues),
+            queue_limiters: Mutex::new(HashMap::new()),
+            tool_jobs: Mutex::new(HashMap::new()),
+            tool_slot: Arc::new(tokio::sync::Semaphore::new(1)),
             store,
             settings: RwLock::new(settings),
             client: RwLock::new(client),
@@ -225,7 +243,19 @@ impl Manager {
 
     /// Probe a URL (used by the "New download" dialog).
     pub async fn probe(&self, url: &str, headers: &RequestHeaders) -> Result<ProbeInfo> {
+        if url.starts_with("ftp://") {
+            return crate::ftp::probe(url).await;
+        }
         probe::probe(&self.client(), url, headers).await
+    }
+
+    /// Collect the file links of a web page (see [`crate::grabber`]).
+    pub async fn grab(
+        &self,
+        url: &str,
+        options: crate::grabber::GrabOptions,
+    ) -> Result<crate::grabber::GrabResult> {
+        crate::grabber::grab(&self.client(), url, options).await
     }
 
     fn info(&self, record: DownloadRecord) -> DownloadInfo {
@@ -324,7 +354,11 @@ impl Manager {
 
     /// Add a download. It is queued when `new.start`, otherwise added paused.
     pub fn add(&self, new: NewDownload) -> Result<DownloadInfo> {
-        probe::check_url(&new.url)?;
+        let kind = Kind::of(&new.url, new.torrent)?;
+        let queue = new
+            .queue
+            .filter(|q| self.queues().iter().any(|x| &x.id == q))
+            .unwrap_or_else(|| MAIN_QUEUE.to_string());
         let s = self.settings();
         let id = uuid::Uuid::new_v4().to_string();
         let filename = new
@@ -385,6 +419,8 @@ impl Manager {
             updated_at: ts,
             completed_at: None,
             media: new.media,
+            queue,
+            kind,
         };
         self.store.insert(&rec)?;
         let info = self.info(rec);
@@ -742,6 +778,160 @@ impl Manager {
     }
 
     /// Start queued downloads while there is room.
+    /// Every queue, the main one first.
+    pub fn queues(&self) -> Vec<Queue> {
+        let s = self.settings();
+        let mut all = vec![Queue {
+            id: MAIN_QUEUE.into(),
+            name: String::new(),
+            max_active: s.max_active,
+            speed_limit: None,
+            schedule: s.schedule,
+        }];
+        all.extend(
+            self.queues
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .cloned(),
+        );
+        all
+    }
+
+    /// The limiter shared by the downloads of `queue`; the main queue has none (the global
+    /// limit already covers it).
+    fn queue_limiter(&self, queues: &[Queue], queue: &str) -> Option<Arc<Limiter>> {
+        if queue == MAIN_QUEUE {
+            return None;
+        }
+        let rate = queues.iter().find(|q| q.id == queue)?.speed_limit;
+        let mut map = self
+            .queue_limiters
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let limiter = map
+            .entry(queue.to_string())
+            .or_insert_with(|| Arc::new(Limiter::new(rate)));
+        limiter.set_rate(rate);
+        Some(limiter.clone())
+    }
+
+    fn reload_queues(&self) -> Result<()> {
+        let list = self.store.list_queues()?;
+        *self.queues.write().unwrap_or_else(|e| e.into_inner()) = list;
+        let queues = self.queues();
+        // Running downloads feel a changed limit at once.
+        for q in &queues {
+            self.queue_limiter(&queues, &q.id);
+        }
+        self.emit(Event::Queues { queues });
+        self.schedule();
+        Ok(())
+    }
+
+    /// Create a queue (empty `id`) or change one. Changing the main queue changes the
+    /// matching settings; its name and speed limit are ignored.
+    pub fn save_queue(&self, queue: Queue) -> Result<Queue> {
+        let mut q = queue.normalized();
+        if q.is_main() {
+            let mut s = self.settings();
+            s.max_active = q.max_active;
+            s.schedule = q.schedule;
+            self.set_settings(s)?;
+            let queues = self.queues();
+            self.emit(Event::Queues {
+                queues: queues.clone(),
+            });
+            return Ok(queues.into_iter().next().unwrap_or_default());
+        }
+        if q.name.is_empty() {
+            return Err(Error::InvalidState("a queue needs a name".into()));
+        }
+        if q.id.is_empty() {
+            q.id = uuid::Uuid::new_v4().to_string();
+        } else if !self.queues().iter().any(|x| x.id == q.id) {
+            return Err(Error::NotFound(q.id));
+        }
+        self.store.save_queue(&q)?;
+        self.reload_queues()?;
+        Ok(q)
+    }
+
+    /// Delete a queue; its downloads move to the main queue and keep their state.
+    pub fn delete_queue(&self, id: &str) -> Result<()> {
+        if id == MAIN_QUEUE {
+            return Err(Error::InvalidState(
+                "the main queue cannot be deleted".into(),
+            ));
+        }
+        let moved: Vec<String> = self
+            .store
+            .list()?
+            .into_iter()
+            .filter(|r| r.queue == id)
+            .map(|r| r.id)
+            .collect();
+        self.store.delete_queue(id)?;
+        for h in self.tasks().values_mut().filter(|h| h.queue == id) {
+            h.queue = MAIN_QUEUE.into();
+        }
+        self.queue_limiters
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(id);
+        for id in &moved {
+            self.emit(Event::Updated {
+                download: Box::new(self.get(id)?),
+            });
+        }
+        self.reload_queues()
+    }
+
+    /// Move downloads to another queue. A running download keeps running and counts
+    /// against its new queue from now on.
+    pub fn move_to_queue(&self, ids: &[String], queue: &str) -> Result<()> {
+        if !self.queues().iter().any(|q| q.id == queue) {
+            return Err(Error::NotFound(queue.to_string()));
+        }
+        for id in ids {
+            self.store.set_queue(id, queue)?;
+            if let Some(h) = self.tasks().get_mut(id) {
+                h.queue = queue.to_string();
+            }
+            self.emit(Event::Updated {
+                download: Box::new(self.get(id)?),
+            });
+        }
+        self.schedule();
+        Ok(())
+    }
+
+    /// Pause what runs or waits in `queue` and return the ids, for [`Manager::start_queue`].
+    pub fn pause_queue(&self, queue: &str) -> Result<Vec<String>> {
+        let mut ids = Vec::new();
+        for r in
+            self.store
+                .list_by_status(&[Status::Queued, Status::Probing, Status::Downloading])?
+        {
+            if r.queue == queue {
+                self.pause(&r.id)?;
+                ids.push(r.id);
+            }
+        }
+        Ok(ids)
+    }
+
+    /// Start the downloads of `queue` that a schedule paused (`paused`) or that were added
+    /// for later and never ran. Downloads the user paused by hand stay paused.
+    pub fn start_queue(&self, queue: &str, paused: &[String]) -> Result<()> {
+        for r in self.store.list_by_status(&[Status::Paused])? {
+            if r.queue == queue && (r.downloaded == 0 || paused.contains(&r.id)) {
+                self.start(&r.id)?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn schedule(&self) {
         self.schedule_after(false);
     }
@@ -756,7 +946,15 @@ impl Manager {
         let Some(me) = self.me.upgrade() else {
             return;
         };
-        let max = self.settings().max_active as usize;
+        let queues = self.queues();
+        // A download whose queue is gone runs in the main queue.
+        let known = |id: &str| {
+            if queues.iter().any(|q| q.id == id) {
+                id.to_string()
+            } else {
+                MAIN_QUEUE.to_string()
+            }
+        };
         let queued: Vec<DownloadRecord> = match self.store.list_by_status(&[Status::Queued]) {
             Ok(l) => l,
             Err(e) => {
@@ -765,15 +963,28 @@ impl Manager {
             }
         };
         let mut tasks = self.tasks();
+        let mut running: HashMap<String, usize> = HashMap::new();
+        for h in tasks.values() {
+            *running.entry(known(&h.queue)).or_default() += 1;
+        }
         for rec in queued.iter() {
-            if tasks.len() >= max {
-                break;
-            }
             if tasks.contains_key(&rec.id) {
                 continue;
             }
+            let queue = known(&rec.queue);
+            let cap = queues
+                .iter()
+                .find(|q| q.id == queue)
+                .map_or(1, |q| q.max_active as usize);
+            let busy = running.entry(queue.clone()).or_default();
+            if *busy >= cap {
+                continue;
+            }
+            *busy += 1;
             let segments = self.store.load_segments(&rec.id).unwrap_or_default();
-            let shared = Arc::new(Shared::new(segments, rec.connections, rec.speed_limit));
+            let group = self.queue_limiter(&queues, &queue);
+            let shared =
+                Arc::new(Shared::new(segments, rec.connections, rec.speed_limit).with_group(group));
             let cancel = CancellationToken::new();
             let stop = Arc::new(AtomicU8::new(0));
             let speed = Arc::new(AtomicU64::new(0));
@@ -798,6 +1009,7 @@ impl Manager {
             tasks.insert(
                 key,
                 Handle {
+                    queue,
                     cancel,
                     stop,
                     shared,
@@ -916,6 +1128,9 @@ impl Manager {
     async fn run_inner(&self, rec: &mut DownloadRecord, ctx: &TaskCtx) -> Result<bool> {
         if rec.media.is_some() {
             return self.run_media(rec, ctx).await;
+        }
+        if rec.kind == Kind::Ftp {
+            return self.run_ftp(rec, ctx).await;
         }
         rec.status = Status::Probing;
         rec.error = None;
@@ -1193,7 +1408,7 @@ fn differs(a: &Option<String>, b: &Option<String>) -> bool {
     matches!((a, b), (Some(a), Some(b)) if a != b)
 }
 
-fn file_name(p: &Path) -> String {
+pub(super) fn file_name(p: &Path) -> String {
     p.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default()

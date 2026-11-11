@@ -6,6 +6,7 @@
 //! part file, and ffmpeg merges them without re-encoding; HLS and fragmented DASH streams are
 //! left to yt-dlp. The tools are downloaded the first time a video needs them.
 
+pub mod convert;
 pub mod ffmpeg;
 pub mod info;
 mod process;

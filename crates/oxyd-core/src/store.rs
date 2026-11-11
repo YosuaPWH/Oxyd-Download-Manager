@@ -7,11 +7,12 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::error::Result;
 use crate::filename::Category;
+use crate::queue::Queue;
 use crate::segment::{Segment, UNKNOWN_END};
 use crate::settings::Settings;
 use crate::types::{now, DownloadRecord, MediaSpec, RequestHeaders, Status};
 
-const SCHEMA_VERSION: i32 = 4;
+const SCHEMA_VERSION: i32 = 5;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE downloads (
@@ -63,6 +64,20 @@ const MIGRATION_3: &str = "CREATE INDEX IF NOT EXISTS idx_downloads_status ON do
 /// Videos from web pages (`DownloadRecord::media`), as JSON.
 const MIGRATION_4: &str = "ALTER TABLE downloads ADD COLUMN media_json TEXT;";
 
+/// Named queues, and what kind of download a row is (http, ftp or torrent).
+const MIGRATION_5: &str = r#"
+ALTER TABLE downloads ADD COLUMN queue_id TEXT NOT NULL DEFAULT 'main';
+ALTER TABLE downloads ADD COLUMN kind TEXT NOT NULL DEFAULT 'http';
+CREATE TABLE queues (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    max_active    INTEGER NOT NULL,
+    speed_limit   INTEGER,
+    schedule_json TEXT NOT NULL DEFAULT '{}',
+    position      INTEGER NOT NULL
+);
+"#;
+
 #[derive(Debug)]
 pub struct Store {
     conn: Mutex<Connection>,
@@ -71,7 +86,7 @@ pub struct Store {
 const COLUMNS: &str = "id, url, final_url, filename, dir, save_path, total_size, downloaded, \
     status, resumable, etag, last_modified, mime, headers_json, category, connections, \
     speed_limit, checksum, error, position, created_at, updated_at, completed_at, error_code, \
-    media_json";
+    media_json, queue_id, kind";
 
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
@@ -119,6 +134,9 @@ impl Store {
         if version < 4 {
             conn.execute_batch(MIGRATION_4)?;
         }
+        if version < 5 {
+            conn.execute_batch(MIGRATION_5)?;
+        }
         if version < SCHEMA_VERSION {
             conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
@@ -136,7 +154,7 @@ impl Store {
         c.execute(
             &format!(
                 "INSERT INTO downloads ({COLUMNS}) VALUES \
-                 (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)"
+                 (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27)"
             ),
             params![
                 r.id,
@@ -164,6 +182,8 @@ impl Store {
                 r.completed_at,
                 r.error_code,
                 encode_media(&r.media)?,
+                r.queue,
+                r.kind.as_str(),
             ],
         )?;
         Ok(())
@@ -177,7 +197,7 @@ impl Store {
              total_size=?7, downloaded=?8, status=?9, resumable=?10, etag=?11, last_modified=?12, \
              mime=?13, headers_json=?14, category=?15, connections=?16, speed_limit=?17, \
              checksum=?18, error=?19, position=?20, updated_at=?21, completed_at=?22, \
-             error_code=?23, media_json=?24 WHERE id=?1",
+             error_code=?23, media_json=?24, queue_id=?25 WHERE id=?1",
             params![
                 r.id,
                 r.url,
@@ -203,6 +223,7 @@ impl Store {
                 r.completed_at,
                 r.error_code,
                 encode_media(&r.media)?,
+                r.queue,
             ],
         )?;
         Ok(())
@@ -292,6 +313,63 @@ impl Store {
         )?;
         let rows = st.query_map([except], |r| Ok(PathBuf::from(r.get::<_, String>(0)?)))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn set_queue(&self, id: &str, queue: &str) -> Result<()> {
+        self.conn().execute(
+            "UPDATE downloads SET queue_id=?2, updated_at=?3 WHERE id=?1",
+            params![id, queue, now()],
+        )?;
+        Ok(())
+    }
+
+    /// The queues the user made, in the order they were created (the main queue is not
+    /// stored: it lives in the settings).
+    pub fn list_queues(&self) -> Result<Vec<Queue>> {
+        let c = self.conn();
+        let mut st = c.prepare(
+            "SELECT id, name, max_active, speed_limit, schedule_json FROM queues ORDER BY position",
+        )?;
+        let rows = st.query_map([], |r| {
+            Ok(Queue {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                max_active: r.get(2)?,
+                speed_limit: r.get::<_, Option<i64>>(3)?.map(|v| v as u64),
+                schedule: serde_json::from_str(&r.get::<_, String>(4)?).unwrap_or_default(),
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn save_queue(&self, q: &Queue) -> Result<()> {
+        let schedule = serde_json::to_string(&q.schedule).map_err(std::io::Error::other)?;
+        self.conn().execute(
+            "INSERT INTO queues (id, name, max_active, speed_limit, schedule_json, position) \
+             VALUES (?1, ?2, ?3, ?4, ?5, (SELECT COALESCE(MAX(position), 0) + 1 FROM queues)) \
+             ON CONFLICT(id) DO UPDATE SET name=?2, max_active=?3, speed_limit=?4, schedule_json=?5",
+            params![
+                q.id,
+                q.name,
+                q.max_active,
+                q.speed_limit.map(|v| v as i64),
+                schedule
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Delete a queue; its downloads go back to the main queue.
+    pub fn delete_queue(&self, id: &str) -> Result<()> {
+        let mut c = self.conn();
+        let tx = c.transaction()?;
+        tx.execute(
+            "UPDATE downloads SET queue_id=?2 WHERE queue_id=?1",
+            params![id, crate::queue::MAIN_QUEUE],
+        )?;
+        tx.execute("DELETE FROM queues WHERE id=?1", [id])?;
+        tx.commit()?;
+        Ok(())
     }
 
     pub fn delete(&self, id: &str) -> Result<()> {
@@ -476,6 +554,8 @@ fn row_to_record(r: &Row<'_>) -> rusqlite::Result<DownloadRecord> {
         media: r
             .get::<_, Option<String>>(24)?
             .and_then(|m| serde_json::from_str(&m).ok()),
+        queue: r.get(25)?,
+        kind: crate::types::Kind::parse(&r.get::<_, String>(26)?),
     })
 }
 
@@ -513,6 +593,8 @@ mod tests {
             updated_at: 1,
             completed_at: None,
             media: None,
+            queue: "main".into(),
+            kind: crate::types::Kind::Http,
         }
     }
 
