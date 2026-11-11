@@ -3,6 +3,7 @@
   import { BATCH_LIMIT, linkName, parseBatch } from "../lib/batch";
   import { t } from "../lib/i18n.svelte";
   import { app } from "../lib/store.svelte";
+  import { MAIN_QUEUE } from "../lib/types";
   import Modal from "./Modal.svelte";
 
   let { initial = "", onclose }: { initial?: string; onclose: () => void } = $props();
@@ -14,6 +15,7 @@
   let busy = $state(false);
   let done = $state(0);
   let error = $state<string | null>(null);
+  let queue = $state(app.queue ?? MAIN_QUEUE);
 
   const SHOWN = 80;
   const batch = $derived(parseBatch(text));
@@ -37,7 +39,7 @@
     for (const url of chosen) {
       try {
         // No folder chosen: the app picks it per file, as for a single download.
-        await api.add({ url, dir: dir || null, start });
+        await api.add({ url, dir: dir || null, start, queue });
       } catch (e) {
         failed++;
         first ??= errorMessage(e);
@@ -108,6 +110,13 @@
         {#if batch.invalid}· <span class="num">{batch.invalid}</span> {t("batch.invalid")}{/if}
       {/if}
     </span>
+    {#if app.queues.length > 1}
+      <select aria-label={t("queue.label")} bind:value={queue}>
+        {#each app.queues as q (q.id)}
+          <option value={q.id}>{q.name || t("queue.main")}</option>
+        {/each}
+      </select>
+    {/if}
     <button onclick={onclose}>{t("new.cancel")}</button>
     <button onclick={() => submit(false)} disabled={busy || !chosen.length}>{t("new.later")}</button>
     <button class="primary" onclick={() => submit(true)} disabled={busy || !chosen.length}>

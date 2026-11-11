@@ -26,6 +26,12 @@ expired.
   other sites yt-dlp knows and pick a quality, or just the MP3; video and audio download in
   parallel and are merged without re-encoding
 - **Small**: the Windows installer is about 5 MB and the app uses about 21 MB in the tray
+- **Torrents and FTP**: magnet links, `.torrent` files and `ftp://` links are downloads like
+  any other
+- **Named queues**, each with its own concurrency, speed limit and schedule
+- **Site grabber**: list every file a page links to and pick what to download
+- **Tools** for finished files: convert, make smaller, ZIP
+- **Progress windows** and an always-on-top **mini window** that takes dropped links
 - **Batch downloads**: paste many links or write `file[001-100].zip`; drag links onto the
   window
 - **Work on many downloads at once**: multi-select, sortable columns, one lane per connection
@@ -206,6 +212,59 @@ on request and accepts your own yt-dlp or ffmpeg.
 
 Download only what you have the right to: many sites' terms forbid downloading their videos.
 
+### Queues
+
+The sidebar lists the queues. Every download belongs to one; a queue runs its own number of
+downloads at once, can cap their combined speed and has its own schedule, so a *Night* queue
+can run two downloads at 2 MB/s from 23:00 while the main queue stays as it is. **+** makes a
+queue, the pencil edits it, and *Move to queue* in the right-click menu moves the selected
+downloads. Deleting a queue moves its downloads back to the main queue.
+
+### Torrents and FTP
+
+Paste a **magnet link** into *Add URL*, drop it on the window, or open a `.torrent` file with
+the magnet button of the dialog. A torrent is one row of the list: it can wait in a queue, be
+paused and resumed, and data that is already on disk is checked and kept. Oxyd stops when a
+torrent is complete; it uploads to other peers while it downloads, as the protocol expects,
+but does not keep seeding. All files of a torrent are downloaded.
+
+`ftp://` links work through *Add URL* and the batch dialog: plain FTP in passive mode over one
+connection, resumed from the last byte with `REST`. FTPS is not supported.
+
+BitTorrent needs IPv6 sockets to exist on the system (they do by default on Windows and
+Linux); where they are switched off, a torrent fails with a message that says so.
+
+### Grabbing the links of a page
+
+**Grab links from a page** (the globe in the toolbar, Ctrl+G) reads a page and lists every
+link to a video, music file, image, document, archive or program, grouped by type. It can
+follow the pages the start page links to, one or two levels deep, staying on the same site
+by default, and reads at most 40 pages. The page is sent as the referer when the files are
+downloaded. Pages are read as plain HTML, so links a script adds after loading are not seen.
+
+### Tools for finished files
+
+Right-click one or more finished downloads and choose **Tools**:
+
+- **Convert** to MP4, MKV (no re-encoding), WebM, MP3 or M4A;
+- **Make smaller**: re-encode a video so it fits a size in megabytes;
+- **ZIP** the selected files and folders into one archive.
+
+A job shows its progress at the bottom right and can be cancelled; the original file is never
+replaced. The media tools use the ffmpeg Oxyd already manages for videos, one job at a time.
+
+### Progress and mini windows
+
+Every download that starts right away opens a small **progress window** with its speed, time
+left, segment map and *Pause* / *Cancel* (*Open* when it is done). At most six are open at
+once, and *Settings → General* switches them off; *Show progress window* in the right-click
+menu opens one by hand. A window that could not be opened is tried again every two seconds
+while its download runs, and one you closed stays closed.
+
+The **mini window** (toolbar) stays on top of other windows: total speed, the download that
+finishes next, and a place to drop links, which start at once. Each of these windows is a web
+view of its own and costs memory while it is open.
+
 ### Queue, limits and schedule
 
 - Run up to 3 downloads at once by default (1 to 20); the rest wait in the queue, and you can
@@ -244,6 +303,8 @@ A Manifest V3 extension for Chrome, Edge and other Chromium browsers sends downl
 The extension only talks to the app through a small native helper (`oxyd-bridge`), and no
 network port is opened. Firefox is not supported yet.
 
+- Cookies and login headers are only sent to the site they came from: after a redirect to
+  another site (a CDN) they are left out.
 - **Captures** downloads by file type, with a minimum size of 1 MB by default; blob and data
   URLs are always left to the browser. Cookies (including HttpOnly), referer and user agent
   are passed along so sites that need a login still work.
@@ -252,8 +313,11 @@ network port is opened. Firefox is not supported yet.
   within 3 seconds.
 - **Right-click a link** and choose *Download with Oxyd*; press **Alt+Shift+O** to let the
   next download stay in the browser.
-- **Download button on videos** (see [Videos from web pages](#videos-from-web-pages)). It can
-  be switched off in the popup. To list the streams of pages yt-dlp does not know, the
+- **Download button on videos** (see [Videos from web pages](#videos-from-web-pages)). The
+  **×** next to it hides the button for that video or post until the page is loaded again;
+  other videos keep theirs, and *Download video with Oxyd* in the right-click menu still
+  works for a hidden one. In fullscreen the button and its menu are not shown at all, also
+  for a player inside a frame. It can be switched off in the popup. To list the streams of pages yt-dlp does not know, the
   extension notes which responses a tab received were video, audio or HLS/DASH manifests
   (`webRequest`, read-only); that list stays in the browser session.
 - The popup shows whether the app is reachable and lets you switch capturing off, change the

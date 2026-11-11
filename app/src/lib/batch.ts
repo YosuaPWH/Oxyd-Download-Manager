@@ -65,7 +65,7 @@ export function expandPattern(pattern: string, limit = BATCH_LIMIT): string[] {
 function isLink(text: string): boolean {
   try {
     const u = new URL(text);
-    return (u.protocol === "http:" || u.protocol === "https:") && !!u.host;
+    return ["http:", "https:", "ftp:"].includes(u.protocol) && !!u.host;
   } catch {
     return false;
   }

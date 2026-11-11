@@ -1,6 +1,7 @@
 // Content script: a "Download" button over videos, like IDM's. Hovering a video shows it;
 // clicking lists the qualities Oxyd found (through yt-dlp) or the streams the page loaded.
 // Everything lives in a closed shadow root so the page's styles and scripts cannot touch it.
+import { Dismissals, dismissalKey } from "./dismiss.ts";
 import type { ContentMessage, DownloadResult, MenuEntry, VideoOptions } from "./messages.ts";
 import { isVideoSite, postUrl } from "./media.ts";
 
@@ -26,6 +27,7 @@ const TEXT = indonesian
       sending: "Mengirim…",
       sent: "Dikirim ke Oxyd",
       failed: "Gagal",
+      hide: "Sembunyikan untuk video ini sampai halaman dimuat ulang",
     }
   : {
       download: "Download",
@@ -40,6 +42,7 @@ const TEXT = indonesian
       sending: "Sending…",
       sent: "Sent to Oxyd",
       failed: "Failed",
+      hide: "Hide for this video until the page is reloaded",
     };
 
 const CSS = `
@@ -47,7 +50,13 @@ const CSS = `
 .wrap { position: fixed; left: var(--x); top: var(--y); display: none; flex-direction: column; align-items: flex-end;
   gap: 6px; pointer-events: none; font: 13px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; color: #111; }
 .wrap.show { display: flex; }
-.pill, .menu { pointer-events: auto; }
+.bar { display: flex; align-items: center; gap: 6px; }
+.pill, .menu, .x { pointer-events: auto; }
+.x { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%;
+  background: rgba(17, 17, 17, 0.86); color: #fff; cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(6px); }
+.x:hover { background: #111; }
+.x:focus-visible { outline: 2px solid #4c8dff; outline-offset: 2px; }
 .pill { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px 0 10px; border: 0;
   border-radius: 999px; background: rgba(17, 17, 17, 0.86); color: #fff; font: 600 13px/1 inherit; cursor: pointer;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3); backdrop-filter: blur(6px); }
@@ -72,6 +81,10 @@ const CSS = `
   .item:hover, .item:focus-visible { background: #2c2c31; }
   .d, .note, .empty, .loading, .group { color: #aaa; }
 }`;
+
+const CLOSE_ICON =
+  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" ' +
+  'stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
 
 const ICON =
   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" ' +
@@ -121,6 +134,80 @@ function title(): string {
   return t.trim() || location.hostname;
 }
 
+/**
+ * Whether anything is shown in fullscreen, including a fullscreen element of a parent page
+ * around this frame (a player in a cross-origin iframe). Frames tell their child frames; the
+ * message is only a visibility hint and carries no address, cookie or action.
+ */
+class FullscreenState {
+  private inherited = false;
+  private nativeVideo = false;
+
+  constructor(private readonly changed: () => void) {}
+
+  get active(): boolean {
+    const doc = document as Document & { webkitFullscreenElement?: Element | null };
+    return this.inherited || this.nativeVideo || !!(doc.fullscreenElement || doc.webkitFullscreenElement);
+  }
+
+  start() {
+    document.addEventListener("fullscreenchange", this.onChange);
+    document.addEventListener("webkitfullscreenchange", this.onChange);
+    document.addEventListener("webkitbeginfullscreen", this.onVideoBegin, true);
+    document.addEventListener("webkitendfullscreen", this.onVideoEnd, true);
+    addEventListener("message", this.onMessage);
+    if (window.parent !== window) window.parent.postMessage({ oxydFullscreen: "query" }, "*");
+    this.onChange();
+  }
+
+  stop() {
+    document.removeEventListener("fullscreenchange", this.onChange);
+    document.removeEventListener("webkitfullscreenchange", this.onChange);
+    document.removeEventListener("webkitbeginfullscreen", this.onVideoBegin, true);
+    document.removeEventListener("webkitendfullscreen", this.onVideoEnd, true);
+    removeEventListener("message", this.onMessage);
+    this.inherited = false;
+    this.nativeVideo = false;
+  }
+
+  private publish(target: Window) {
+    target.postMessage({ oxydFullscreen: "state", active: this.active }, "*");
+  }
+
+  private frames(): Window[] {
+    return [...document.querySelectorAll<HTMLIFrameElement>("iframe, frame")]
+      .map((f) => f.contentWindow)
+      .filter((w): w is Window => !!w);
+  }
+
+  private onChange = () => {
+    this.changed();
+    for (const frame of this.frames()) this.publish(frame);
+  };
+
+  private onVideoBegin = () => {
+    this.nativeVideo = true;
+    this.onChange();
+  };
+
+  private onVideoEnd = () => {
+    this.nativeVideo = false;
+    this.onChange();
+  };
+
+  private onMessage = (event: MessageEvent) => {
+    const msg = event.data as { oxydFullscreen?: string; active?: unknown } | null;
+    if (!msg || typeof msg !== "object") return;
+    if (msg.oxydFullscreen === "state" && window.parent !== window && event.source === window.parent && typeof msg.active === "boolean") {
+      this.inherited = msg.active;
+      this.onChange();
+    } else if (msg.oxydFullscreen === "query") {
+      const asking = this.frames().find((f) => f === event.source);
+      if (asking) this.publish(asking);
+    }
+  };
+}
+
 class VideoButton {
   private host: HTMLElement | null = null;
   private wrap!: HTMLDivElement;
@@ -142,6 +229,9 @@ class VideoButton {
   private cache = new Map<string, { at: number; res: Promise<VideoOptions | undefined> }>();
   private contextVideo: HTMLVideoElement | null = null;
   private enabled = false;
+  /** Videos whose button was closed, until the page is loaded again. */
+  private dismissed = new Dismissals<HTMLVideoElement>();
+  private fullscreen = new FullscreenState(() => this.onFullscreen());
 
   setEnabled(on: boolean) {
     if (on === this.enabled) return;
@@ -172,7 +262,7 @@ class VideoButton {
     addEventListener("pointermove", this.onMove, { capture: true, passive: true });
     addEventListener("scroll", this.onScroll, { capture: true, passive: true });
     addEventListener("resize", this.onScroll, { passive: true });
-    document.addEventListener("fullscreenchange", this.onFullscreen);
+    this.fullscreen.start();
     document.addEventListener("pointerdown", this.onDown, true);
     document.addEventListener("keydown", this.onKey, true);
     document.addEventListener("contextmenu", this.onContextMenu, true);
@@ -189,7 +279,7 @@ class VideoButton {
     removeEventListener("pointermove", this.onMove, { capture: true });
     removeEventListener("scroll", this.onScroll, { capture: true });
     removeEventListener("resize", this.onScroll);
-    document.removeEventListener("fullscreenchange", this.onFullscreen);
+    this.fullscreen.stop();
     document.removeEventListener("pointerdown", this.onDown, true);
     document.removeEventListener("keydown", this.onKey, true);
     document.removeEventListener("contextmenu", this.onContextMenu, true);
@@ -239,7 +329,26 @@ class VideoButton {
     this.menu = document.createElement("div");
     this.menu.className = "menu";
     this.menu.setAttribute("role", "menu");
-    this.wrap.append(this.pill, this.menu);
+    const close = document.createElement("button");
+    close.className = "x";
+    close.type = "button";
+    close.title = TEXT.hide;
+    close.setAttribute("aria-label", TEXT.hide);
+    close.innerHTML = CLOSE_ICON;
+    // The page must not see the press: on feeds it would open the post under the button.
+    close.addEventListener("pointerdown", (e) => e.stopPropagation());
+    close.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!e.isTrusted || !this.current) return;
+      this.dismissed.add(this.current, this.keyOf(this.current));
+      this.overUi = false;
+      this.hide(true);
+    });
+    const bar = document.createElement("div");
+    bar.className = "bar";
+    bar.append(this.pill, close);
+    this.wrap.append(bar, this.menu);
     root.append(style, this.wrap);
     // Only the user's own clicks: a page must not start downloads with its synthetic events.
     this.pill.addEventListener("click", (e) => {
@@ -247,7 +356,7 @@ class VideoButton {
       e.stopPropagation();
       if (e.isTrusted) void this.toggleMenu();
     });
-    for (const el of [this.pill, this.menu]) {
+    for (const el of [this.pill, close, this.menu]) {
       el.addEventListener("pointerenter", () => {
         this.overUi = true;
         clearTimeout(this.hideTimer);
@@ -261,12 +370,26 @@ class VideoButton {
     this.attach();
   }
 
-  /** In fullscreen only the fullscreen element is drawn: the button must be inside it. */
   private attach() {
     if (!this.host) return;
-    const fs = document.fullscreenElement;
-    const parent = fs && fs.tagName !== "VIDEO" ? fs : document.documentElement;
+    // Never inside a fullscreen element: in fullscreen the button is not shown at all.
+    const parent = document.documentElement;
     if (this.host.parentNode !== parent) parent.append(this.host);
+  }
+
+  /** What a video is for the "hide" choice: its post on a feed, else its source. */
+  private keyOf(v: HTMLVideoElement): string | undefined {
+    const here = location.href;
+    const page = pageOf(v);
+    const post = page !== here || postUrl(here, here) ? page : null;
+    // The declared source first: `currentSrc` can still be the previous video while a feed
+    // reuses the element and the new one has not loaded.
+    const src = v.getAttribute("src") ? v.src : v.querySelector<HTMLSourceElement>("source[src]")?.src || v.currentSrc;
+    return dismissalKey(post, src);
+  }
+
+  private isDismissed(v: HTMLVideoElement): boolean {
+    return this.dismissed.has(v, this.keyOf(v));
   }
 
   private onMove = (e: PointerEvent) => {
@@ -286,6 +409,10 @@ class VideoButton {
 
   private hitTest() {
     if (this.menuOpen || this.overUi) return;
+    if (this.fullscreen.active) {
+      if (this.current) this.hide(true);
+      return;
+    }
     let found: HTMLVideoElement | null = null;
     const order = this.current ? [this.current, ...this.visible] : [...this.visible];
     for (const v of order) {
@@ -293,6 +420,8 @@ class VideoButton {
       if (!t) continue;
       const r = t.getBoundingClientRect();
       if (inside(r, this.x, this.y) && big(r)) {
+        // Under the pointer but closed by the user: no button, and none for what lies behind.
+        if (this.isDismissed(v)) break;
         found = v;
         break;
       }
@@ -307,7 +436,7 @@ class VideoButton {
   }
 
   private show(v: HTMLVideoElement) {
-    if (document.fullscreenElement?.tagName === "VIDEO") return;
+    if (this.fullscreen.active) return;
     this.ensureHost();
     this.attach();
     this.current = v;
@@ -355,11 +484,15 @@ class VideoButton {
     this.menu.classList.toggle("up", y + 400 > vh && y > 400);
   }
 
-  private onFullscreen = () => {
-    this.attach();
-    if (document.fullscreenElement?.tagName === "VIDEO") this.hide(true);
-    else if (this.current) this.place();
-  };
+  /** Entering fullscreen hides the button and its menu; after leaving, the next hover shows it again. */
+  private onFullscreen() {
+    if (this.fullscreen.active) {
+      this.overUi = false;
+      this.hide(true);
+    } else if (this.current) {
+      this.place();
+    }
+  }
 
   private onNavigate = () => {
     this.cache.clear();
@@ -395,7 +528,8 @@ class VideoButton {
   openFromContextMenu(): boolean {
     const v = this.contextVideo;
     this.contextVideo = null;
-    if (!this.enabled || !v?.isConnected || !targetOf(v)) return false;
+    // Asking for it by hand works for a hidden video too, but not in fullscreen.
+    if (!this.enabled || this.fullscreen.active || !v?.isConnected || !targetOf(v)) return false;
     this.hide(true);
     this.show(v);
     void this.toggleMenu();

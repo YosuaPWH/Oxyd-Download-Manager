@@ -5,7 +5,10 @@ import type {
   DownloadInfo,
   DuplicatePolicy,
   EngineEvent,
+  GrabResult,
   NewDownload,
+  Queue,
+  ToolJob,
   PendingAdd,
   ProbeInfo,
   RefreshResult,
@@ -76,6 +79,19 @@ export const api = {
     invoke<string>("video_file_name", { title, container }),
   toolStatus: () => invoke<ToolStatus[]>("tool_status"),
   updateYtdlp: () => invoke<string | null>("update_ytdlp"),
+  listQueues: () => invoke<Queue[]>("list_queues"),
+  saveQueue: (queue: Queue) => invoke<Queue>("save_queue", { queue }),
+  deleteQueue: (id: string) => invoke<void>("delete_queue", { id }),
+  moveToQueue: (ids: string[], queue: string) => invoke<void>("move_to_queue", { ids, queue }),
+  grabPage: (url: string, options: { depth: number; sameSite: boolean }) =>
+    invoke<GrabResult>("grab_page", { url, options }),
+  runTool: (ids: string[], job: ToolJob) => invoke<string>("run_tool", { ids, job }),
+  cancelTool: (id: string) => invoke<void>("cancel_tool", { id }),
+  pickTorrent: () => invoke<string | null>("pick_torrent"),
+  toggleMini: () => invoke<boolean>("toggle_mini"),
+  miniOpen: () => invoke<boolean>("mini_open"),
+  showMain: () => invoke<void>("show_main_window"),
+  showProgress: (id: string) => invoke<void>("show_progress", { id }),
 };
 
 export function onEngineEvent(cb: (e: EngineEvent) => void): Promise<UnlistenFn> {

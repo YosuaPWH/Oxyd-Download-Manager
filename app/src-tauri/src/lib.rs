@@ -97,6 +97,46 @@ pub fn toggle_mini(app: &AppHandle) -> tauri::Result<bool> {
     Ok(true)
 }
 
+/// Label of the progress window of download `id`.
+pub fn progress_label(id: &str) -> String {
+    format!("progress-{id}")
+}
+
+/// Progress windows open at the same time; a batch of fifty must not open fifty windows.
+pub const MAX_PROGRESS_WINDOWS: usize = 6;
+
+/// Open (or focus) the progress window of a download. Must run on the main thread.
+pub fn open_progress(app: &AppHandle, id: &str, title: &str) -> tauri::Result<()> {
+    let label = progress_label(id);
+    if let Some(w) = app.get_webview_window(&label) {
+        let _ = w.unminimize();
+        return w.set_focus();
+    }
+    let url = tauri::WebviewUrl::App(format!("index.html?progress={id}").into());
+    tauri::WebviewWindowBuilder::new(app, label, url)
+        .title(if title.is_empty() { "Oxyd" } else { title })
+        .inner_size(460.0, 250.0)
+        .resizable(false)
+        .maximizable(false)
+        .build()?;
+    Ok(())
+}
+
+/// Ask for the progress window of a download that just started. The window is opened by
+/// [`background::progress_windows`], which keeps trying until it exists.
+pub fn want_progress(app: &AppHandle, id: &str) {
+    let state = app.state::<AppState>();
+    let mut wanted = state
+        .progress_wanted
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if !wanted.iter().any(|(w, _)| w == id) {
+        wanted.push((id.to_string(), 0));
+    }
+    drop(wanted);
+    state.progress_wake.notify_one();
+}
+
 fn quit(app: &AppHandle) {
     let mgr = app.state::<AppState>().mgr.clone();
     tauri::async_runtime::block_on(mgr.shutdown());
@@ -205,6 +245,7 @@ pub fn run() {
             background::forward_events(&handle);
             background::scheduler(&handle);
             background::clipboard_monitor(&handle);
+            background::progress_windows(&handle);
             browser::start_pipe_server(&handle);
             native_host::register();
 
@@ -267,6 +308,7 @@ pub fn run() {
             commands::toggle_mini,
             commands::mini_open,
             commands::show_main_window,
+            commands::show_progress,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Oxyd");

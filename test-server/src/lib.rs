@@ -74,6 +74,13 @@ pub struct Opts {
     jitter: Option<u8>,
     latency: Option<u64>,
     cookie: Option<String>,
+    /// Refuse (403) a request that carries any cookie or authorization.
+    nocookie: Option<u8>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Goto {
+    to: String,
 }
 
 /// Counters shared by all requests of one server.
@@ -152,7 +159,13 @@ pub fn router(stats: Arc<Stats>) -> Router {
         .route("/blob/:name", get(serve_blob))
         .route("/file/:size", get(serve_file).head(serve_file))
         .route("/redirect/:size", get(redirect).head(redirect))
+        .route("/goto", get(goto).head(goto))
         .with_state(stats)
+}
+
+/// Redirect to any address, also on another server (`/goto?to=http://...`).
+async fn goto(Query(g): Query<Goto>) -> Response {
+    (StatusCode::FOUND, [(header::LOCATION, g.to)]).into_response()
 }
 
 async fn redirect(Path(size): Path<u64>) -> Response {
@@ -198,6 +211,11 @@ async fn serve_file(
         if !sent.contains(need.as_str()) {
             return StatusCode::FORBIDDEN.into_response();
         }
+    }
+    if o.nocookie.is_some()
+        && (headers.contains_key(header::COOKIE) || headers.contains_key(header::AUTHORIZATION))
+    {
+        return StatusCode::FORBIDDEN.into_response();
     }
     if let Some(s) = o.status {
         return StatusCode::from_u16(s)

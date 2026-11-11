@@ -9,6 +9,7 @@
     app,
     cancelRefresh,
     clock,
+    dismissJob,
     init,
     inScope,
     isActive,
@@ -73,7 +74,9 @@
   const refreshing = $derived(app.downloads.find((d) => d.id === app.refreshing));
 
   const heading = $derived(
-    app.category
+    app.queue
+      ? app.queues.find((q) => q.id === app.queue)?.name || t("queue.main")
+      : app.category
       ? t(`cat.${app.category}` as Key)
       : t(app.library === "all" ? "side.all" : app.library === "finished" ? "nav.completed" : "nav.queued"),
   );
@@ -145,6 +148,9 @@
     } else if (mod && key === "b") {
       e.preventDefault();
       app.batch = "";
+    } else if (mod && key === "g") {
+      e.preventDefault();
+      app.grabber = true;
     } else if (mod && key === "i") {
       e.preventDefault();
       toggleInspector();
@@ -158,6 +164,12 @@
       searchBox?.focus();
       searchBox?.select();
     }
+  }
+
+  async function toggleMini() {
+    await run(async () => {
+      app.mini = await api.toggleMini();
+    });
   }
 
   async function clearCompleted() {
@@ -178,6 +190,12 @@
 
   /** Links dropped on or pasted into the window: one opens "New download", several the batch. */
   function offer(text: string): boolean {
+    const magnet = text.split(/\s+/).find((w) => /^magnet:\?/i.test(w));
+    if (magnet) {
+      app.page = "downloads";
+      app.manualUrl = magnet;
+      return true;
+    }
     const { urls } = parseBatch(text);
     if (!urls.length) return false;
     app.page = "downloads";
@@ -278,6 +296,9 @@
         <button class="icon" title={t("tb.resumeAll")} aria-label={t("tb.resumeAll")} onclick={() => run(api.resumeAll)}><Icon name="playAll" /></button>
         <button class="icon" title={t("tb.pauseAll")} aria-label={t("tb.pauseAll")} onclick={() => run(api.pauseAll)}><Icon name="pauseAll" /></button>
         <button class="icon" title={t("tb.clearCompletedHint")} aria-label={t("tb.clearCompleted")} disabled={!overview.done} onclick={clearCompleted}><Icon name="sweep" /></button>
+        <span class="sep"></span>
+        <button class="icon" title="{t('grab.title')} (Ctrl+G)" aria-label={t("grab.title")} onclick={() => (app.grabber = true)}><Icon name="globe" /></button>
+        <button class="icon" title={t("mini.toggle")} aria-label={t("mini.toggle")} aria-pressed={app.mini} onclick={toggleMini}><Icon name="pip" /></button>
         <span class="grow"></span>
         <label class="search">
           <span class="sr-only">{t("search.placeholder")}</span>
@@ -416,6 +437,26 @@
   {/await}
 {/if}
 
+{#if app.grabber}
+  {#await import("./components/GrabberDialog.svelte") then { default: GrabberDialog }}
+    <GrabberDialog onclose={() => (app.grabber = false)} />
+  {/await}
+{/if}
+
+{#if app.queueEdit}
+  {#await import("./components/QueueDialog.svelte") then { default: QueueDialog }}
+    {#key app.queueEdit.id}
+      <QueueDialog queue={app.queueEdit} onclose={() => (app.queueEdit = null)} />
+    {/key}
+  {/await}
+{/if}
+
+{#if app.tools}
+  {#await import("./components/ToolsDialog.svelte") then { default: ToolsDialog }}
+    <ToolsDialog downloads={app.tools} onclose={() => (app.tools = null)} />
+  {/await}
+{/if}
+
 {#if app.removing}
   {#await import("./components/RemoveDialog.svelte") then { default: RemoveDialog }}
     <RemoveDialog downloads={app.removing} onclose={() => (app.removing = null)} />
@@ -423,6 +464,31 @@
 {/if}
 
 <div class="toasts">
+  {#each app.jobs as job (job.id)}
+    <div class="toast job" class:bad={job.state === "failed"} role="status">
+      <span class="ring" class:work={job.state === "running" || job.state === "waiting"}>
+        <Icon name={job.state === "done" ? "completed" : job.state === "failed" ? "alert" : "wrench"} size={15} />
+      </span>
+      <span class="text">
+        <strong class="ellipsis">{job.state === "done" && job.output ? job.output.split(/[\\/]/).pop() : job.name}</strong>
+        <span class="muted">
+          {t(`tools.${job.kind}` as Key)} · {t(`job.${job.state}` as Key)}{#if job.total > 1}
+            · <span class="num">{Math.min(job.done + 1, job.total)}/{job.total}</span>{/if}
+        </span>
+        {#if job.state === "running"}
+          <span class="jobtrack"><span style:width="{job.progress * 100}%"></span></span>
+        {:else if job.error}
+          <span class="err">{job.error}</span>
+        {/if}
+      </span>
+      {#if job.state === "running" || job.state === "waiting"}
+        <button onclick={() => api.cancelTool(job.id)}>{t("new.cancel")}</button>
+      {:else}
+        <button class="icon" aria-label={t("clip.dismiss")} onclick={() => dismissJob(job.id)}><Icon name="x" size={14} /></button>
+      {/if}
+    </div>
+  {/each}
+
   {#if app.finished}
     {@const f = app.finished}
     <div class="toast done" role="status">
@@ -696,6 +762,37 @@
     border-radius: 50%;
     color: var(--positive);
     background: var(--pos-bg);
+  }
+  .toast.job {
+    padding-left: 10px;
+    gap: 10px;
+    width: 360px;
+  }
+  .ring.work {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .toast.bad .ring {
+    color: var(--negative);
+    background: var(--neg-bg);
+  }
+  .jobtrack {
+    display: block;
+    height: 3px;
+    margin-top: 5px;
+    border-radius: 2px;
+    background: var(--track);
+    overflow: hidden;
+  }
+  .jobtrack span {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.3s linear;
+  }
+  .err {
+    font-size: 12px;
+    color: var(--negative);
   }
   .toast.bad strong {
     color: var(--negative);

@@ -69,6 +69,12 @@ pub struct AppState {
     pub mgr: Arc<Manager>,
     pub pending: Mutex<Vec<PendingAdd>>,
     pub refresh: Mutex<Option<RefreshTarget>>,
+    /// Downloads whose progress window still has to be opened, with the attempts made.
+    /// An entry leaves the list only when its window exists or its download stopped, so
+    /// a window that failed to open is tried again instead of being forgotten.
+    pub progress_wanted: Mutex<Vec<(String, u8)>>,
+    /// Wakes the loop that opens progress windows, which sleeps while the list is empty.
+    pub progress_wake: tokio::sync::Notify,
 }
 
 impl AppState {
@@ -77,6 +83,8 @@ impl AppState {
             mgr,
             pending: Mutex::new(Vec::new()),
             refresh: Mutex::new(None),
+            progress_wanted: Mutex::new(Vec::new()),
+            progress_wake: tokio::sync::Notify::new(),
         }
     }
 

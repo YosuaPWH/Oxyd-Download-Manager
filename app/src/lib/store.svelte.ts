@@ -1,7 +1,17 @@
 import { api, errorMessage, onClipboard, onEngineEvent, onPending, onRefresh, onResync } from "./api";
 import { errorText, i18n, t } from "./i18n.svelte";
 import { playDone } from "./sound";
-import type { Category, DownloadInfo, EngineEvent, PendingAdd, Settings, Status, VideoProbe } from "./types";
+import type {
+  Category,
+  DownloadInfo,
+  EngineEvent,
+  JobStatus,
+  PendingAdd,
+  Queue,
+  Settings,
+  Status,
+  VideoProbe,
+} from "./types";
 
 /** Status filter above the download list. */
 export type View = "all" | "active" | "paused" | "failed" | "completed";
@@ -9,6 +19,10 @@ export type View = "all" | "active" | "paused" | "failed" | "completed";
 export type Library = "all" | "unfinished" | "finished";
 export type SortKey = "queue" | "name" | "size" | "status" | "progress" | "speed" | "eta" | "added";
 export type InspectorTab = "connections" | "speed" | "info";
+
+/** False in the mini window and in progress windows, which show no dialogs and make no sound. */
+const windowQuery = new URLSearchParams(location.search);
+export const isMainWindow = !windowQuery.has("mini") && !windowQuery.has("progress");
 
 /** Ticks every second for countdowns. */
 export const clock = $state({ now: Math.floor(Date.now() / 1000) });
@@ -49,6 +63,20 @@ export const app = $state({
   view: "all" as View,
   /** File type chosen in the sidebar; null = every type. */
   category: null as Category | null,
+  /** Queue chosen in the sidebar; null = every queue. */
+  queue: null as string | null,
+  /** Every queue, the main one first. */
+  queues: [] as Queue[],
+  /** Tool jobs (convert, shrink, ZIP) that run or just ended. */
+  jobs: [] as JobStatus[],
+  /** The queue being edited; an empty id makes a new one. */
+  queueEdit: null as Queue | null,
+  /** Whether the site grabber is open. */
+  grabber: false,
+  /** Finished downloads the tools dialog works on; null = closed. */
+  tools: null as DownloadInfo[] | null,
+  /** Whether the mini window is open. */
+  mini: false,
   /** Text typed in the search box. */
   search: "",
   sort: layout.sort,
@@ -120,6 +148,7 @@ export function matchesSearch(d: DownloadInfo, text: string): boolean {
 export function inScope(d: DownloadInfo): boolean {
   if (app.library === "unfinished" && d.status === "completed") return false;
   if (app.library === "finished" && d.status !== "completed") return false;
+  if (app.queue && d.queue !== app.queue) return false;
   return (!app.category || d.category === app.category) && matchesSearch(d, app.search);
 }
 
@@ -201,8 +230,10 @@ function apply(e: EngineEvent) {
   switch (e.type) {
     case "completed":
       upsert(e.download);
-      app.finished = e.download;
-      if (app.settings?.sound) playDone();
+      if (isMainWindow) {
+        app.finished = e.download;
+        if (app.settings?.sound) playDone();
+      }
       break;
     case "added":
     case "updated":
@@ -230,13 +261,41 @@ function apply(e: EngineEvent) {
       if (app.selected === e.id) app.selected = app.selection[0] ?? null;
       if (app.finished?.id === e.id) app.finished = null;
       break;
+    case "queues":
+      app.queues = e.queues;
+      if (app.queue && !e.queues.some((q) => q.id === app.queue)) app.queue = null;
+      break;
+    case "tool": {
+      const i = app.jobs.findIndex((j) => j.id === e.job.id);
+      if (i >= 0) app.jobs[i] = e.job;
+      else app.jobs.push(e.job);
+      // A job that ended stays visible for a moment, a failed one until it is dismissed.
+      if (e.job.state === "done" || e.job.state === "cancelled") {
+        const id = e.job.id;
+        setTimeout(() => dismissJob(id), e.job.state === "done" ? 8000 : 2500);
+      }
+      break;
+    }
     case "queueFinished":
       break;
   }
 }
 
+export function dismissJob(id: string) {
+  app.jobs = app.jobs.filter((j) => j.id !== id);
+}
+
 export async function refresh() {
   app.downloads = await api.list();
+}
+
+/** Ask the backend which links wait for their dialog and show the ones this window missed.
+ *  A link can arrive while the window is still starting or while events were dropped; the
+ *  backend keeps it until it is confirmed or cancelled, so asking again never loses one. */
+async function syncPending() {
+  const waiting = await api.pending().catch(() => null);
+  if (!waiting) return;
+  for (const p of waiting) if (!app.pending.some((x) => x.key === p.key)) app.pending.push(p);
 }
 
 // The last minute of speed, one sample per second: the total, and each running download.
@@ -307,20 +366,29 @@ export async function init() {
       if (!app.pending.some((x) => x.key === p.key)) app.pending.push(p);
     }),
     onClipboard((url) => (app.clipboardUrl = url)),
-    onResync(() => void refresh()),
+    onResync(() => {
+      void refresh();
+      void syncPending();
+    }),
     onRefresh((r) => {
       app.refreshing = null;
       if (r.ok) app.notice = t("refresh.done");
       else app.error = errorText(r.code) ?? r.message ?? t("err.title");
     }),
   ]);
-  const [settings, list, pending, info, refreshing] = await Promise.all([
+  const [settings, list, pending, info, refreshing, queues, mini] = await Promise.all([
     api.getSettings(),
     api.list(),
     api.pending(),
     api.appInfo(),
     api.refreshTarget(),
+    api.listQueues(),
+    api.miniOpen(),
   ]);
+  // Only the main window shows dialogs; the mini and progress windows never take a link.
+  if (isMainWindow) setInterval(() => void syncPending(), 2000);
+  app.queues = queues ?? [];
+  app.mini = !!mini;
   app.refreshing = refreshing;
   app.settings = settings;
   applyTheme(settings);

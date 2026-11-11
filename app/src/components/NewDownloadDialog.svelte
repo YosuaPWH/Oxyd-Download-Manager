@@ -4,7 +4,8 @@
   import * as fmt from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import { app } from "../lib/store.svelte";
-  import type { DuplicatePolicy, PendingAdd, PendingMatch, ProbeInfo } from "../lib/types";
+  import { MAIN_QUEUE, type DuplicatePolicy, type PendingAdd, type PendingMatch, type ProbeInfo } from "../lib/types";
+  import Icon from "./Icon.svelte";
   import Modal from "./Modal.svelte";
 
   let {
@@ -31,6 +32,30 @@
   /** Unfinished download this link continues (from the browser match or after probing). */
   // svelte-ignore state_referenced_locally
   let match = $state<PendingMatch | null>(pending?.matched ?? null);
+
+  let queue = $state(app.queue ?? MAIN_QUEUE);
+  /** A magnet link or the path of a .torrent file: nothing to probe, the content is the download. */
+  const isTorrent = $derived(!pending && (/^magnet:\?/i.test(url.trim()) || /^(\/|[a-z]:\\).*\.torrent$/i.test(url.trim())));
+  /** An http link to a .torrent file: offer its content instead of the small file. */
+  const torrentLink = $derived(!pending && !!probe && /\.torrent(\?|$)/i.test(probe.finalUrl));
+
+  async function pickTorrent() {
+    const path = await api.pickTorrent().catch(() => null);
+    if (path) url = path;
+  }
+
+  async function addTorrent(start: boolean) {
+    busy = true;
+    error = null;
+    try {
+      await api.add({ url: url.trim(), dir: dirTouched ? dir : null, start, torrent: true, queue });
+      onclose();
+    } catch (e) {
+      error = errorMessage(e);
+    } finally {
+      busy = false;
+    }
+  }
 
   /** A web page rather than a file: its video can be taken with yt-dlp. */
   const isPage = $derived(!pending && !!probe && /^text\/html|^application\/xhtml/i.test(probe.mime ?? ""));
@@ -65,11 +90,11 @@
     }
   });
   // Browser downloads arrive checked; a typed link shows its details once it was checked.
-  const ready = $derived(!!pending || (!!probe && probedUrl === url.trim()));
+  const ready = $derived(!!pending || isTorrent || (!!probe && probedUrl === url.trim()));
 
   async function check() {
     const target = url.trim();
-    if (!target) return;
+    if (!target || isTorrent) return;
     const id = ++seq;
     checking = target;
     probing = true;
@@ -174,6 +199,7 @@
           onConflict,
           sizeHint: size,
           checksum: checksum.trim() || null,
+          queue,
         });
       }
       onclose();
@@ -209,7 +235,7 @@
 </script>
 
 <Modal title={t("new.title")} onclose={cancel} width={540}>
-  <form class="stack" onsubmit={(e) => (e.preventDefault(), ready ? submit(true) : check())}>
+  <form class="stack" onsubmit={(e) => (e.preventDefault(), isTorrent ? addTorrent(true) : ready ? submit(true) : check())}>
     <div>
       <label for="nd-url">{t("new.url")}</label>
       <div class="row">
@@ -223,16 +249,43 @@
           oninput={onUrlInput}
           onchange={onUrlChange}
         />
-        {#if !pending}
+        {#if !pending && !isTorrent}
           <button type="button" class:primary={!ready} onclick={check} disabled={probing || !url.trim()}>
             {t("new.check")}
           </button>
+        {/if}
+        {#if !pending}
+          <button type="button" class="icon" title={t("torrent.pick")} aria-label={t("torrent.pick")} onclick={pickTorrent}><Icon name="magnet" /></button>
         {/if}
       </div>
       {#if !ready}
         <p class="hint muted" aria-live="polite">{probing ? t("new.probing") : error ? "" : t("new.hint")}</p>
       {/if}
     </div>
+
+    {#if isTorrent}
+      <div class="box" role="status">
+        <Icon name="magnet" size={18} />
+        <div class="matchtext">
+          <strong>BitTorrent</strong>
+          <span class="muted">{t("torrent.hint")}</span>
+        </div>
+      </div>
+      <div>
+        <label for="nd-tdir">{t("new.folder")}</label>
+        <div class="row">
+          <input id="nd-tdir" bind:value={dir} oninput={() => (dirTouched = true)} />
+          <button type="button" onclick={browse}>{t("new.browse")}</button>
+        </div>
+      </div>
+    {:else if torrentLink}
+      <div class="box" role="status">
+        <div class="matchtext">
+          <span>{t("torrent.linkHint")}</span>
+        </div>
+        <button type="button" class="primary" onclick={() => addTorrent(true)} disabled={busy}>{t("torrent.content")}</button>
+      </div>
+    {/if}
 
     {#if ready && isPage}
       <div class="box" role="status">
@@ -244,7 +297,7 @@
       </div>
     {/if}
 
-    {#if ready}
+    {#if ready && !isTorrent}
       <div class="facts">
         <span class="num big">{probing ? "…" : size === null ? t("new.unknown") : fmt.bytes(size)}</span>
         <span class="muted r ellipsis">{host}</span>
@@ -322,8 +375,15 @@
       <span class="muted more">+<span class="num">{more}</span> {t("new.more")}</span>
     {/if}
     <button onclick={cancel}>{t("new.cancel")}</button>
-    <button onclick={() => submit(false)} disabled={busy || !ready}>{t("new.later")}</button>
-    <button class="primary" onclick={() => submit(true)} disabled={busy || !ready}>{t("new.start")}</button>
+    {#if app.queues.length > 1}
+      <select aria-label={t("queue.label")} bind:value={queue}>
+        {#each app.queues as q (q.id)}
+          <option value={q.id}>{q.name || t("queue.main")}</option>
+        {/each}
+      </select>
+    {/if}
+    <button onclick={() => (isTorrent ? addTorrent(false) : submit(false))} disabled={busy || !ready}>{t("new.later")}</button>
+    <button class="primary" onclick={() => (isTorrent ? addTorrent(true) : submit(true))} disabled={busy || !ready}>{t("new.start")}</button>
   {/snippet}
 </Modal>
 

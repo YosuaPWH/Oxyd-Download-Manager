@@ -2,7 +2,7 @@
   import * as fmt from "../lib/format";
   import { t, type Key } from "../lib/i18n.svelte";
   import { app, selectOnly, speedLog, type Library } from "../lib/store.svelte";
-  import type { Category } from "../lib/types";
+  import { type Category, type Queue } from "../lib/types";
   import Icon from "./Icon.svelte";
   import Sparkline from "./Sparkline.svelte";
 
@@ -44,9 +44,35 @@
   // The readout splits the figure from its unit: "13.8" large, "MB/s" small.
   const readout = $derived((fmt.speed(counts.speed) || "0 B/s").split(" "));
 
+  const perQueue = $derived.by(() => {
+    const n = new Map<string, number>();
+    for (const d of app.downloads) if (d.status !== "completed") n.set(d.queue, (n.get(d.queue) ?? 0) + 1);
+    return n;
+  });
+
+  function goQueue(id: string) {
+    app.library = "all";
+    app.category = null;
+    app.queue = id;
+    app.page = "downloads";
+    selectOnly(null);
+  }
+
+  function newQueue() {
+    const blank: Queue = {
+      id: "",
+      name: "",
+      maxActive: 2,
+      speedLimit: null,
+      schedule: { enabled: false, start: null, stop: null, days: [] },
+    };
+    app.queueEdit = blank;
+  }
+
   function go(library: Library, category: Category | null) {
     app.library = library;
     app.category = category;
+    app.queue = null;
     app.page = "downloads";
     selectOnly(null);
   }
@@ -68,7 +94,7 @@
     <button
       class="item"
       title={t(l.key)}
-      aria-current={onDownloads && !app.category && app.library === l.value ? "page" : undefined}
+      aria-current={onDownloads && !app.category && !app.queue && app.library === l.value ? "page" : undefined}
       onclick={() => go(l.value, null)}
     >
       <Icon name={l.icon} /><span class="label grow">{t(l.key)}</span><span class="num count">{counts.c[l.value]}</span>
@@ -86,6 +112,30 @@
       <Icon name={c} /><span class="label grow">{t(`cat.${c}` as Key)}</span><span class="num count">{counts.c[c]}</span>
     </button>
   {/each}
+
+  <div class="caption label withadd">
+    {t("queue.title")}
+    <button class="icon add" title={t("queue.new")} aria-label={t("queue.new")} onclick={newQueue}><Icon name="add" size={13} /></button>
+  </div>
+  {#each app.queues as q (q.id)}
+    <div class="queue">
+      <button
+        class="item"
+        title={q.name || t("queue.main")}
+        aria-current={onDownloads && app.queue === q.id ? "page" : undefined}
+        onclick={() => goQueue(q.id)}
+      >
+        <Icon name={q.schedule.enabled ? "calendar" : "queue"} /><span class="label grow">{q.name || t("queue.main")}</span><span class="num count">{perQueue.get(q.id) ?? 0}</span>
+      </button>
+      <button class="icon edit label" title={t("queue.edit")} aria-label="{t('queue.edit')}: {q.name || t('queue.main')}" onclick={() => (app.queueEdit = q)}>
+        <Icon name="edit" size={13} />
+      </button>
+    </div>
+  {/each}
+  {#if !app.queues.length}
+    <!-- Before the list arrives the main queue still has its place. -->
+    <button class="item" disabled><Icon name="queue" /><span class="label grow">{t("queue.main")}</span></button>
+  {/if}
 
   <span class="spacer"></span>
 
@@ -194,6 +244,36 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--faint);
+  }
+  .withadd {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-right: 2px;
+  }
+  .add {
+    width: 20px;
+    height: 20px;
+  }
+  .queue {
+    position: relative;
+    flex: none;
+  }
+  .edit {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 24px;
+    height: 24px;
+    opacity: 0;
+    background: var(--raised);
+  }
+  .queue:hover .edit,
+  .edit:focus-visible {
+    opacity: 1;
+  }
+  .queue:hover .count {
+    visibility: hidden;
   }
   .spacer {
     flex: 1;

@@ -40,6 +40,7 @@ export function pauseSelected() {
 
 /** Site of a download, for the line under its name. */
 export function hostOf(d: DownloadInfo): string {
+  if (d.kind === "torrent") return "";
   try {
     return new URL(d.finalUrl ?? d.url).host;
   } catch {

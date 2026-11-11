@@ -76,6 +76,8 @@ pub struct Settings {
     pub glass: bool,
     /// Play a short tone when a download finishes while the window is open.
     pub sound: bool,
+    /// Open a small progress window for every download that starts right away.
+    pub progress_window: bool,
 }
 
 /// Accent colours the interface knows; the first one is the default.
@@ -128,6 +130,7 @@ impl Default for Settings {
             density: "comfortable".into(),
             glass: true,
             sound: true,
+            progress_window: true,
         }
     }
 }

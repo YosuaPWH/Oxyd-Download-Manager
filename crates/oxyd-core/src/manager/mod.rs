@@ -1255,7 +1255,8 @@ impl Manager {
                 sources: vec![Source {
                     start: 0,
                     url: info.final_url.clone(),
-                    headers: rec.headers.clone(),
+                    // After a redirect to another site the cookies stay behind.
+                    headers: rec.headers.for_target(&rec.url, &info.final_url),
                 }],
                 file: file.clone(),
                 shared: ctx.shared.clone(),

@@ -137,6 +137,10 @@
           <input type="checkbox" class="switch" role="switch" bind:checked={s.notifications} />
         </label>
         <label class="item">
+          <span>{t("set.progressWindow")}<span class="hint">{t("set.progressWindowHint")}</span></span>
+          <input type="checkbox" class="switch" role="switch" bind:checked={s.progressWindow} />
+        </label>
+        <label class="item">
           <span>{t("set.sound")}</span>
           <input type="checkbox" class="switch" role="switch" bind:checked={s.sound} />
         </label>

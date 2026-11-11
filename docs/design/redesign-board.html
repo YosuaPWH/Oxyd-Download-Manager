@@ -157,7 +157,7 @@ ul.notes { margin: 0; padding-left: 18px; color: var(--text-2); display: flex; f
   <header class="head">
     <span class="eyebrow">Oxyd 0.5 · papan desain</span>
     <h1>Oxyd dirancang ulang dengan Prism sebagai panduan</h1>
-    <p>Prism memberi tiga hal yang belum dimiliki Oxyd: navigasi samping yang selalu terlihat, tabel yang bisa dikerjakan banyak baris sekaligus, dan panel koneksi yang memperlihatkan tiap sambungan. Oxyd mengambil ketiganya, tetapi tetap ringan: tanpa torrent, tanpa crawler, dan tanpa jendela tambahan yang menambah memori.</p>
+    <p>Prism memberi tiga hal yang belum dimiliki Oxyd: navigasi samping yang selalu terlihat, tabel yang bisa dikerjakan banyak baris sekaligus, dan panel koneksi yang memperlihatkan tiap sambungan. Oxyd mengambil ketiganya, lalu menambahkan antrean, torrent, FTP, grabber, alat media, serta jendela progres dan mini, dengan ukuran aplikasi tetap jauh di bawah 50 MB.</p>
   </header>
 
   <section class="sec">
@@ -177,9 +177,13 @@ ul.notes { margin: 0; padding-left: 18px; color: var(--text-2); display: flex; f
         <tr><td>Dialog selesai + suara</td><td>Notifikasi sistem saja</td><td><span class="tag now">Dibangun</span></td><td>Toast dengan Buka dan Buka folder; nada pendek yang bisa dimatikan.</td></tr>
         <tr><td>Kategori Gambar</td><td>Enam kategori</td><td><span class="tag now">Dibangun</span></td><td>jpg, png, webp, gif, svg dan sejenisnya tidak lagi jatuh ke Lainnya.</td></tr>
         <tr><td>Segmentasi dinamis, lanjut setelah crash, refresh link</td><td>Sudah ada</td><td><span class="tag keep">Dipertahankan</span></td><td>Mesin Oxyd sudah setara; tidak disentuh.</td></tr>
-        <tr><td>Banyak antrean bernama</td><td>Satu antrean</td><td><span class="tag later">Ditunda</span></td><td>Perlu migrasi skema dan penjadwal per antrean; layak rilis sendiri.</td></tr>
-        <tr><td>Site grabber, torrent, FTP</td><td>Tidak ada</td><td><span class="tag later">Ditunda</span></td><td>Menambah librqbit dan crawler berlawanan dengan installer 5 MB.</td></tr>
-        <tr><td>Jendela mini, drop zone, alat media</td><td>Tidak ada</td><td><span class="tag later">Ditunda</span></td><td>Jendela kedua berarti web view kedua; Oxyd di tray hanya 21 MB.</td></tr>
+        <tr><td>Banyak antrean bernama</td><td>Satu antrean</td><td><span class="tag now">Dibangun</span></td><td>Tiap antrean punya jumlah download bersamaan, batas kecepatan, dan jadwal sendiri.</td></tr>
+        <tr><td>Site grabber</td><td>Tidak ada</td><td><span class="tag now">Dibangun</span></td><td>Membaca halaman sampai dua tingkat tanpa dependensi baru.</td></tr>
+        <tr><td>Torrent dan FTP</td><td>Tidak ada</td><td><span class="tag now">Dibangun</span></td><td>Torrent lewat librqbit; FTP dengan klien kecil sendiri. Tanpa seeding setelah selesai, tanpa FTPS.</td></tr>
+        <tr><td>Alat media</td><td>Tidak ada</td><td><span class="tag now">Dibangun</span></td><td>Konversi, perkecil, dan ZIP dengan ffmpeg yang sudah dikelola Oxyd.</td></tr>
+        <tr><td>Jendela progres</td><td>Tidak ada</td><td><span class="tag now">Dibangun</span></td><td>Satu jendela per download, paling banyak enam; pembukaan yang gagal dicoba lagi.</td></tr>
+        <tr><td>Jendela mini dan drop zone</td><td>Tidak ada</td><td><span class="tag now">Dibangun</span></td><td>Digabung jadi satu jendela: kecepatan total dan tempat melepas link.</td></tr>
+        <tr><td>Tombol tutup pada tombol video</td><td>Tidak ada</td><td><span class="tag now">Dibangun</span></td><td>Per video atau post sampai halaman dimuat ulang; disembunyikan saat layar penuh.</td></tr>
       </tbody>
     </table></div>
   </section>

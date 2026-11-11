@@ -166,7 +166,7 @@
     // A right click inside the selection acts on all of it; outside, on that row alone.
     if (!picked.has(d.id)) selectOnly(d.id);
     else app.selected = d.id;
-    menu = { x: Math.max(8, Math.min(x, innerWidth - 240)), y: Math.max(8, Math.min(y, innerHeight - 350)), d };
+    menu = { x: Math.max(8, Math.min(x, innerWidth - 240)), y: Math.max(8, Math.min(y, innerHeight - 350 - 30 * (app.queues.length > 1 ? app.queues.length + 2 : 0))), d };
   }
 
   function contextmenu(e: MouseEvent, d: DownloadInfo) {
@@ -193,6 +193,7 @@
   function status(d: DownloadInfo) {
     const doing = d.detail && d.detail !== "ytdlp" ? detailText(d.detail) : null;
     if (doing && (d.status === "probing" || d.status === "downloading")) return doing;
+    if (d.status === "downloading" && d.kind === "torrent") return `${t("st.downloading")} · ${d.activeConnections} ${t("insp.peers")}`;
     if (d.status === "downloading" && d.activeConnections > 0) return `${t("st.downloading")} · ${d.activeConnections}×`;
     if (d.status === "failed" && d.retryAt) return `${t("st.failed")} · ↻ ${fmt.duration(fmt.until(d.retryAt, clock.now)) || "0s"}`;
     return t(`st.${d.status}` as Key);
@@ -237,6 +238,21 @@
   }
 
   const many = $derived(app.selection.length > 1);
+
+  function openTools() {
+    app.tools = selectedDownloads().filter((x) => x.status === "completed");
+  }
+
+  function moveTo(queue: string) {
+    const ids = [...app.selection];
+    menu = null;
+    void run(() => api.moveToQueue(ids, queue));
+  }
+
+  /** "BitTorrent" and "FTP" are worth a word; plain web downloads are not. */
+  function kindLabel(d: DownloadInfo) {
+    return d.kind === "torrent" ? "BitTorrent" : d.kind === "ftp" ? "FTP" : "";
+  }
 </script>
 
 <svelte:window onclick={() => (menu = null)} onblur={() => (menu = null)} />
@@ -305,7 +321,7 @@
         <div role="gridcell" class="c-tile"><FileTile category={d.category} /></div>
         <div class="name" role="gridcell" title={d.url}>
           <span class="ellipsis file">{name(d)}</span>
-          <span class="ellipsis faint sub">{host ? `${host} · ` : ""}{t(`cat.${d.category}` as Key)}{d.media?.height ? ` · ${d.media.height}p` : ""}</span>
+          <span class="ellipsis faint sub">{kindLabel(d) ? `${kindLabel(d)} · ` : ""}{host ? `${host} · ` : ""}{t(`cat.${d.category}` as Key)}{d.media?.height ? ` · ${d.media.height}p` : ""}</span>
         </div>
         <div role="gridcell" class="r num">{d.totalSize === null ? "—" : fmt.bytes(d.totalSize)}</div>
         <div role="gridcell" class="st" title={errorText(d.errorCode) ?? d.error ?? ""}>
@@ -355,6 +371,18 @@
   </div>
 </div>
 
+{#snippet queueItems()}
+  {#if app.queues.length > 1}
+    <hr />
+    <div class="menuhead faint">{t("queue.moveTo")}</div>
+    {#each app.queues as q (q.id)}
+      <button role="menuitemradio" aria-checked={!many && menu?.d.queue === q.id} onclick={() => moveTo(q.id)}>
+        <Icon name={!many && menu?.d.queue === q.id ? "completed" : "queue"} />{q.name || t("queue.main")}
+      </button>
+    {/each}
+  {/if}
+{/snippet}
+
 {#if menu}
   {@const d = menu.d}
   <div class="menu" role="menu" tabindex="-1" style:left="{menu.x}px" style:top="{menu.y}px" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.key === "Escape" && (menu = null)}>
@@ -362,11 +390,18 @@
       <div class="menuhead faint"><span class="num">{app.selection.length}</span> {t("sel.count")}</div>
       <button role="menuitem" onclick={() => ((menu = null), void startSelected())}><Icon name="play" />{t("act.resume")}</button>
       <button role="menuitem" onclick={() => ((menu = null), void pauseSelected())}><Icon name="pause" />{t("act.pause")}</button>
+      {#if selectedDownloads().some((x) => x.status === "completed")}
+        <button role="menuitem" onclick={() => ((menu = null), openTools())}><Icon name="wrench" />{t("tools.title")}…</button>
+      {/if}
+      {@render queueItems()}
       <hr />
       <button role="menuitem" class="danger" onclick={() => ((menu = null), askRemove(selectedDownloads()))}><Icon name="trash" />{t("act.remove")}</button>
     {:else}
       {#if d.status === "completed"}
         <button role="menuitem" onclick={() => act((d) => api.openFile(d.id))}><Icon name="file" />{t("act.open")}</button>
+      {/if}
+      {#if d.status !== "completed" && d.status !== "cancelled"}
+        <button role="menuitem" onclick={() => act((d) => api.showProgress(d.id))}><Icon name="pip" />{t("progress.show")}</button>
       {/if}
       <button role="menuitem" onclick={() => act((d) => api.openFolder(d.id))}><Icon name="folder" />{t("act.folder")}</button>
       <button role="menuitem" onclick={() => act((d) => api.copy(d.url))}><Icon name="copy" />{t("act.copy")}</button>
@@ -384,6 +419,10 @@
       {#if d.status === "failed" || d.status === "paused" || d.status === "completed"}
         <button role="menuitem" onclick={() => act((d) => api.restart(d.id))}><Icon name="refresh" />{t("act.restart")}</button>
       {/if}
+      {#if d.status === "completed"}
+        <button role="menuitem" onclick={() => ((menu = null), openTools())}><Icon name="wrench" />{t("tools.title")}…</button>
+      {/if}
+      {@render queueItems()}
       <hr />
       <button role="menuitem" onclick={() => act((d) => api.move(d.id, -1))}><Icon name="up" />{t("act.up")}</button>
       <button role="menuitem" onclick={() => act((d) => api.move(d.id, 1))}><Icon name="down" />{t("act.down")}</button>

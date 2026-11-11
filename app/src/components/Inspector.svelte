@@ -92,7 +92,7 @@
     </div>
     {#if d}
       <span class="ellipsis file" title={d.filename || d.url}>{d.filename || d.url}</span>
-      {#if moving}<span class="pill accent"><span class="num">{d.activeConnections}</span>&nbsp;{t("insp.conn")}</span>{/if}
+      {#if moving}<span class="pill accent"><span class="num">{d.activeConnections}</span>&nbsp;{t(d.kind === "torrent" ? "insp.peers" : "insp.conn")}</span>{/if}
       {#if canPause(d)}
         <button class="icon" title={t("act.pause")} aria-label={t("act.pause")} onclick={() => d && run(() => api.pause(d.id))}><Icon name="pause" /></button>
       {:else if canStart(d)}
@@ -175,7 +175,11 @@
           <dt>{t("detail.url")}</dt>
           <dd class="ellipsis" title={d.finalUrl ?? d.url}>{d.url}</dd>
           <dt>{t("insp.source")}</dt>
-          <dd>{hostOf(d) || "—"} · {t(`cat.${d.category}` as Key)}</dd>
+          <dd>{d.kind === "torrent" ? "BitTorrent" : hostOf(d) || "—"} · {t(`cat.${d.category}` as Key)}</dd>
+          {#if app.queues.length > 1}
+            <dt>{t("queue.label")}</dt>
+            <dd>{app.queues.find((q) => q.id === d.queue)?.name || t("queue.main")}</dd>
+          {/if}
           <dt>{t("detail.resumable")}</dt>
           <dd>{d.resumable ? t("yes") : t("no")} · <span class="num">{d.connections}</span> {t("detail.connections").toLowerCase()}</dd>
           <dt>{t("detail.added")}</dt>

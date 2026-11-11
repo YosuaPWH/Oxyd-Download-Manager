@@ -46,8 +46,9 @@ describe("parseBatch", () => {
   });
 
   it("counts text that is not a link and repeated links", () => {
-    const b = parseBatch("see https://x.org/a.zip ftp://x.org/b https://x.org/a.zip https://x.org/f[1-2] https://x.org/f1");
+    const b = parseBatch("see https://x.org/a.zip mailto:me@x.org https://x.org/a.zip https://x.org/f[1-2] https://x.org/f1");
     expect(b.urls).toEqual(["https://x.org/a.zip", "https://x.org/f1", "https://x.org/f2"]);
+    expect(parseBatch("ftp://x.org/pub/a.iso").urls).toEqual(["ftp://x.org/pub/a.iso"]);
     expect(b.invalid).toBe(2);
     expect(b.duplicates).toBe(2);
   });

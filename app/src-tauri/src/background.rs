@@ -39,6 +39,13 @@ pub fn forward_events(app: &AppHandle) {
             // only completion, failure and queue-finished need them. Read
             // them only for those events.
             match &ev {
+                // A download that starts right away gets its progress window.
+                Event::Added { download }
+                    if download.record.status == oxyd_core::Status::Queued
+                        && app.state::<AppState>().mgr.settings().progress_window =>
+                {
+                    crate::want_progress(&app, &download.record.id);
+                }
                 Event::Completed { download } => {
                     let settings = app.state::<AppState>().mgr.settings();
                     if settings.notifications {
@@ -154,6 +161,82 @@ pub fn scheduler(app: &AppHandle) {
                     }
                 }
             }
+        }
+    });
+}
+
+/// Open the progress windows that were asked for (see `AppState::progress_wanted`).
+///
+/// Opening is retried every two seconds: a window that could not be created (the app was
+/// still starting, the main thread was busy) is not lost. A window the user closed is not
+/// reopened, because its entry left the list the moment the window existed.
+pub fn progress_windows(app: &AppHandle) {
+    const MAX_ATTEMPTS: u8 = 15;
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(2));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            let state = app.state::<AppState>();
+            let empty = state
+                .progress_wanted
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_empty();
+            if empty {
+                // Nothing to open: sleep until a download asks for its window.
+                state.progress_wake.notified().await;
+                continue;
+            }
+            let wanted: Vec<(String, u8)> = state
+                .progress_wanted
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            let mut open = app
+                .webview_windows()
+                .keys()
+                .filter(|l| l.starts_with("progress-"))
+                .count();
+            let mut done: Vec<String> = Vec::new();
+            for (id, attempts) in &wanted {
+                let exists = app.get_webview_window(&crate::progress_label(id)).is_some();
+                let info = state.mgr.get(id).ok();
+                let alive = info.as_ref().is_some_and(|d| {
+                    d.record.status == oxyd_core::Status::Queued || d.record.status.is_active()
+                });
+                if exists || !alive || *attempts >= MAX_ATTEMPTS {
+                    done.push(id.clone());
+                    continue;
+                }
+                if open >= crate::MAX_PROGRESS_WINDOWS {
+                    // Shown in the list only; asking by hand still opens its window.
+                    done.push(id.clone());
+                    continue;
+                }
+                open += 1;
+                let (handle, id, title) = (
+                    app.clone(),
+                    id.clone(),
+                    info.map(|d| d.record.filename).unwrap_or_default(),
+                );
+                let _ = app.run_on_main_thread(move || {
+                    if let Err(e) = crate::open_progress(&handle, &id, &title) {
+                        tracing::warn!("cannot open the progress window, will retry: {e}");
+                    }
+                });
+            }
+            {
+                let mut list = state
+                    .progress_wanted
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                list.retain(|(id, _)| !done.contains(id));
+                for (_, attempts) in list.iter_mut() {
+                    *attempts += 1;
+                }
+            }
+            tick.tick().await;
         }
     });
 }

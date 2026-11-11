@@ -819,3 +819,38 @@ async fn the_main_queue_is_the_settings() {
     assert_eq!(s.max_active, 7);
     assert_eq!(s.schedule.days, vec![5, 6]);
 }
+
+#[tokio::test]
+async fn cookies_do_not_follow_a_redirect_to_another_site() {
+    let site = server().await;
+    let cdn = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let headers = RequestHeaders {
+        cookie: Some("session=1".into()),
+        authorization: Some("Bearer secret".into()),
+        ..Default::default()
+    };
+    let add = |to: String, name: &str| {
+        m.add(NewDownload {
+            url: format!(
+                "{site}/goto?to={}",
+                to.replace('?', "%3F").replace('&', "%26")
+            ),
+            filename: Some(name.into()),
+            headers: headers.clone(),
+            connections: Some(4),
+            start: true,
+            ..Default::default()
+        })
+        .unwrap()
+        .record
+        .id
+    };
+    // Another origin refuses every request that carries a cookie: all segments must pass.
+    let other = add(format!("{cdn}/file/{}?nocookie=1", 2 * MB), "cdn.bin");
+    assert_completed(&wait(&m, &other).await, 2 * MB);
+    // The same origin still gets them: this file needs the cookie on every request.
+    let same = add(format!("{site}/file/{}?cookie=session", 2 * MB), "same.bin");
+    assert_completed(&wait(&m, &same).await, 2 * MB);
+}

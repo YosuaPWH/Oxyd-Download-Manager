@@ -581,6 +581,13 @@ pub fn mini_open(app: AppHandle) -> bool {
     app.get_webview_window(crate::MINI).is_some()
 }
 
+/// Open the progress window of a download, or bring it to the front.
+#[tauri::command]
+pub fn show_progress(app: AppHandle, state: State<'_, AppState>, id: String) -> Res<()> {
+    let title = state.mgr.get(&id)?.record.filename;
+    crate::open_progress(&app, &id, &title).map_err(|e| CmdError::other("window", e))
+}
+
 /// Bring the main window to the front (from the mini window).
 #[tauri::command]
 pub fn show_main_window(app: AppHandle) {
