@@ -48,7 +48,7 @@ pub enum Event {
     },
     /// A tool job (convert, shrink, ZIP) started, moved on or ended.
     Tool {
-        job: ToolStatus,
+        job: JobStatus,
     },
     /// Nothing is queued or running any more after at least one download ran.
     QueueFinished,
@@ -57,7 +57,7 @@ pub enum Event {
 /// State of a tool job, see [`Manager::run_tool`](crate::Manager::run_tool).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ToolStatus {
+pub struct JobStatus {
     pub id: String,
     /// `convert`, `shrink` or `zip`.
     pub kind: &'static str,

@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::Manager;
 use crate::error::{Error, Result};
-use crate::events::{Event, ToolStatus};
+use crate::events::{Event, JobStatus};
 use crate::media::convert::{self, ToolJob};
 use crate::media::Tool;
 use crate::types::Status;
@@ -88,7 +88,7 @@ impl Manager {
         } else {
             files.len() as u32
         };
-        let mut status = ToolStatus {
+        let mut status = JobStatus {
             id,
             kind: job.kind(),
             name: name_of(&files[0]),
@@ -130,13 +130,13 @@ impl Manager {
     /// `Ok(false)` when cancelled.
     async fn tool_run(
         self: &Arc<Self>,
-        status: &mut ToolStatus,
+        status: &mut JobStatus,
         files: &[PathBuf],
         job: &ToolJob,
         cancel: &CancellationToken,
     ) -> Result<bool> {
         // Progress is reported at most once per percent.
-        let reporter = |me: Arc<Manager>, base: ToolStatus| {
+        let reporter = |me: Arc<Manager>, base: JobStatus| {
             let last = AtomicU32::new(u32::MAX);
             move |p: f32| {
                 let pct = (p * 100.0) as u32;

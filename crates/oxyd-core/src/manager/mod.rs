@@ -3,6 +3,7 @@
 mod ftp;
 mod media;
 mod tools;
+mod torrent;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -112,6 +113,9 @@ pub struct Manager {
     queues: RwLock<Vec<Queue>>,
     /// One shared limiter per queue, created when its first download starts.
     queue_limiters: Mutex<HashMap<String, Arc<Limiter>>>,
+    /// The BitTorrent session, started with the first torrent.
+    #[cfg(feature = "torrent")]
+    torrents: tokio::sync::OnceCell<crate::torrent::Engine>,
     /// Running tool jobs (convert, shrink, ZIP), to cancel them.
     tool_jobs: Mutex<HashMap<String, CancellationToken>>,
     /// One encoder at a time: ffmpeg already uses every core.
@@ -150,6 +154,8 @@ impl Manager {
         let mgr = Arc::new_cyclic(|me| Manager {
             queues: RwLock::new(queues),
             queue_limiters: Mutex::new(HashMap::new()),
+            #[cfg(feature = "torrent")]
+            torrents: tokio::sync::OnceCell::new(),
             tool_jobs: Mutex::new(HashMap::new()),
             tool_slot: Arc::new(tokio::sync::Semaphore::new(1)),
             store,
@@ -624,7 +630,12 @@ impl Manager {
                 crate::media::cleanup(&r.save_path);
             }
             if delete_file && r.status == Status::Completed {
-                let _ = std::fs::remove_file(&r.save_path);
+                // A torrent with several files is a folder.
+                if r.kind == Kind::Torrent && r.save_path.is_dir() {
+                    let _ = std::fs::remove_dir_all(&r.save_path);
+                } else {
+                    let _ = std::fs::remove_file(&r.save_path);
+                }
             }
         }
         let _ = self.store.delete(&r.id);
@@ -777,7 +788,6 @@ impl Manager {
         }
     }
 
-    /// Start queued downloads while there is room.
     /// Every queue, the main one first.
     pub fn queues(&self) -> Vec<Queue> {
         let s = self.settings();
@@ -932,6 +942,7 @@ impl Manager {
         Ok(())
     }
 
+    /// Start queued downloads while there is room.
     pub fn schedule(&self) {
         self.schedule_after(false);
     }
@@ -1132,6 +1143,9 @@ impl Manager {
         if rec.kind == Kind::Ftp {
             return self.run_ftp(rec, ctx).await;
         }
+        if rec.kind == Kind::Torrent {
+            return self.run_torrent(rec, ctx).await;
+        }
         rec.status = Status::Probing;
         rec.error = None;
         rec.error_code = None;
@@ -1329,6 +1343,17 @@ struct TaskCtx {
     speed: Arc<AtomicU64>,
     eta: Arc<AtomicU64>,
     detail: Arc<Mutex<Option<String>>>,
+}
+
+impl TaskCtx {
+    /// What the task does besides downloading (`merge`, `metadata`, ...), for the UI.
+    #[allow(dead_code)] // only torrents use it, and they are a feature
+    fn set_detail(&self, detail: Option<&str>) {
+        let mut d = self.detail.lock().unwrap_or_else(|e| e.into_inner());
+        if d.as_deref() != detail {
+            *d = detail.map(str::to_string);
+        }
+    }
 }
 
 /// Emits progress 4x per second and checkpoints to disk once per second.

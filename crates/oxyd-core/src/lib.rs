@@ -21,6 +21,8 @@ pub mod secret;
 pub mod segment;
 pub mod settings;
 pub mod store;
+#[cfg(feature = "torrent")]
+pub mod torrent;
 pub mod types;
 pub mod writer;
 

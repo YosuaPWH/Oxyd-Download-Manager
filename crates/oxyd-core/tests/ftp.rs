@@ -185,7 +185,7 @@ async fn resumes_from_the_last_byte() {
     let paused = wait(&m, &id).await;
     assert_eq!(paused.record.status, Status::Paused);
     let kept = paused.record.downloaded;
-    assert!(kept >= 512 * 1024 && kept < SIZE);
+    assert!((512 * 1024..SIZE).contains(&kept));
 
     state.rate.store(0, Ordering::SeqCst);
     m.start(&id).unwrap();

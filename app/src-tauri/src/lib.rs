@@ -72,6 +72,31 @@ pub fn show_main(app: &AppHandle) {
     });
 }
 
+/// Label of the mini window: a small always-on-top panel with the speed, the running
+/// downloads and a place to drop links.
+pub const MINI: &str = "mini";
+
+/// Open the mini window, or close it when it is open. Returns whether it is open now.
+pub fn toggle_mini(app: &AppHandle) -> tauri::Result<bool> {
+    if let Some(w) = app.get_webview_window(MINI) {
+        w.destroy()?;
+        return Ok(false);
+    }
+    tauri::WebviewWindowBuilder::new(app, MINI, tauri::WebviewUrl::App("index.html?mini".into()))
+        .title("Oxyd")
+        .inner_size(300.0, 148.0)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        // Links are dropped on it as HTML drag and drop, like on the main window.
+        .disable_drag_drop_handler()
+        .build()?;
+    Ok(true)
+}
+
 fn quit(app: &AppHandle) {
     let mgr = app.state::<AppState>().mgr.clone();
     tauri::async_runtime::block_on(mgr.shutdown());
@@ -231,6 +256,17 @@ pub fn run() {
             commands::video_file_name,
             commands::tool_status,
             commands::update_ytdlp,
+            commands::list_queues,
+            commands::save_queue,
+            commands::delete_queue,
+            commands::move_to_queue,
+            commands::grab_page,
+            commands::run_tool,
+            commands::cancel_tool,
+            commands::pick_torrent,
+            commands::toggle_mini,
+            commands::mini_open,
+            commands::show_main_window,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Oxyd");

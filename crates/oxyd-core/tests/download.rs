@@ -792,7 +792,8 @@ async fn queues_run_side_by_side_with_their_own_limits() {
     assert_completed(&wait(&m, &b).await, MB);
 
     // Moving and deleting.
-    m.move_to_queue(&[b.clone()], &night.id).unwrap();
+    m.move_to_queue(std::slice::from_ref(&b), &night.id)
+        .unwrap();
     assert_eq!(m.get(&b).unwrap().record.queue, night.id);
     m.delete_queue(&night.id).unwrap();
     assert_eq!(m.get(&b).unwrap().record.queue, MAIN_QUEUE);

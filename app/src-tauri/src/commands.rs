@@ -3,13 +3,15 @@
 use std::path::PathBuf;
 
 use oxyd_core::filename::{sanitize, Category};
+use oxyd_core::grabber::{GrabOptions, GrabResult};
+use oxyd_core::media::convert::ToolJob;
 use oxyd_core::media::{ChoiceKind, ToolStatus, VideoProbe};
 use oxyd_core::{
-    DownloadInfo, DuplicatePolicy, Manager, MediaSpec, NewDownload, ProbeInfo, RequestHeaders,
-    Settings,
+    DownloadInfo, DuplicatePolicy, Manager, MediaSpec, NewDownload, ProbeInfo, Queue,
+    RequestHeaders, Settings,
 };
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager as _, State};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
 use tauri_plugin_dialog::DialogExt as _;
@@ -514,4 +516,73 @@ mod tests {
         assert!(as_link("héllo").is_none());
         assert!(as_link("").is_none());
     }
+}
+
+#[tauri::command]
+pub fn list_queues(state: State<'_, AppState>) -> Vec<Queue> {
+    state.mgr.queues()
+}
+
+/// Create a queue (empty id) or change one.
+#[tauri::command]
+pub fn save_queue(state: State<'_, AppState>, queue: Queue) -> Res<Queue> {
+    Ok(state.mgr.save_queue(queue)?)
+}
+
+#[tauri::command]
+pub fn delete_queue(state: State<'_, AppState>, id: String) -> Res<()> {
+    Ok(state.mgr.delete_queue(&id)?)
+}
+
+#[tauri::command]
+pub fn move_to_queue(state: State<'_, AppState>, ids: Vec<String>, queue: String) -> Res<()> {
+    Ok(state.mgr.move_to_queue(&ids, &queue)?)
+}
+
+/// List the file links of a web page (site grabber).
+#[tauri::command]
+pub async fn grab_page(
+    state: State<'_, AppState>,
+    url: String,
+    options: GrabOptions,
+) -> Res<GrabResult> {
+    Ok(state.mgr.grab(&url, options).await?)
+}
+
+/// Start a tool job (convert, shrink, ZIP) on finished downloads; returns the job's id.
+#[tauri::command]
+pub fn run_tool(state: State<'_, AppState>, ids: Vec<String>, job: ToolJob) -> Res<String> {
+    Ok(state.mgr.run_tool(&ids, job)?)
+}
+
+#[tauri::command]
+pub fn cancel_tool(state: State<'_, AppState>, id: String) {
+    state.mgr.cancel_tool(&id);
+}
+
+/// Let the user choose a `.torrent` file.
+#[tauri::command]
+pub async fn pick_torrent(app: AppHandle) -> Res<Option<PathBuf>> {
+    let dialog = app.dialog().file().add_filter("BitTorrent", &["torrent"]);
+    let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_file())
+        .await
+        .map_err(|e| CmdError::other("dialog", e))?;
+    Ok(picked.and_then(|p| p.into_path().ok()))
+}
+
+/// Open or close the mini window; returns whether it is open now.
+#[tauri::command]
+pub fn toggle_mini(app: AppHandle) -> Res<bool> {
+    crate::toggle_mini(&app).map_err(|e| CmdError::other("window", e))
+}
+
+#[tauri::command]
+pub fn mini_open(app: AppHandle) -> bool {
+    app.get_webview_window(crate::MINI).is_some()
+}
+
+/// Bring the main window to the front (from the mini window).
+#[tauri::command]
+pub fn show_main_window(app: AppHandle) {
+    crate::show_main(&app);
 }
