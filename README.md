@@ -283,8 +283,9 @@ replaced. The media tools use the ffmpeg Oxyd already manages for videos, one jo
 Every download that starts right away opens a small **progress window** with its speed, time
 left, segment map and *Pause* / *Cancel* (*Open* when it is done). At most six are open at
 once, and *Settings → General* switches them off; *Show progress window* in the right-click
-menu opens one by hand. A window that could not be opened is tried again every two seconds
-while its download runs, and one you closed stays closed.
+menu opens one by hand. Resize a progress window to use that size for future downloads, even
+after restarting Oxyd. A window that could not be opened is tried again every two seconds while
+its download runs, and one you closed stays closed.
 
 The **mini window** (toolbar) stays on top of other windows: total speed, the download that
 finishes next, and a place to drop links, which start at once. Each of these windows is a web
@@ -350,8 +351,10 @@ network port is opened. Firefox is not supported yet.
   **×** next to it hides the button for that video or post until the page is loaded again;
   other videos keep theirs, and *Download video with Oxyd* in the right-click menu still
   works for a hidden one. In fullscreen the button and its menu are not shown at all, also
-  for a player inside a frame. It can be switched off in the popup. To list the streams of pages yt-dlp does not know, the
-  extension notes which responses a tab received were video, audio or HLS/DASH manifests
+  for a player inside a frame. In the extension popup, **Video overlay** lets you choose an
+  icon-only button and a player corner. Each site's settings also apply to players embedded
+  on that site. To list streams on pages yt-dlp does not know, the extension notes which
+  responses a tab received were video, audio or HLS/DASH manifests
   (`webRequest`, read-only); that list stays in the browser session.
 - The popup shows whether the app is reachable and lets you switch capturing off, change the
   minimum size, the captured file types and the domains that should be left alone.

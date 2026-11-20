@@ -26,6 +26,53 @@
 
     <button id="pageVideo" type="button" data-i18n="pageVideo">Download the video on this page</button>
 
+    <details id="videoOverlay">
+      <summary data-i18n="videoOverlay">Video overlay</summary>
+      <form id="overlayForm">
+        <div class="overlay-fields">
+          <label><span data-i18n="defaultSize">Default size</span>
+            <select id="defaultSize">
+              <option value="standard" data-i18n="standard">Standard</option>
+              <option value="compact" data-i18n="compact">Icon only</option>
+            </select>
+          </label>
+          <label><span data-i18n="defaultCorner">Default corner</span>
+            <select id="defaultCorner">
+              <option value="top-right" data-i18n="topRight">Top right</option>
+              <option value="top-left" data-i18n="topLeft">Top left</option>
+              <option value="bottom-right" data-i18n="bottomRight">Bottom right</option>
+              <option value="bottom-left" data-i18n="bottomLeft">Bottom left</option>
+            </select>
+          </label>
+        </div>
+        <fieldset id="siteOverlay" hidden>
+          <legend id="overlayHost"></legend>
+          <div class="overlay-fields">
+            <label><span data-i18n="siteSize">Size on this site</span>
+              <select id="siteSize">
+                <option value="" data-i18n="useDefault">Use default</option>
+                <option value="standard" data-i18n="standard">Standard</option>
+                <option value="compact" data-i18n="compact">Icon only</option>
+              </select>
+            </label>
+            <label><span data-i18n="siteCorner">Corner on this site</span>
+              <select id="siteCorner">
+                <option value="" data-i18n="useDefault">Use default</option>
+                <option value="top-right" data-i18n="topRight">Top right</option>
+                <option value="top-left" data-i18n="topLeft">Top left</option>
+                <option value="bottom-right" data-i18n="bottomRight">Bottom right</option>
+                <option value="bottom-left" data-i18n="bottomLeft">Bottom left</option>
+              </select>
+            </label>
+          </div>
+        </fieldset>
+        <div class="row">
+          <span id="overlayStatus" role="status"></span>
+          <button id="saveOverlay" type="submit" class="primary" data-i18n="saveLayout" disabled>Save layout</button>
+        </div>
+      </form>
+    </details>
+
     <details>
       <summary data-i18n="filters">Filters</summary>
       <label for="minSize" data-i18n="minSize">Minimum size (MB)</label>
