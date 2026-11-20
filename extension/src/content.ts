@@ -4,6 +4,7 @@
 import { Dismissals, dismissalKey } from "./dismiss.ts";
 import type { ContentMessage, DownloadResult, MenuEntry, VideoOptions } from "./messages.ts";
 import { isVideoSite, postUrl } from "./media.ts";
+import { DEFAULT_LAYOUT, OVERLAY_KEY, effectiveLayout, overlaySettings, placeOverlay, siteHost, type Layout } from "./overlay.ts";
 
 const MIN_W = 200;
 const MIN_H = 120;
@@ -47,8 +48,8 @@ const TEXT = indonesian
 
 const CSS = `
 :host { all: initial; }
-.wrap { position: fixed; left: var(--x); top: var(--y); display: none; flex-direction: column; align-items: flex-end;
-  gap: 6px; pointer-events: none; font: 13px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; color: #111; }
+.wrap { position: fixed; left: var(--x); top: var(--y); display: none;
+  pointer-events: none; font: 13px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; color: #111; }
 .wrap.show { display: flex; }
 .bar { display: flex; align-items: center; gap: 6px; }
 .pill, .menu, .x { pointer-events: auto; }
@@ -64,10 +65,14 @@ const CSS = `
 .pill:focus-visible { outline: 2px solid #4c8dff; outline-offset: 2px; }
 .pill.done { background: #15803d; }
 .pill.err { background: #b91c1c; }
-.menu { display: none; box-sizing: border-box; width: 100%; min-width: 220px; max-height: 360px; overflow-y: auto; padding: 6px; border-radius: 10px;
+.compact .pill, .compact .x { width: 26px; height: 26px; }
+.compact .pill { justify-content: center; padding: 0; }
+.compact .pill span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.menu { position: absolute; top: calc(100% + 6px); left: var(--menu-x); display: none; box-sizing: border-box;
+  width: var(--menu-width); max-height: var(--menu-height); overflow-y: auto; padding: 6px; border-radius: 10px;
   background: #fff; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.28); }
 .menu.open { display: block; }
-.menu.up { position: absolute; bottom: 36px; }
+.menu.up { top: auto; bottom: calc(100% + 6px); }
 .head { padding: 6px 8px 8px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group { padding: 8px 8px 4px; font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.04em; }
 .item { display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px;
@@ -211,6 +216,7 @@ class FullscreenState {
 class VideoButton {
   private host: HTMLElement | null = null;
   private wrap!: HTMLDivElement;
+  private bar!: HTMLDivElement;
   private pill!: HTMLButtonElement;
   private label!: HTMLSpanElement;
   private menu!: HTMLDivElement;
@@ -229,9 +235,19 @@ class VideoButton {
   private cache = new Map<string, { at: number; res: Promise<VideoOptions | undefined> }>();
   private contextVideo: HTMLVideoElement | null = null;
   private enabled = false;
+  private layout = DEFAULT_LAYOUT;
   /** Videos whose button was closed, until the page is loaded again. */
   private dismissed = new Dismissals<HTMLVideoElement>();
   private fullscreen = new FullscreenState(() => this.onFullscreen());
+
+  setLayout(layout: Layout) {
+    if (this.layout.corner === layout.corner && this.layout.compact === layout.compact) return;
+    this.layout = layout;
+    if (this.host) {
+      this.wrap.classList.toggle("compact", layout.compact);
+      if (this.current) this.place();
+    }
+  }
 
   setEnabled(on: boolean) {
     if (on === this.enabled) return;
@@ -317,6 +333,7 @@ class VideoButton {
     style.textContent = CSS;
     this.wrap = document.createElement("div");
     this.wrap.className = "wrap";
+    this.wrap.classList.toggle("compact", this.layout.compact);
     this.pill = document.createElement("button");
     this.pill.className = "pill";
     this.pill.type = "button";
@@ -345,10 +362,10 @@ class VideoButton {
       this.overUi = false;
       this.hide(true);
     });
-    const bar = document.createElement("div");
-    bar.className = "bar";
-    bar.append(this.pill, close);
-    this.wrap.append(bar, this.menu);
+    this.bar = document.createElement("div");
+    this.bar.className = "bar";
+    this.bar.append(this.pill, close);
+    this.wrap.append(this.bar, this.menu);
     root.append(style, this.wrap);
     // Only the user's own clicks: a page must not start downloads with its synthetic events.
     this.pill.addEventListener("click", (e) => {
@@ -441,8 +458,8 @@ class VideoButton {
     this.attach();
     this.current = v;
     this.reset();
-    this.place();
     this.wrap.classList.add("show");
+    this.place();
     // Read the qualities while the pointer rests on the video, so the menu opens ready.
     clearTimeout(this.prefetchTimer);
     this.prefetchTimer = window.setTimeout(() => {
@@ -473,15 +490,16 @@ class VideoButton {
     const r = t.getBoundingClientRect();
     const vw = document.documentElement.clientWidth || innerWidth;
     const vh = document.documentElement.clientHeight || innerHeight;
-    // The button sits in the video's top right corner, its menu right-aligned under it.
-    const width = 300;
-    const right = Math.min(r.right, vw) - 10;
-    const x = Math.min(Math.max(8, right - width), Math.max(8, vw - width - 8));
-    const y = Math.max(r.top, 0) + 10;
-    this.wrap.style.setProperty("--x", `${x}px`);
-    this.wrap.style.setProperty("--y", `${y}px`);
-    this.wrap.style.setProperty("width", `${Math.min(width, right - x)}px`);
-    this.menu.classList.toggle("up", y + 400 > vh && y > 400);
+    if (r.bottom <= 0 || r.right <= 0 || r.top >= vh || r.left >= vw) return this.hide(true);
+    const placement = placeOverlay(this.layout.corner, r, { width: vw, height: vh }, {
+      width: this.bar.offsetWidth, height: this.bar.offsetHeight,
+    });
+    this.wrap.style.setProperty("--x", `${placement.x}px`);
+    this.wrap.style.setProperty("--y", `${placement.y}px`);
+    this.menu.style.setProperty("--menu-x", `${placement.menuLeft}px`);
+    this.menu.style.setProperty("--menu-width", `${placement.width}px`);
+    this.menu.style.setProperty("--menu-height", `${placement.maxHeight}px`);
+    this.menu.classList.toggle("up", placement.up);
   }
 
   /** Entering fullscreen hides the button and its menu; after leaving, the next hover shows it again. */
@@ -642,11 +660,17 @@ class VideoButton {
   private async choose(entry: MenuEntry, pageUrl: string, title: string) {
     this.closeMenu();
     this.label.textContent = TEXT.sending;
+    this.pill.title = TEXT.sending;
+    this.place();
     const r = await send<DownloadResult>({ type: "video-download", pageUrl, title, entry });
     this.pill.classList.add(r?.ok ? "done" : "err");
     this.label.textContent = r?.ok ? TEXT.sent : TEXT.failed;
-    if (!r?.ok && r?.error) this.pill.title = r.error;
-    setTimeout(() => this.reset(), 2500);
+    this.pill.title = r?.ok ? TEXT.sent : r?.error ?? TEXT.failed;
+    if (this.current) this.place();
+    setTimeout(() => {
+      this.reset();
+      if (this.current) this.place();
+    }, 2500);
   }
 
   private reset() {
@@ -667,12 +691,34 @@ if (!window.__oxydVideoButton) {
   const button = new VideoButton();
   window.__oxydVideoButton = button;
   const apply = (on: unknown) => button.setEnabled(on !== false);
+  let host = siteHost(location.href);
+  let preferences = overlaySettings(undefined);
+  let overlayChanged = false;
+  const applyLayout = () => button.setLayout(effectiveLayout(preferences, host));
+  if (window !== window.top) {
+    // Layout belongs to the site showing the player, including cross-origin embeds.
+    void send<{ host?: string }>({ type: "video-overlay-site" }).then((result) => {
+      if (!result?.host) return;
+      host = result.host;
+      applyLayout();
+    });
+  }
+  void chrome.storage.local.get(OVERLAY_KEY).then((stored) => {
+    if (overlayChanged) return;
+    preferences = overlaySettings(stored[OVERLAY_KEY]);
+    applyLayout();
+  }).catch(() => {});
   chrome.storage.sync
     .get({ videoButton: true })
     .then((s) => apply(s.videoButton))
     .catch(() => apply(true));
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "sync" && changes.videoButton) apply(changes.videoButton.newValue);
+    if (area === "local" && changes[OVERLAY_KEY]) {
+      overlayChanged = true;
+      preferences = overlaySettings(changes[OVERLAY_KEY].newValue);
+      applyLayout();
+    }
   });
   chrome.runtime.onMessage.addListener((msg: { type?: string }, _sender, respond) => {
     if (msg?.type !== "open-video-menu") return false;

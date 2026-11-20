@@ -8,6 +8,7 @@ import { shouldCapture } from "./filters.ts";
 import { handOffDownload } from "./handoff.ts";
 import type { ContentMessage } from "./messages.ts";
 import { browserName, cookieHeader, sendNative, type AddDownload } from "./native.ts";
+import { siteHost } from "./overlay.ts";
 import { loadSettings } from "./settings.ts";
 import { initSniffer } from "./sniffer.ts";
 import { pageVideo, storeIdFor, videoDownload, videoOptions } from "./video.ts";
@@ -194,6 +195,10 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
   // Only this extension's own pages and content scripts send these.
   if (sender.id !== chrome.runtime.id) return false;
   const m = msg as ContentMessage | { type: "page-video"; tabId: number };
+  if (m?.type === "video-overlay-site") {
+    respond({ host: siteHost(sender.tab?.url) });
+    return false;
+  }
   if (m?.type === "video-options") {
     void videoOptions(m, sender.tab).then(respond);
     return true;

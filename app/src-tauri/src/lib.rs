@@ -5,6 +5,7 @@ mod browser;
 mod commands;
 mod i18n;
 mod native_host;
+mod progress_size;
 mod state;
 
 use std::sync::OnceLock;
@@ -113,12 +114,18 @@ pub fn open_progress(app: &AppHandle, id: &str, title: &str) -> tauri::Result<()
         return w.set_focus();
     }
     let url = tauri::WebviewUrl::App(format!("index.html?progress={id}").into());
-    tauri::WebviewWindowBuilder::new(app, label, url)
+    let size = app.state::<progress_size::Preference>().initial_size(app);
+    let window = tauri::WebviewWindowBuilder::new(app, label, url)
         .title(if title.is_empty() { "Oxyd" } else { title })
-        .inner_size(460.0, 250.0)
-        .resizable(false)
+        .inner_size(f64::from(size.width), f64::from(size.height))
+        .min_inner_size(
+            f64::from(progress_size::MINIMUM.width),
+            f64::from(progress_size::MINIMUM.height),
+        )
+        .resizable(true)
         .maximizable(false)
         .build()?;
+    progress_size::watch(&window, size);
     Ok(())
 }
 
@@ -239,6 +246,9 @@ pub fn run() {
             let mgr = tauri::async_runtime::block_on(Manager::open(&db))?;
             let lang = mgr.settings().language;
             app.manage(AppState::new(mgr));
+            app.manage(progress_size::Preference::load(
+                oxyd_core::paths::data_dir().join("progress-window-size.json"),
+            ));
 
             let handle = app.handle().clone();
             build_tray(&handle, &lang)?;
@@ -320,6 +330,7 @@ pub fn run() {
             code: None, api, ..
         } => api.prevent_exit(),
         RunEvent::Exit => {
+            progress_size::save(app);
             if let Some(state) = app.try_state::<AppState>() {
                 tauri::async_runtime::block_on(state.mgr.shutdown());
             }

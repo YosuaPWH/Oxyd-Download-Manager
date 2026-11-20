@@ -66,7 +66,8 @@ h1 {
 }
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
   color: inherit;
 }
@@ -104,7 +105,8 @@ details[open] > label {
   color: var(--muted);
 }
 input[type="number"],
-textarea {
+textarea,
+select {
   width: 100%;
   box-sizing: border-box;
   padding: 5px 7px;
@@ -113,6 +115,13 @@ textarea {
   background: transparent;
   resize: vertical;
 }
+#overlayForm { margin-top: 8px; }
+.overlay-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.overlay-fields label { display: grid; gap: 4px; color: var(--muted); }
+.overlay-fields select { resize: none; }
+#siteOverlay { margin: 8px 0 0; padding: 6px 8px 8px; border: 1px solid var(--border); border-radius: 6px; }
+#overlayHost { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+#overlayStatus { align-self: center; margin-right: auto; color: var(--muted); }
 .row {
   display: flex;
   justify-content: flex-end;
