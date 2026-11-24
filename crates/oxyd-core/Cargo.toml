@@ -6,6 +6,7 @@ license.workspace = true
 description = "Download engine for Oxyd Download Manager"
 
 [features]
+http3 = ["reqwest/http3"]
 # Magnet links and .torrent files. Off by default so the CLI and the bridge stay small.
 torrent = ["dep:librqbit"]
 

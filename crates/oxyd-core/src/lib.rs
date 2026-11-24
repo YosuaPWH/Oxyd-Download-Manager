@@ -17,6 +17,7 @@ pub mod media;
 pub mod paths;
 pub mod probe;
 pub mod queue;
+mod scanner;
 pub mod secret;
 pub mod segment;
 pub mod settings;

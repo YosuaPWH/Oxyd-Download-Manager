@@ -20,7 +20,7 @@ tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time", 
 tokio-util = "0.7"
 # No gzip feature: byte offsets must match the raw body, and the client
 # is built with .no_gzip() (see probe.rs), so it only pulled in dead code.
-reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls", "socks"] }
+reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls", "socks", "http2"] }
 futures = "0.3"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

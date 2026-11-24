@@ -161,6 +161,16 @@ export interface ProbeInfo {
 export type DuplicatePolicy = "rename" | "overwrite" | "ask";
 export type AfterQueue = "nothing" | "sleep" | "shutdown";
 
+export interface CaptureSettings {
+  enabled: boolean;
+  minSize: number;
+  extensions: string[];
+  mimeTypes: string[];
+  excludedDomains: string[];
+  videoButton: boolean;
+  minVideoDuration: number;
+}
+
 export interface Settings {
   downloadDir: string;
   categoryFolders: boolean;
@@ -170,16 +180,37 @@ export interface Settings {
   speedLimit: number | null;
   duplicatePolicy: DuplicatePolicy;
   confirmNew: boolean;
+  capture: CaptureSettings | null;
   autostart: boolean;
   notifications: boolean;
   clipboardMonitor: boolean;
   proxy: string | null;
-  connection: { connectTimeoutSecs: number; direct: boolean };
+  connection: {
+    connectTimeoutSecs: number;
+    readTimeoutSecs: number;
+    httpVersion: "auto" | "http1" | "http3";
+    userAgent: string;
+    proxyBypass: string[];
+    direct: boolean;
+  };
   theme: "system" | "light" | "dark";
   language: "system" | "id" | "en";
   schedule: Schedule;
   afterQueue: AfterQueue;
-  video: { ytdlpPath: string; ffmpegPath: string; autoUpdate: boolean };
+  video: {
+    ytdlpPath: string;
+    ffmpegPath: string;
+    autoUpdate: boolean;
+    postprocess: {
+      embedSubtitles: boolean;
+      subtitleLanguages: string;
+      embedMetadata: boolean;
+      embedThumbnail: boolean;
+      embedChapters: boolean;
+      sponsorblock: "off" | "mark" | "remove";
+    };
+  };
+  scanner: { enabled: boolean; extensions: string[] };
   accent: Accent;
   density: "comfortable" | "compact";
   glass: boolean;

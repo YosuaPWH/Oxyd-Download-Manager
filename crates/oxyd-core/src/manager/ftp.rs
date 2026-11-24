@@ -112,8 +112,7 @@ impl Manager {
             return Ok(false);
         }
         drop(file);
-        self.complete(rec, &part).await?;
-        Ok(true)
+        self.complete(rec, &part, &ctx.cancel).await
     }
 
     /// Copy the file from `offset` to the part file. `Ok(false)` when cancelled.

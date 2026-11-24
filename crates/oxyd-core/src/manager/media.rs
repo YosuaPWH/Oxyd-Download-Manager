@@ -243,7 +243,10 @@ impl Manager {
                 .filter_map(|id| info.format(id).cloned())
                 .collect();
             rec.media = Some(spec.clone());
-            if spec.ytdlp || !formats.iter().all(Format::is_plain_http) {
+            let postprocess = spec.postprocess.as_ref().is_some_and(|prefs| {
+                ytdlp::needs_postprocess(prefs, &rec.url, &spec.container, mp3)
+            });
+            if spec.ytdlp || postprocess || !formats.iter().all(Format::is_plain_http) {
                 spec.ytdlp = true;
                 rec.media = Some(spec.clone());
                 return self
@@ -312,7 +315,7 @@ impl Manager {
         let probes = tokio::select! {
             _ = ctx.cancel.cancelled() => return Ok(false),
             r = futures::future::try_join_all(formats.iter().zip(&headers).map(|(f, h)| {
-                probe::probe(&client, f.url.as_deref().unwrap_or(""), h)
+                probe::probe_with_version(&client, f.url.as_deref().unwrap_or(""), h, s.connection.http_version)
             })) => r?,
         };
         let mut sizes = Vec::with_capacity(probes.len());
@@ -384,6 +387,7 @@ impl Manager {
             .collect();
         let job = Arc::new(Job {
             client,
+            http_version: s.connection.http_version,
             sources,
             file: file.clone(),
             shared: ctx.shared.clone(),
@@ -456,8 +460,7 @@ impl Manager {
             return Ok(false);
         }
         let _ = std::fs::remove_file(&part);
-        self.finish_media(rec, &out)?;
-        Ok(true)
+        self.finish_media(rec, &out, &ctx.cancel).await
     }
 
     /// Merge the video (first `sizes[0]` bytes of `part`) with the audio after it. The audio
@@ -511,7 +514,11 @@ impl Manager {
         mut yt: YtDlp,
         tool_progress: &Progress,
     ) -> Result<bool> {
-        let needs_ffmpeg = formats.len() > 1 || mp3 || formats.iter().any(|f| !f.is_plain_http());
+        let prefs = spec.postprocess.clone().unwrap_or_default();
+        let needs_ffmpeg = formats.len() > 1
+            || mp3
+            || formats.iter().any(|f| !f.is_plain_http())
+            || ytdlp::needs_postprocess(&prefs, &rec.url, &spec.container, mp3);
         if yt.ffmpeg.is_none() && needs_ffmpeg {
             let s = self.settings();
             let client = self.client();
@@ -588,9 +595,10 @@ impl Manager {
             .download(
                 &rec.url,
                 &rec.headers,
-                &spec.format,
+                Choice::parse_id(&spec.format).0,
                 &spec.container,
                 mp3,
+                &prefs,
                 rec.connections,
                 &stem,
                 &ctx.cancel,
@@ -604,24 +612,26 @@ impl Manager {
                 *ctx.detail.lock().unwrap_or_else(|e| e.into_inner()) = None;
                 Ok(false)
             }
-            Some(file) => {
-                self.finish_media(rec, &file)?;
-                Ok(true)
-            }
+            Some(file) => self.finish_media(rec, &file, &ctx.cancel).await,
         }
     }
 
     /// Move the finished file `made` to its place and mark the download completed.
-    fn finish_media(&self, rec: &mut DownloadRecord, made: &Path) -> Result<()> {
+    async fn finish_media(
+        &self,
+        rec: &mut DownloadRecord,
+        made: &Path,
+        cancel: &CancellationToken,
+    ) -> Result<bool> {
         let original = rec.save_path.clone();
-        let policy = self.settings().duplicate_policy;
+        let settings = self.settings();
+        if !crate::scanner::scan(made, &rec.filename, &settings.scanner, cancel).await? {
+            return Ok(false);
+        }
+        let policy = settings.duplicate_policy;
         let mut dest = rec.save_path.clone();
-        if dest.exists() {
-            if policy == DuplicatePolicy::Overwrite {
-                std::fs::remove_file(&dest)?;
-            } else {
-                dest = self.resolve_path(&rec.dir, &rec.filename, policy, &rec.id);
-            }
+        if dest.exists() && policy != DuplicatePolicy::Overwrite {
+            dest = self.resolve_path(&rec.dir, &rec.filename, policy, &rec.id);
         }
         std::fs::rename(made, &dest)?;
         let size = std::fs::metadata(&dest)?.len();
@@ -641,7 +651,7 @@ impl Manager {
         }
         self.save_task(rec, false)?;
         self.store.clear_segments(&rec.id)?;
-        Ok(())
+        Ok(true)
     }
 }
 

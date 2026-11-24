@@ -1,3 +1,4 @@
+import { api, firefox } from "./browser-api.ts";
 // Service worker side of the video button: asks Oxyd (yt-dlp) for a page's qualities, falls
 // back to the streams the tab loaded, and sends the chosen one to Oxyd.
 import { isVideoSite, streamLabel, type SniffedStream } from "./media.ts";
@@ -5,7 +6,7 @@ import type { DownloadResult, MenuEntry, VideoOptions } from "./messages.ts";
 import { VIDEO_TIMEOUT_MS, browserName, cookieHeader, sendNative, type Reply } from "./native.ts";
 import { tabStreams } from "./sniffer.ts";
 
-const indonesian = chrome.i18n.getUILanguage().startsWith("id");
+const indonesian = api.i18n.getUILanguage().startsWith("id");
 const TEXT = indonesian
   ? {
       offline: "Oxyd tidak berjalan. Klik lagi untuk memulainya.",
@@ -24,14 +25,17 @@ const TEXT = indonesian
       fallback: "Showing the streams this page loaded.",
     };
 
-/** Cookie store of the incognito profile when `incognito`, default store otherwise. */
-export async function storeIdFor(incognito: boolean): Promise<string | undefined> {
+/** Keep browser containers and private profiles isolated when forwarding cookies. */
+export async function storeIdFor(incognito: boolean, tab?: chrome.tabs.Tab): Promise<string | false | undefined> {
+  const explicit = (tab as (chrome.tabs.Tab & { cookieStoreId?: string }) | undefined)?.cookieStoreId;
+  if (explicit) return explicit;
   if (!incognito) return undefined;
   try {
-    const stores = await chrome.cookies.getAllCookieStores();
-    return stores.find((s) => s.id !== "0")?.id;
+    const stores = await api.cookies.getAllCookieStores();
+    const store = tab?.id === undefined ? undefined : stores.find((entry) => entry.tabIds.includes(tab.id!));
+    return (store ?? stores.find((entry) => entry.id === (firefox ? "firefox-private" : "1")))?.id ?? false;
   } catch {
-    return undefined;
+    return false;
   }
 }
 
@@ -72,7 +76,7 @@ export async function videoOptions(
           type: "probe_video",
           id: crypto.randomUUID(),
           pageUrl: req.pageUrl,
-          cookies: await cookieHeader(req.pageUrl, await storeIdFor(!!tab?.incognito)),
+          cookies: await cookieHeader(req.pageUrl, await storeIdFor(!!tab?.incognito, tab)),
           userAgent: navigator.userAgent,
           referrer: tab?.url,
           launch: req.launch,
@@ -115,7 +119,7 @@ export async function videoDownload(
   req: { pageUrl: string; title: string; entry: MenuEntry },
   tab: chrome.tabs.Tab | undefined,
 ): Promise<DownloadResult> {
-  const store = await storeIdFor(!!tab?.incognito);
+  const store = await storeIdFor(!!tab?.incognito, tab);
   const stream = req.entry.stream;
   let msg: object;
   if (stream?.kind === "file") {

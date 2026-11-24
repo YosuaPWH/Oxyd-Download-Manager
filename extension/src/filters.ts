@@ -61,6 +61,13 @@ export function shouldCapture(
   }
   const size = item.totalBytes && item.totalBytes > 0 ? item.totalBytes : item.fileSize;
   if (size && size > 0 && size < s.minSize) return { capture: false, reason: "too-small" };
+  if (s.mimeTypes?.length) {
+    const mime = item.mime?.split(";")[0].trim().toLowerCase() ?? "";
+    const matches = s.mimeTypes.some((type) =>
+      type.endsWith("/*") ? mime.startsWith(type.slice(0, -1)) : mime === type,
+    );
+    if (!matches) return { capture: false, reason: "mime" };
+  }
   if (s.extensions.length) {
     const ext = extensionOf(item.filename || "") || extensionOf(urlFileName(url));
     if (!s.extensions.includes(ext)) return { capture: false, reason: "extension" };

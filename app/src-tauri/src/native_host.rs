@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use oxyd_protocol::{host_manifest, HOST_NAME};
+use oxyd_protocol::{firefox_host_manifest, host_manifest, HOST_NAME};
 
 /// Registry keys (under HKCU) whose default value points at the manifest.
 #[cfg(windows)]
@@ -16,6 +16,9 @@ pub const REGISTRY_KEYS: [&str; 2] = [
     r"Software\Google\Chrome\NativeMessagingHosts",
     r"Software\Microsoft\Edge\NativeMessagingHosts",
 ];
+
+#[cfg(windows)]
+const FIREFOX_REGISTRY_KEY: &str = r"Software\Mozilla\NativeMessagingHosts";
 
 /// Browser profile folders under `~/.config` that read `NativeMessagingHosts/*.json`.
 #[cfg(not(windows))]
@@ -84,26 +87,35 @@ pub fn registered() -> bool {
         .into_iter()
         .any(|hive| {
             let root = RegKey::predef(hive);
-            REGISTRY_KEYS.iter().any(|base| {
-                root.open_subkey(format!(r"{base}\{HOST_NAME}"))
-                    .and_then(|key| key.get_value::<String, _>(""))
-                    .is_ok_and(|manifest| valid_manifest(Path::new(&manifest)))
-            })
+            REGISTRY_KEYS
+                .iter()
+                .copied()
+                .chain([FIREFOX_REGISTRY_KEY])
+                .any(|base| {
+                    root.open_subkey(format!(r"{base}\{HOST_NAME}"))
+                        .and_then(|key| key.get_value::<String, _>(""))
+                        .is_ok_and(|manifest| valid_manifest(Path::new(&manifest)))
+                })
         })
 }
 
 #[cfg(not(windows))]
 pub fn registered() -> bool {
     directories::BaseDirs::new().is_some_and(|base| {
-        BROWSER_DIRS.iter().any(|browser| {
-            valid_manifest(
-                &base
-                    .config_dir()
-                    .join(browser)
-                    .join("NativeMessagingHosts")
-                    .join(format!("{HOST_NAME}.json")),
-            )
-        })
+        let firefox = base
+            .home_dir()
+            .join(".mozilla/native-messaging-hosts")
+            .join(format!("{HOST_NAME}.json"));
+        valid_manifest(&firefox)
+            || BROWSER_DIRS.iter().any(|browser| {
+                valid_manifest(
+                    &base
+                        .config_dir()
+                        .join(browser)
+                        .join("NativeMessagingHosts")
+                        .join(format!("{HOST_NAME}.json")),
+                )
+            })
     })
 }
 
@@ -168,7 +180,13 @@ fn write(bridge: &Path) -> std::io::Result<Vec<PathBuf>> {
         let (key, _) = hkcu.create_subkey(format!(r"{base}\{HOST_NAME}"))?;
         key.set_value("", &manifest.to_string_lossy().as_ref())?;
     }
-    Ok(vec![manifest])
+    let firefox = manifest
+        .with_file_name("firefox")
+        .join(format!("{HOST_NAME}.json"));
+    write_if_changed(&firefox, &firefox_host_manifest(&bridge.to_string_lossy()))?;
+    let (key, _) = hkcu.create_subkey(format!(r"{FIREFOX_REGISTRY_KEY}\{HOST_NAME}"))?;
+    key.set_value("", &firefox.to_string_lossy().as_ref())?;
+    Ok(vec![manifest, firefox])
 }
 
 #[cfg(not(windows))]
@@ -190,6 +208,15 @@ fn write(bridge: &Path) -> std::io::Result<Vec<PathBuf>> {
             .join(format!("{HOST_NAME}.json"));
         write_if_changed(&manifest, &content)?;
         written.push(manifest);
+    }
+    if let Some(home) = directories::BaseDirs::new().map(|base| base.home_dir().join(".mozilla")) {
+        if home.is_dir() {
+            let firefox = home
+                .join("native-messaging-hosts")
+                .join(format!("{HOST_NAME}.json"));
+            write_if_changed(&firefox, &firefox_host_manifest(&bridge.to_string_lossy()))?;
+            written.push(firefox);
+        }
     }
     Ok(written)
 }

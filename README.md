@@ -5,7 +5,7 @@
 
 A fast, lightweight download manager for **Windows and Linux** in the spirit of Internet
 Download Manager. Oxyd splits every file into segments that download in parallel, survives
-crashes and lost connections, picks up downloads from Chrome, Edge and other Chromium
+crashes and lost connections, picks up downloads from Firefox, Chrome, Edge and other Chromium
 browsers, and lets you continue a download from where it stopped even after its link has
 expired. Files, videos from web pages, torrents and FTP all land in one list, sorted into
 queues that run on their own schedule.
@@ -62,7 +62,7 @@ queues that run on their own schedule.
 | Versions | Windows 10 and 11, 64-bit | 64-bit distributions with GTK 3 and WebKitGTK 4.1 (Ubuntu 22.04+, Debian 12+, Fedora 38+, …) |
 | Packages | Setup `.exe`, `.msi` | `.deb`, `.rpm`, `.AppImage` |
 | Web view | WebView2 (installed automatically if missing) | WebKitGTK |
-| Browsers | Chrome, Edge (plus any Chromium browser through the per-user registration) | Chrome, Chromium, Edge, Brave, Vivaldi |
+| Browsers | Chrome, Edge, Firefox 140+ | Chrome, Chromium, Edge, Brave, Vivaldi, Firefox 140+ |
 | Bridge ↔ app | Named pipe `\\.\pipe\oxyd`, owner and SYSTEM only | Unix socket in `$XDG_RUNTIME_DIR`, mode 0600 |
 | Stored cookies | Encrypted with DPAPI | In a database only you can read (folder 0700, file 0600) |
 | Data folder | `%LOCALAPPDATA%\Oxyd` | `~/.local/share/Oxyd` |
@@ -329,20 +329,29 @@ main window picks up appearance and language changes while Settings is open.
 | General | Language, startup, clipboard monitoring |
 | Appearance | Theme previews, accent colour, row density, glass effect |
 | Downloads | Default folder, duplicate names, progress windows |
-| Connection and Proxy | Connections per download (1–32), HTTP connect timeout, HTTP/HTTPS/SOCKS5 proxy, automatic proxy bypass |
+| Connection and Proxy | Connections per download (1–32), connect and read timeouts, HTTP version, custom User-Agent, HTTP/HTTPS/SOCKS5 proxy and host exceptions |
 | Speed & queues and Schedule | Global limit, queue editor, start and stop times, completion action |
 | Categories | Subfolder sorting and optional per-category folders |
-| Browser & integration | Bridge registration and repair, extension installation, download confirmation |
-| Videos from the web | Install yt-dlp, ffmpeg and Deno, manage yt-dlp updates, set custom tool paths |
+| Browser & integration | Bridge registration and repair, extension installation, optional desktop-managed capture filters and video button |
+| Videos from the web | Install yt-dlp, ffmpeg and Deno, set tool paths, choose subtitles, metadata, thumbnails, chapters, and YouTube SponsorBlock |
 | Notifications & sounds | Desktop notifications and completion tone |
-| Advanced | JSON settings backup and restore, open the application data folder |
+| Security | Optional local scans using Microsoft Defender on Windows or ClamAV on Linux |
+| Advanced | Settings and download list backups, diagnostic ZIP, application data folder |
 | Keyboard shortcuts and About | Shortcut reference, version, license, GitHub releases and source code |
+
+**Download list backup.** Exports include portable URLs, names and timestamps. Import adds paused
+entries and skips matching URLs and names. Files, browser cookies, and partial downloads are
+kept outside the backup. Diagnostic ZIPs contain version and state summaries.
+
+**HTTP/3.** HTTP/1.1 is the default. Automatic mode can negotiate HTTP/2. For an experimental
+Windows build, pass `-Http3` to `scripts/build-installer.ps1`. Then select a direct connection
+and HTTP/3 in Settings. Use it with servers that support QUIC.
 
 ## Browser extension
 
-A Manifest V3 extension for Chrome, Edge and other Chromium browsers sends downloads to Oxyd.
-The extension only talks to the app through a small native helper (`oxyd-bridge`), and no
-network port is opened. Firefox is not supported yet.
+The Manifest V3 extension sends downloads and videos from Chromium browsers and Firefox to Oxyd
+through the local `oxyd-bridge` native messaging host. Firefox starts handoff from its download
+list, so its Save dialog can appear before Oxyd accepts the download.
 
 - Cookies and login headers are only sent to the site they came from: after a redirect to
   another site (a CDN) they are left out.
@@ -374,8 +383,11 @@ network port is opened. Firefox is not supported yet.
 | Music | mp3 wav flac aac ogg m4a wma opus |
 | Documents | pdf doc docx xls xlsx ppt pptx epub |
 
-An empty list captures everything. Through *Add URL* or the right-click menu any file type
-can be downloaded.
+An empty extension filter accepts any file extension. Enable *Manage capture from Oxyd* in
+*Settings → Browser & integration* to apply desktop filters for size, extensions, MIME types
+and excluded domains, plus the overlay switch and minimum video duration. The extension reads
+the desktop profile when it starts, when a download is evaluated, or when the popup is opened.
+Through *Add URL* or the right-click menu any file type can be downloaded.
 
 ## How it works
 
@@ -504,10 +516,15 @@ native helpers and are not supported.
 
 ### Extension
 
-Unzip the extension (or use `extension/build` after building it), open `chrome://extensions`
-(or `edge://extensions`, `brave://extensions`, …), turn on *Developer mode*, choose *Load
-unpacked* and select the folder. Its ID is always `gnihamodjbioaennpopmldmjdecbmfpl`, which is
-the one the installers allow to talk to the helper.
+- **Chromium** — unzip the extension or select `extension/build` after building it.
+  Open `chrome://extensions`, `edge://extensions`, or the equivalent page, enable
+  *Developer mode*, then select the folder with *Load unpacked*.
+- **Firefox 140+** — build the extension with `npm ci --prefix extension` and
+  `npm run build --prefix extension`. Start Oxyd, open
+  `about:debugging#/runtime/this-firefox`, choose *Load Temporary Add-on*, and
+  select `extension/build-firefox/manifest.json`. Temporary add-ons need to be
+  loaded again after restarting Firefox. Open *Settings → Browser & integration*
+  and select *Repair bridge* if the browser cannot reach Oxyd.
 
 ### Publishing a release
 

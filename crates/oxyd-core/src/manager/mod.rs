@@ -259,7 +259,13 @@ impl Manager {
         if url.starts_with("ftp://") {
             return crate::ftp::probe(url).await;
         }
-        probe::probe(&self.client(), url, headers).await
+        probe::probe_with_version(
+            &self.client(),
+            url,
+            headers,
+            self.settings().connection.http_version,
+        )
+        .await
     }
 
     /// Collect the file links of a web page (see [`crate::grabber`]).
@@ -367,6 +373,21 @@ impl Manager {
 
     /// Add a download. It is queued when `new.start`, otherwise added paused.
     pub fn add(&self, new: NewDownload) -> Result<DownloadInfo> {
+        self.add_with_date(new, None)
+    }
+
+    pub fn download_records(&self) -> Result<Vec<DownloadRecord>> {
+        self.store.list()
+    }
+
+    /// Restore a history entry without starting it or reusing a path from the backup.
+    pub fn add_imported(&self, mut new: NewDownload, created_at: i64) -> Result<DownloadInfo> {
+        new.start = false;
+        new.on_conflict = Some(DuplicatePolicy::Rename);
+        self.add_with_date(new, Some(created_at))
+    }
+
+    fn add_with_date(&self, new: NewDownload, created_at: Option<i64>) -> Result<DownloadInfo> {
         let kind = Kind::of(&new.url, new.torrent)?;
         let queue = new
             .queue
@@ -433,10 +454,17 @@ impl Manager {
             error: None,
             error_code: None,
             position: self.store.next_position()?,
-            created_at: ts,
+            created_at: created_at
+                .filter(|date| *date > 0 && *date <= ts)
+                .unwrap_or(ts),
             updated_at: ts,
             completed_at: None,
-            media: new.media,
+            media: new.media.map(|mut media| {
+                media
+                    .postprocess
+                    .get_or_insert_with(|| s.video.postprocess.clone());
+                media
+            }),
             queue,
             kind,
         };
@@ -1164,6 +1192,7 @@ impl Manager {
         self.save_task(rec, true)?;
 
         let client = self.client();
+        let http_version = self.settings().connection.http_version;
         let mut segs = ctx.shared.snapshot();
         let part_exists =
             !rec.save_path.as_os_str().is_empty() && part_path(&rec.save_path).exists();
@@ -1178,9 +1207,9 @@ impl Manager {
                 let mut attempt = 0;
                 loop {
                     let r = if resuming {
-                        probe::probe(&client, &rec.url, &rec.headers).await.map(|i| (i, None))
+                        probe::probe_with_version(&client, &rec.url, &rec.headers, http_version).await.map(|i| (i, None))
                     } else {
-                        probe::probe_open(&client, &rec.url, &rec.headers).await
+                        probe::probe_open_with_version(&client, &rec.url, &rec.headers, http_version).await
                     };
                     match r {
                         Err(e) if e.is_transient() && attempt < PROBE_RETRIES.len() => {
@@ -1266,6 +1295,7 @@ impl Manager {
         let mut restarts = 0;
         let result: Result<bool> = loop {
             let job = Arc::new(Job {
+                http_version,
                 client: client.clone(),
                 sources: vec![Source {
                     start: 0,
@@ -1307,11 +1337,15 @@ impl Manager {
             return Ok(false);
         }
         drop(file);
-        self.complete(rec, &part).await?;
-        Ok(true)
+        self.complete(rec, &part, &ctx.cancel).await
     }
 
-    async fn complete(&self, rec: &mut DownloadRecord, part: &Path) -> Result<()> {
+    async fn complete(
+        &self,
+        rec: &mut DownloadRecord,
+        part: &Path,
+        cancel: &CancellationToken,
+    ) -> Result<bool> {
         if rec.total_size.is_none() {
             rec.total_size = Some(rec.downloaded);
         }
@@ -1327,14 +1361,14 @@ impl Manager {
                 .await
                 .map_err(|e| Error::InvalidState(e.to_string()))??;
         }
-        let policy = self.settings().duplicate_policy;
+        let settings = self.settings();
+        if !crate::scanner::scan(part, &rec.filename, &settings.scanner, cancel).await? {
+            return Ok(false);
+        }
+        let policy = settings.duplicate_policy;
         let mut dest = rec.save_path.clone();
-        if dest.exists() {
-            if policy == DuplicatePolicy::Overwrite {
-                std::fs::remove_file(&dest)?;
-            } else {
-                dest = self.resolve_path(&rec.dir, &rec.filename, policy, &rec.id);
-            }
+        if dest.exists() && policy != DuplicatePolicy::Overwrite {
+            dest = self.resolve_path(&rec.dir, &rec.filename, policy, &rec.id);
         }
         writer::finalize(part);
         std::fs::rename(part, &dest)?;
@@ -1348,7 +1382,7 @@ impl Manager {
         rec.headers = RequestHeaders::default();
         self.save_task(rec, false)?;
         self.store.clear_segments(&rec.id)?;
-        Ok(())
+        Ok(true)
     }
 }
 

@@ -56,3 +56,11 @@ test("helpers", () => {
   assert.ok(hostMatches("https://example.com/x", ["*.example.com"]));
   assert.deepEqual(parseList(".ZIP, rar  mp4 zip", true), ["zip", "rar", "mp4"]);
 });
+
+test("managed capture accepts MIME wildcards and ignores MIME parameters", () => {
+  const filters = { ...DEFAULTS, extensions: [], mimeTypes: ["video/*", "application/pdf"] };
+  const url = "https://x.org/download";
+  assert.equal(shouldCapture({ url, mime: "video/mp4; charset=utf-8" }, filters, ctx).capture, true);
+  assert.equal(shouldCapture({ url, mime: "application/pdf" }, filters, ctx).capture, true);
+  assert.deepEqual(shouldCapture({ url, mime: "text/html" }, filters, ctx), { capture: false, reason: "mime" });
+});

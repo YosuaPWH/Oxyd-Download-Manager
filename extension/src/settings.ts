@@ -1,3 +1,4 @@
+import { api } from "./browser-api.ts";
 export interface ExtSettings {
   /** Capture downloads at all. */
   enabled: boolean;
@@ -9,6 +10,8 @@ export interface ExtSettings {
   excludedDomains: string[];
   /** Show the "Download" button over videos. */
   videoButton: boolean;
+  mimeTypes?: string[];
+  minVideoDuration?: number;
 }
 
 export const DEFAULT_EXTENSIONS = [
@@ -28,12 +31,12 @@ export const DEFAULTS: ExtSettings = {
 };
 
 export async function loadSettings(): Promise<ExtSettings> {
-  const stored = await chrome.storage.sync.get({ ...DEFAULTS } as Record<string, unknown>);
+  const stored = await api.storage.sync.get({ ...DEFAULTS } as Record<string, unknown>);
   return { ...DEFAULTS, ...(stored as Partial<ExtSettings>) };
 }
 
 export async function saveSettings(s: Partial<ExtSettings>): Promise<void> {
-  await chrome.storage.sync.set(s);
+  await api.storage.sync.set(s);
 }
 
 /** Split user input ("zip, .rar  mp4") into normalised tokens. */
@@ -48,3 +51,11 @@ export function parseList(text: string, stripDot = false): string[] {
     ),
   ];
 }
+
+
+export interface EffectiveSettings {
+  settings: ExtSettings;
+  managed: boolean;
+}
+
+export const DESKTOP_CAPTURE_KEY = "oxydDesktopCapture";

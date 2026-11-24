@@ -27,7 +27,21 @@ pub const MAX_MESSAGE: usize = 1024 * 1024;
 /// fixed by the `key` in `extension/static/manifest.json`; add store IDs once published.
 pub const EXTENSION_IDS: &[&str] = &["gnihamodjbioaennpopmldmjdecbmfpl"];
 
-/// Native messaging host manifest for Chrome and Edge pointing at `bridge_path`.
+/// The fixed Gecko ID used by the Firefox extension build.
+pub const FIREFOX_EXTENSION_ID: &str = "oxyd@yosuapwh.github.io";
+
+pub fn firefox_host_manifest(bridge_path: &str) -> String {
+    serde_json::json!({
+        "name": HOST_NAME,
+        "description": "Oxyd native messaging bridge",
+        "path": bridge_path,
+        "type": "stdio",
+        "allowed_extensions": [FIREFOX_EXTENSION_ID],
+    })
+    .to_string()
+}
+
+/// Native messaging host manifest for Chromium browsers.
 pub fn host_manifest(bridge_path: &str) -> String {
     let origins: Vec<String> = EXTENSION_IDS
         .iter()
@@ -114,6 +128,8 @@ pub enum Message {
     #[serde(rename_all = "camelCase")]
     Pong {
         app_version: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        capture_settings: Option<serde_json::Value>,
     },
     Ack(Ack),
 }
@@ -408,10 +424,20 @@ mod tests {
         );
         let pong = String::from_utf8(encode(&Message::Pong {
             app_version: "0.1.0".into(),
+            capture_settings: None,
         }))
         .unwrap();
         assert_eq!(pong, r#"{"v":1,"type":"pong","appVersion":"0.1.0"}"#);
         assert_eq!(decode(br#"{"v":1,"type":"ping"}"#).unwrap(), Message::Ping);
+    }
+
+    #[test]
+    fn firefox_manifest_uses_allowed_extensions() {
+        let manifest: serde_json::Value =
+            serde_json::from_str(&firefox_host_manifest("/opt/oxyd-bridge")).unwrap();
+        assert_eq!(manifest["name"], HOST_NAME);
+        assert_eq!(manifest["allowed_extensions"][0], FIREFOX_EXTENSION_ID);
+        assert!(manifest.get("allowed_origins").is_none());
     }
 
     #[test]

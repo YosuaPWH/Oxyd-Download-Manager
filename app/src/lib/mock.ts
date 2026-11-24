@@ -223,17 +223,21 @@ let settings: Settings = {
   speedLimit: null,
   duplicatePolicy: "rename",
   confirmNew: true,
+  capture: null,
   autostart: false,
   notifications: true,
   clipboardMonitor: false,
   proxy: null,
-  connection: { connectTimeoutSecs: 15, direct: false },
+  connection: { connectTimeoutSecs: 15, readTimeoutSecs: 30, httpVersion: "http1", userAgent: "", proxyBypass: [], direct: false },
   theme: "system",
   // `?lang=en` shows the English interface (used for the README screenshots).
   language: new URLSearchParams(location.search).get("lang") === "en" ? "en" : "id",
   schedule: { enabled: true, start: "01:00", stop: "06:30", days: [0, 1, 2, 3, 4] },
   afterQueue: "nothing",
-  video: { ytdlpPath: "", ffmpegPath: "", autoUpdate: true },
+  video: { ytdlpPath: "", ffmpegPath: "", autoUpdate: true, postprocess: {
+    embedSubtitles: false, subtitleLanguages: "", embedMetadata: false, embedThumbnail: false, embedChapters: false, sponsorblock: "off",
+  } },
+  scanner: { enabled: false, extensions: [] },
   accent: "oxide",
   density: "comfortable",
   glass: true,
@@ -258,7 +262,17 @@ export function installMock() {
   let backup: Settings | null = null;
   const storageKey = "oxyd.dev.settings";
   const saved = localStorage.getItem(storageKey);
-  if (saved) settings = { ...settings, ...JSON.parse(saved) };
+  if (saved) {
+    const old = JSON.parse(saved) as Partial<Settings>;
+    settings = {
+      ...settings, ...old,
+      connection: { ...settings.connection, ...old.connection },
+      video: {
+        ...settings.video, ...old.video,
+        postprocess: { ...settings.video.postprocess, ...old.video?.postprocess },
+      },
+    };
+  }
   function publishSettings() {
     localStorage.setItem(storageKey, JSON.stringify(settings));
     settingsChannel.postMessage(settings);
@@ -348,6 +362,7 @@ export function installMock() {
             .find((language) => language === "id" || language === "en") ?? "en";
           return {
             systemLanguage,
+            http3: false,
             categoryDirectories: { video: "Video", music: "Musik", image: "Gambar", document: "Dokumen", archive: "Arsip", program: "Program", other: "Lainnya" },
             version: "0.4.0", dataDir: "C:\\Users\\me\\AppData\\Local\\Oxyd" };
         }
@@ -372,6 +387,11 @@ export function installMock() {
           if (!backup) return null;
           settings = structuredClone(backup);
           return publishSettings();
+        case "export_downloads":
+        case "export_diagnostics":
+          return true;
+        case "import_downloads":
+          return 1;
         case "ensure_video_tools":
           toolsReady = true;
           // Fall through to the status returned after installation.

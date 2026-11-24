@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 use super::info::Info;
 use super::process::{command, kill_tree};
 use crate::error::{Error, Result};
+use crate::settings::{SponsorBlock, VideoPostprocess};
 use crate::types::RequestHeaders;
 
 /// Marks Oxyd's progress lines among yt-dlp's output.
@@ -46,6 +47,54 @@ pub(crate) fn is_youtube(url: &str) -> bool {
             let site = |d: &str| h == d || h.ends_with(&format!(".{d}"));
             site("youtu.be") || site("youtube.com") || site("youtube-nocookie.com")
         })
+}
+
+pub(crate) fn needs_postprocess(
+    prefs: &VideoPostprocess,
+    url: &str,
+    container: &str,
+    mp3: bool,
+) -> bool {
+    !postprocess_args(prefs, url, container, mp3).is_empty()
+}
+
+fn postprocess_args(
+    prefs: &VideoPostprocess,
+    url: &str,
+    container: &str,
+    mp3: bool,
+) -> Vec<String> {
+    let video = !mp3 && !matches!(container, "m4a" | "opus" | "mp3" | "aac" | "wav" | "flac");
+    let mut args = Vec::new();
+    if prefs.embed_subtitles && video {
+        args.push("--embed-subs".into());
+        if !prefs.subtitle_languages.is_empty() {
+            args.extend(["--sub-langs".into(), prefs.subtitle_languages.clone()]);
+        }
+    }
+    if prefs.embed_metadata {
+        args.push("--embed-metadata".into());
+    }
+    if prefs.embed_thumbnail && matches!(container, "mp3" | "mp4" | "mkv" | "m4a" | "opus" | "flac")
+    {
+        args.push("--embed-thumbnail".into());
+    }
+    if prefs.embed_chapters && video {
+        args.push("--embed-chapters".into());
+    } else if prefs.embed_metadata {
+        args.push("--no-embed-chapters".into());
+    }
+    if is_youtube(url) {
+        match prefs.sponsorblock {
+            SponsorBlock::Off => {}
+            SponsorBlock::Mark if video => {
+                args.extend(["--sponsorblock-mark".into(), "sponsor".into()])
+            }
+            SponsorBlock::Mark => {}
+            SponsorBlock::Remove => args.extend(["--sponsorblock-remove".into(), "sponsor".into()]),
+        }
+    }
+    args
 }
 
 impl YtDlp {
@@ -174,6 +223,7 @@ impl YtDlp {
         format: &str,
         container: &str,
         mp3: bool,
+        prefs: &VideoPostprocess,
         connections: u32,
         stem: &Path,
         cancel: &CancellationToken,
@@ -186,6 +236,7 @@ impl YtDlp {
         cmd.env("PYTHONUTF8", "1")
             .args(self.base_args())
             .args(ctx)
+            .args(postprocess_args(prefs, url, container, mp3))
             .args(["-f", format, "--newline", "--progress", "--no-mtime"])
             .arg("--progress-template")
             .arg(format!(
@@ -367,6 +418,33 @@ pub(crate) fn netscape_cookies(url: &str, header: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn configures_video_postprocessing_for_supported_outputs() {
+        let prefs = VideoPostprocess {
+            embed_subtitles: true,
+            subtitle_languages: "id,en.*".into(),
+            embed_metadata: true,
+            embed_thumbnail: true,
+            embed_chapters: false,
+            sponsorblock: SponsorBlock::Mark,
+        };
+        let video = postprocess_args(&prefs, "https://youtu.be/video", "mkv", false);
+        for arg in [
+            "--embed-subs",
+            "id,en.*",
+            "--embed-metadata",
+            "--embed-thumbnail",
+            "--no-embed-chapters",
+            "--sponsorblock-mark",
+        ] {
+            assert!(video.iter().any(|entry| entry == arg), "missing {arg}");
+        }
+        let audio = postprocess_args(&prefs, "https://example.com/video", "mp3", true);
+        assert!(!audio
+            .iter()
+            .any(|arg| arg == "--embed-subs" || arg.starts_with("--sponsorblock")));
+    }
 
     #[test]
     fn parses_progress_and_stages() {

@@ -1,3 +1,4 @@
+import { api } from "./browser-api.ts";
 // Remembers the media streams each tab loaded (HLS/DASH manifests and video/audio files), for
 // pages yt-dlp does not know. Kept in storage.session: the service worker is stopped when idle.
 import { addStream, classifyMedia, isVideoSite, type SniffedStream } from "./media.ts";
@@ -9,7 +10,7 @@ const timers = new Map<number, ReturnType<typeof setTimeout>>();
 export async function tabStreams(tabId: number): Promise<SniffedStream[]> {
   const mem = tabs.get(tabId);
   if (mem) return mem;
-  const stored = await chrome.storage.session.get(key(tabId)).catch(() => ({}) as Record<string, unknown>);
+  const stored = await api.storage.session.get(key(tabId)).catch(() => ({}) as Record<string, unknown>);
   const list = (stored[key(tabId)] as SniffedStream[] | undefined) ?? [];
   tabs.set(tabId, list);
   return list;
@@ -23,8 +24,8 @@ function persist(tabId: number) {
       timers.delete(tabId);
       const list = tabs.get(tabId) ?? [];
       void (list.length
-        ? chrome.storage.session.set({ [key(tabId)]: list })
-        : chrome.storage.session.remove(key(tabId))
+        ? api.storage.session.set({ [key(tabId)]: list })
+        : api.storage.session.remove(key(tabId))
       ).catch(() => {});
     }, 300),
   );
@@ -42,7 +43,7 @@ function totalSize(status: number, h: chrome.webRequest.HttpHeader[] | undefined
 }
 
 export function initSniffer() {
-  chrome.webRequest.onHeadersReceived.addListener(
+  api.webRequest.onHeadersReceived.addListener(
     (d): undefined => {
       if (d.tabId < 0 || d.statusCode < 200 || d.statusCode >= 300) return;
       // yt-dlp reads these sites itself; their players load hundreds of pieces.
@@ -70,7 +71,7 @@ export function initSniffer() {
     ["responseHeaders"],
   );
   // A new page in the tab: forget the old page's streams.
-  chrome.webRequest.onBeforeRequest.addListener(
+  api.webRequest.onBeforeRequest.addListener(
     (d): undefined => {
       if (d.tabId < 0) return;
       tabs.set(d.tabId, []);
@@ -78,8 +79,8 @@ export function initSniffer() {
     },
     { urls: ["<all_urls>"], types: ["main_frame"] },
   );
-  chrome.tabs.onRemoved.addListener((tabId) => {
+  api.tabs.onRemoved.addListener((tabId) => {
     tabs.delete(tabId);
-    void chrome.storage.session.remove(key(tabId)).catch(() => {});
+    void api.storage.session.remove(key(tabId)).catch(() => {});
   });
 }

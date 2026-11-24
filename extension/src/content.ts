@@ -1,3 +1,5 @@
+import { DESKTOP_CAPTURE_KEY, type EffectiveSettings, type ExtSettings } from "./settings.ts";
+import { api } from "./browser-api.ts";
 // Content script: a "Download" button over videos, like IDM's. Hovering a video shows it;
 // clicking lists the qualities Oxyd found (through yt-dlp) or the streams the page loaded.
 // Everything lives in a closed shadow root so the page's styles and scripts cannot touch it.
@@ -13,7 +15,7 @@ const PREFETCH_AFTER = 500;
 const CACHE_MS = 10 * 60_000;
 const IS_YOUTUBE = /(^|\.)youtube(-nocookie)?\.com$/.test(location.hostname);
 
-const indonesian = chrome.i18n.getUILanguage().startsWith("id");
+const indonesian = api.i18n.getUILanguage().startsWith("id");
 const TEXT = indonesian
   ? {
       download: "Unduh",
@@ -96,7 +98,7 @@ const ICON =
   'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12m0 0-5-5m5 5 5-5M5 20h14"/></svg>';
 
 function send<T>(msg: ContentMessage): Promise<T | undefined> {
-  return chrome.runtime.sendMessage(msg).catch(() => undefined) as Promise<T | undefined>;
+  return api.runtime.sendMessage(msg).catch(() => undefined) as Promise<T | undefined>;
 }
 
 /** The element the button sits on (YouTube: the player, not its bare <video>). */
@@ -235,6 +237,7 @@ class VideoButton {
   private cache = new Map<string, { at: number; res: Promise<VideoOptions | undefined> }>();
   private contextVideo: HTMLVideoElement | null = null;
   private enabled = false;
+  private minDuration = 0;
   private layout = DEFAULT_LAYOUT;
   /** Videos whose button was closed, until the page is loaded again. */
   private dismissed = new Dismissals<HTMLVideoElement>();
@@ -247,6 +250,11 @@ class VideoButton {
       this.wrap.classList.toggle("compact", layout.compact);
       if (this.current) this.place();
     }
+  }
+
+  setMinDuration(seconds: number) {
+    this.minDuration = seconds;
+    if (seconds > 0 && this.current && !(this.current.duration >= seconds)) this.hide(true);
   }
 
   setEnabled(on: boolean) {
@@ -446,6 +454,10 @@ class VideoButton {
     if (found) {
       clearTimeout(this.hideTimer);
       this.hideTimer = undefined;
+      if (this.minDuration > 0 && !(found.duration >= this.minDuration)) {
+        this.hide(true);
+        return;
+      }
       if (found !== this.current) this.show(found);
     } else if (this.current) {
       this.scheduleHide();
@@ -690,7 +702,12 @@ declare global {
 if (!window.__oxydVideoButton) {
   const button = new VideoButton();
   window.__oxydVideoButton = button;
-  const apply = (on: unknown) => button.setEnabled(on !== false);
+  let desktop: ExtSettings | null = null;
+  let localVideoButton = true;
+  const apply = () => {
+    button.setMinDuration(desktop?.minVideoDuration ?? 0);
+    button.setEnabled(desktop?.videoButton ?? localVideoButton);
+  };
   let host = siteHost(location.href);
   let preferences = overlaySettings(undefined);
   let overlayChanged = false;
@@ -703,24 +720,35 @@ if (!window.__oxydVideoButton) {
       applyLayout();
     });
   }
-  void chrome.storage.local.get(OVERLAY_KEY).then((stored) => {
+  void api.storage.local.get(OVERLAY_KEY).then((stored) => {
     if (overlayChanged) return;
     preferences = overlaySettings(stored[OVERLAY_KEY]);
     applyLayout();
   }).catch(() => {});
-  chrome.storage.sync
-    .get({ videoButton: true })
-    .then((s) => apply(s.videoButton))
-    .catch(() => apply(true));
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "sync" && changes.videoButton) apply(changes.videoButton.newValue);
+  void api.storage.sync.get({ videoButton: true }).then((s) => {
+    localVideoButton = s.videoButton !== false;
+    apply();
+  }).catch(apply);
+  void send<EffectiveSettings>({ type: "capture-settings" }).then((profile) => {
+    desktop = profile?.managed ? profile.settings : null;
+    apply();
+  });
+  api.storage.onChanged.addListener((changes, area) => {
+    if (area === "sync" && changes.videoButton) {
+      localVideoButton = changes.videoButton.newValue !== false;
+      apply();
+    }
+    if (area === "local" && changes[DESKTOP_CAPTURE_KEY]) {
+      desktop = changes[DESKTOP_CAPTURE_KEY].newValue as ExtSettings | null;
+      apply();
+    }
     if (area === "local" && changes[OVERLAY_KEY]) {
       overlayChanged = true;
       preferences = overlaySettings(changes[OVERLAY_KEY].newValue);
       applyLayout();
     }
   });
-  chrome.runtime.onMessage.addListener((msg: { type?: string }, _sender, respond) => {
+  api.runtime.onMessage.addListener((msg: { type?: string }, _sender, respond) => {
     if (msg?.type !== "open-video-menu") return false;
     respond(button.openFromContextMenu());
     return false;

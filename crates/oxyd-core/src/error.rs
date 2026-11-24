@@ -22,6 +22,8 @@ pub enum Error {
     DiskFull { needed: u64, available: u64 },
     #[error("checksum mismatch: expected {expected}, got {actual}")]
     Checksum { expected: String, actual: String },
+    #[error("Antivirus scan: {0}")]
+    Scan(String),
     #[error("download not found: {0}")]
     NotFound(String),
     #[error("invalid state: {0}")]
@@ -94,6 +96,7 @@ impl Error {
             Error::RefreshMismatch { .. } => "refresh_mismatch",
             Error::DiskFull { .. } => "disk_full",
             Error::Checksum { .. } => "checksum",
+            Error::Scan(_) => "scan",
             Error::NotFound(_) => "missing",
             Error::InvalidState(_) => "invalid_state",
             Error::RetriesExhausted(_) => "retries",
