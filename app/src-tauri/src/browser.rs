@@ -1,5 +1,7 @@
 //! Links arriving from the browser bridge (named pipe) or the command line.
 
+use std::sync::atomic::Ordering;
+
 use oxyd_core::media::{ChoiceKind, VideoProbe};
 use oxyd_core::{NewDownload, RequestHeaders};
 use oxyd_protocol::{
@@ -35,6 +37,14 @@ pub fn start_pipe_server(app: &AppHandle) {
 }
 
 async fn handle(app: &AppHandle, msg: Message) -> Message {
+    if matches!(
+        &msg,
+        Message::Ping | Message::AddDownload(_) | Message::ProbeVideo(_) | Message::AddVideo(_)
+    ) {
+        app.state::<AppState>()
+            .browser_last_seen
+            .store(chrono::Utc::now().timestamp(), Ordering::Relaxed);
+    }
     match msg {
         Message::Ping => Message::Pong {
             app_version: env!("CARGO_PKG_VERSION").to_string(),

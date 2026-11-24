@@ -6,6 +6,7 @@ mod commands;
 mod i18n;
 mod native_host;
 mod progress_size;
+mod settings_io;
 mod state;
 
 use std::sync::OnceLock;
@@ -312,6 +313,12 @@ pub fn run() {
             commands::path_exists,
             commands::app_info,
             commands::open_project,
+            commands::open_releases,
+            commands::open_data_directory,
+            commands::browser_status,
+            commands::repair_browser,
+            settings_io::export_settings,
+            settings_io::import_settings,
             commands::pending_downloads,
             commands::probe_pending,
             commands::confirm_pending,
@@ -328,6 +335,7 @@ pub fn run() {
             commands::add_video,
             commands::video_file_name,
             commands::tool_status,
+            commands::ensure_video_tools,
             commands::update_ytdlp,
             commands::list_queues,
             commands::save_queue,

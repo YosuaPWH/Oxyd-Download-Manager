@@ -38,11 +38,7 @@ const BRIDGE_NAME: &str = if cfg!(windows) {
 };
 
 pub fn register() {
-    let Some(bridge) = bridge_path() else {
-        tracing::warn!("{BRIDGE_NAME} not found next to the app; browser integration disabled");
-        return;
-    };
-    match write(&bridge) {
+    match repair() {
         Ok(manifests) if manifests.is_empty() => {
             tracing::info!("no supported browser found; native messaging host not registered")
         }
@@ -53,6 +49,62 @@ pub fn register() {
         }
         Err(e) => tracing::error!("registering native messaging host failed: {e}"),
     }
+}
+
+pub fn repair() -> std::io::Result<Vec<PathBuf>> {
+    let bridge = bridge_path().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("{BRIDGE_NAME} was not found"),
+        )
+    })?;
+    write(&bridge)
+}
+
+fn valid_manifest(path: &Path) -> bool {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return false;
+    };
+    let Some(bridge) = manifest["path"].as_str().filter(|path| !path.is_empty()) else {
+        return false;
+    };
+    path.parent()
+        .is_some_and(|parent| parent.join(bridge).is_file())
+}
+
+#[cfg(windows)]
+pub fn registered() -> bool {
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    use winreg::RegKey;
+
+    [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE]
+        .into_iter()
+        .any(|hive| {
+            let root = RegKey::predef(hive);
+            REGISTRY_KEYS.iter().any(|base| {
+                root.open_subkey(format!(r"{base}\{HOST_NAME}"))
+                    .and_then(|key| key.get_value::<String, _>(""))
+                    .is_ok_and(|manifest| valid_manifest(Path::new(&manifest)))
+            })
+        })
+}
+
+#[cfg(not(windows))]
+pub fn registered() -> bool {
+    directories::BaseDirs::new().is_some_and(|base| {
+        BROWSER_DIRS.iter().any(|browser| {
+            valid_manifest(
+                &base
+                    .config_dir()
+                    .join(browser)
+                    .join("NativeMessagingHosts")
+                    .join(format!("{HOST_NAME}.json")),
+            )
+        })
+    })
 }
 
 /// The bridge next to the running executable.

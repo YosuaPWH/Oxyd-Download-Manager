@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { errorText } from "./i18n.svelte";
 import type {
+  Category,
   DownloadInfo,
   DuplicatePolicy,
   EngineEvent,
@@ -22,6 +23,18 @@ export interface VideoOptions {
   filename: string | null;
   dir: string | null;
   start: boolean;
+}
+
+export interface AppInfo {
+  version: string;
+  dataDir: string;
+  systemLanguage: "id" | "en";
+  categoryDirectories: Record<Category, string>;
+}
+
+export interface BrowserStatus {
+  registered: boolean;
+  lastSeen: number | null;
 }
 
 export const api = {
@@ -49,7 +62,13 @@ export const api = {
   suggestDir: (filename: string) => invoke<string>("suggest_dir", { filename }),
   pathExists: (dir: string, filename: string) => invoke<boolean>("path_exists", { dir, filename }),
   openProject: () => invoke<void>("open_project"),
-  appInfo: () => invoke<{ version: string; dataDir: string; systemLanguage: "id" | "en" }>("app_info"),
+  appInfo: () => invoke<AppInfo>("app_info"),
+  openReleases: () => invoke<void>("open_releases"),
+  openDataDirectory: () => invoke<void>("open_data_directory"),
+  browserStatus: () => invoke<BrowserStatus>("browser_status"),
+  repairBrowser: () => invoke<void>("repair_browser"),
+  exportSettings: () => invoke<boolean>("export_settings"),
+  importSettings: () => invoke<Settings | null>("import_settings"),
   pending: () => invoke<PendingAdd[]>("pending_downloads"),
   probePending: (key: string) => invoke<ProbeInfo>("probe_pending", { key }),
   confirmPending: (
@@ -80,6 +99,7 @@ export const api = {
   videoFileName: (title: string, container: string) =>
     invoke<string>("video_file_name", { title, container }),
   toolStatus: () => invoke<ToolStatus[]>("tool_status"),
+  ensureVideoTools: () => invoke<ToolStatus[]>("ensure_video_tools"),
   updateYtdlp: () => invoke<string | null>("update_ytdlp"),
   listQueues: () => invoke<Queue[]>("list_queues"),
   saveQueue: (queue: Queue) => invoke<Queue>("save_queue", { queue }),

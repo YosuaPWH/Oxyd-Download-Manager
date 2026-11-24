@@ -94,6 +94,25 @@ async fn segmented_download_matches_source() {
 }
 
 #[tokio::test]
+async fn uses_category_folder_for_name_discovered_during_probe() {
+    let base = server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let target = dir.path().join("custom archive folder");
+    let mut settings = m.settings();
+    settings.category_folders = true;
+    settings
+        .category_paths
+        .insert("archive".into(), target.clone());
+    m.set_settings(settings).unwrap();
+
+    let id = add(&m, format!("{base}/file/1024?name=archive.zip"), 1);
+    let info = wait(&m, &id).await;
+    assert_completed(&info, 1024);
+    assert_eq!(info.record.save_path, target.join("archive.zip"));
+}
+
+#[tokio::test]
 async fn parallel_connections_beat_per_connection_limit() {
     let base = server().await;
     let dir = tempfile::tempdir().unwrap();

@@ -53,8 +53,12 @@ impl Manager {
                 rec.category = Category::from_name(&rec.filename);
             }
             if rec.save_path.as_os_str().is_empty() {
-                let policy = self.settings().duplicate_policy;
-                rec.save_path = self.resolve_path(&rec.dir, &rec.filename, policy, &rec.id);
+                let settings = self.settings();
+                if rec.dir.as_os_str().is_empty() {
+                    rec.dir = settings.download_directory_for(&rec.filename);
+                }
+                rec.save_path =
+                    self.resolve_path(&rec.dir, &rec.filename, settings.duplicate_policy, &rec.id);
                 rec.filename = file_name(&rec.save_path);
             }
             segs = segment::single(size);

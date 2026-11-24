@@ -1,6 +1,7 @@
 //! Commands invoked by the frontend.
 
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 
 use oxyd_core::filename::{sanitize, Category};
 use oxyd_core::grabber::{GrabOptions, GrabResult};
@@ -36,7 +37,7 @@ impl From<oxyd_core::Error> for CmdError {
 }
 
 impl CmdError {
-    fn other(code: &str, message: impl ToString) -> Self {
+    pub(crate) fn other(code: &str, message: impl ToString) -> Self {
         CmdError {
             code: code.to_string(),
             message: message.to_string(),
@@ -44,7 +45,7 @@ impl CmdError {
     }
 }
 
-type Res<T> = Result<T, CmdError>;
+pub(crate) type Res<T> = Result<T, CmdError>;
 
 #[tauri::command]
 pub fn list_downloads(state: State<'_, AppState>) -> Res<Vec<DownloadInfo>> {
@@ -167,12 +168,15 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
     state.mgr.settings()
 }
 
+pub(crate) static SETTINGS_WRITES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[tauri::command]
-pub fn set_settings(
+pub async fn set_settings(
     app: AppHandle,
     state: State<'_, AppState>,
     patch: serde_json::Map<String, serde_json::Value>,
 ) -> Res<Settings> {
+    let _guard = SETTINGS_WRITES.lock().await;
     let old = state.mgr.settings();
     let mut value = serde_json::to_value(&old).map_err(|e| CmdError::other("settings", e))?;
     for (key, field) in patch {
@@ -181,9 +185,18 @@ pub fn set_settings(
         }
     }
     let settings = serde_json::from_value(value).map_err(|e| CmdError::other("settings", e))?;
-    let new = state.mgr.set_settings(settings)?;
+    apply_settings(&app, &state.mgr, &old, settings)
+}
+
+pub(crate) fn apply_settings(
+    app: &AppHandle,
+    mgr: &Manager,
+    old: &Settings,
+    settings: Settings,
+) -> Res<Settings> {
+    let new = mgr.set_settings(settings)?;
     if old.language != new.language {
-        crate::relabel_tray(&app, &new.language);
+        crate::relabel_tray(app, &new.language);
         if let Some(window) = app.get_webview_window("settings") {
             let _ = window.set_title(crate::i18n::tr(&new.language, "window.settings"));
         }
@@ -218,12 +231,7 @@ pub async fn pick_folder(app: AppHandle, start: Option<PathBuf>) -> Res<Option<P
 /// Folder suggested for a file name (honours "folder per category").
 #[tauri::command]
 pub fn suggest_dir(state: State<'_, AppState>, filename: String) -> PathBuf {
-    let s = state.mgr.settings();
-    if s.category_folders && !filename.is_empty() {
-        s.download_dir.join(Category::from_name(&filename).folder())
-    } else {
-        s.download_dir
-    }
+    state.mgr.settings().download_directory_for(&filename)
 }
 
 #[tauri::command]
@@ -242,12 +250,61 @@ pub fn open_project(app: AppHandle) -> Res<()> {
         .map_err(|e| CmdError::other("open", e))
 }
 
+#[tauri::command]
+pub fn open_releases(app: AppHandle) -> Res<()> {
+    app.opener()
+        .open_url(
+            "https://github.com/YosuaPWH/Oxyd-Download-Manager/releases",
+            None::<&str>,
+        )
+        .map_err(|e| CmdError::other("open", e))
+}
+
+#[tauri::command]
+pub fn open_data_directory(app: AppHandle) -> Res<()> {
+    app.opener()
+        .open_path(oxyd_core::paths::data_dir().to_string_lossy(), None::<&str>)
+        .map_err(|e| CmdError::other("open", e))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserStatus {
+    registered: bool,
+    last_seen: Option<i64>,
+}
+
+#[tauri::command]
+pub fn browser_status(state: State<'_, AppState>) -> BrowserStatus {
+    let last_seen = state.browser_last_seen.load(Ordering::Relaxed);
+    BrowserStatus {
+        registered: crate::native_host::registered(),
+        last_seen: (last_seen != 0).then_some(last_seen),
+    }
+}
+
+#[tauri::command]
+pub async fn repair_browser() -> Res<()> {
+    let manifests = tauri::async_runtime::spawn_blocking(crate::native_host::repair)
+        .await
+        .map_err(|e| CmdError::other("browser", e))?
+        .map_err(|e| CmdError::other("browser", e))?;
+    if manifests.is_empty() {
+        return Err(CmdError::other(
+            "browser",
+            "Open Chrome or Edge once, then try again.",
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppInfo {
     version: &'static str,
     data_dir: PathBuf,
     system_language: &'static str,
+    category_directories: std::collections::BTreeMap<&'static str, &'static str>,
 }
 
 #[tauri::command]
@@ -256,6 +313,10 @@ pub fn app_info() -> AppInfo {
         version: env!("CARGO_PKG_VERSION"),
         data_dir: oxyd_core::paths::data_dir(),
         system_language: crate::i18n::system_language(),
+        category_directories: Category::ALL
+            .into_iter()
+            .map(|category| (category.as_str(), category.folder()))
+            .collect(),
     }
 }
 
@@ -523,6 +584,11 @@ pub fn tool_status(state: State<'_, AppState>) -> Vec<ToolStatus> {
     state.mgr.tool_status()
 }
 
+#[tauri::command]
+pub async fn ensure_video_tools(state: State<'_, AppState>) -> Res<Vec<ToolStatus>> {
+    Ok(state.mgr.ensure_video_tools().await?)
+}
+
 /// Install or update yt-dlp now; the new version when it changed.
 #[tauri::command]
 pub async fn update_ytdlp(state: State<'_, AppState>) -> Res<Option<String>> {
@@ -555,7 +621,13 @@ pub fn list_queues(state: State<'_, AppState>) -> Vec<Queue> {
 
 /// Create a queue (empty id) or change one.
 #[tauri::command]
-pub fn save_queue(state: State<'_, AppState>, queue: Queue) -> Res<Queue> {
+pub async fn save_queue(app: AppHandle, state: State<'_, AppState>, queue: Queue) -> Res<Queue> {
+    if queue.is_main() {
+        let _guard = SETTINGS_WRITES.lock().await;
+        let queue = state.mgr.save_queue(queue)?;
+        let _ = app.emit("oxyd://settings", state.mgr.settings());
+        return Ok(queue);
+    }
     Ok(state.mgr.save_queue(queue)?)
 }
 

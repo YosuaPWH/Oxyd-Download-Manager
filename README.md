@@ -116,8 +116,8 @@ violet, rose, graphite), comfortable or compact rows, and a switch for the trans
 sidebar for weak GPUs and remote desktops. Status colours (finished, paused, failed) never
 follow the accent.
 
-**Theme and language.** *Settings → General* offers *Follow system*, *Light* and *Dark*, and
-system language, English or Indonesian. Error messages are translated too, with the technical detail
+**Theme and language.** *Settings → Appearance* previews system, light and dark themes.
+Choose the system language, English or Indonesian in *Settings → General*. Error messages are translated too, with the technical detail
 underneath.
 
 **Keyboard friendly.** The list and every dialog work without a mouse:
@@ -282,7 +282,7 @@ replaced. The media tools use the ffmpeg Oxyd already manages for videos, one jo
 
 Every download that starts right away opens a small **progress window** with its speed, time
 left, segment map and *Pause* / *Cancel* (*Open* when it is done). At most six are open at
-once, and *Settings → General* switches them off; *Show progress window* in the right-click
+once, and *Settings → Downloads* switches them off; *Show progress window* in the right-click
 menu opens one by hand. Resize a progress window to use that size for future downloads, even
 after restarting Oxyd. A window that could not be opened is tried again every two seconds while
 its download runs, and one you closed stays closed.
@@ -313,7 +313,7 @@ view of its own and costs memory while it is open.
   what the evening before began. When every queue has finished, Oxyd can put the computer to
   sleep or shut it down.
 - A finished download shows *Open* and *Open folder* at the bottom right and plays a short
-  tone, which *Settings → General* can turn off.
+  tone, which *Settings → Notifications & sounds* can turn off.
 
 ### Settings
 
@@ -321,15 +321,22 @@ view of its own and costs memory while it is open.
   <img src="docs/images/settings-page-dark.png" alt="Settings page" width="800">
 </p>
 
-| Tab | What you can set |
+Search by a section or preference name in the sidebar. Changes save automatically, and the
+main window picks up appearance and language changes while Settings is open.
+
+| Section | Controls |
 |---|---|
-| General | Language, theme, start automatically when you sign in, notifications, a progress window for new downloads, the tone when a download finishes |
-| Appearance | Accent colour, comfortable or compact rows, the glass effect |
-| Downloads | Default folder, a sub folder per category, connections per download (1–32), simultaneous downloads, global speed limit, what to do with duplicate names |
-| Browser & integration | Show the confirmation dialog for browser downloads, watch the clipboard for file links |
-| Videos from the web | Which yt-dlp, ffmpeg and deno are used, update yt-dlp now or every day, your own yt-dlp or ffmpeg |
-| Schedule | Start and stop times and days of the main queue, action when the queues finish |
-| Network | HTTP, HTTPS or SOCKS5 proxy |
+| General | Language, startup, clipboard monitoring |
+| Appearance | Theme previews, accent colour, row density, glass effect |
+| Downloads | Default folder, duplicate names, progress windows |
+| Connection and Proxy | Connections per download (1–32), HTTP connect timeout, HTTP/HTTPS/SOCKS5 proxy, automatic proxy bypass |
+| Speed & queues and Schedule | Global limit, queue editor, start and stop times, completion action |
+| Categories | Subfolder sorting and optional per-category folders |
+| Browser & integration | Bridge registration and repair, extension installation, download confirmation |
+| Videos from the web | Install yt-dlp, ffmpeg and Deno, manage yt-dlp updates, set custom tool paths |
+| Notifications & sounds | Desktop notifications and completion tone |
+| Advanced | JSON settings backup and restore, open the application data folder |
+| Keyboard shortcuts and About | Shortcut reference, version, license, GitHub releases and source code |
 
 ## Browser extension
 

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::filename;
+use crate::settings::ConnectionSettings;
 use crate::types::RequestHeaders;
 
 pub const DEFAULT_USER_AGENT: &str = concat!(
@@ -37,15 +38,24 @@ impl ProbeInfo {
 
 /// Build the shared HTTP client. `proxy` accepts `http://`, `https://` or `socks5://` URLs.
 pub fn build_client(proxy: Option<&str>) -> Result<Client> {
+    configured_client(proxy, &ConnectionSettings::default())
+}
+
+pub(crate) fn configured_client(
+    proxy: Option<&str>,
+    options: &ConnectionSettings,
+) -> Result<Client> {
     let mut b = Client::builder()
         .user_agent(DEFAULT_USER_AGENT)
-        .connect_timeout(Duration::from_secs(15))
+        .connect_timeout(Duration::from_secs(options.connect_timeout_secs))
         .redirect(reqwest::redirect::Policy::limited(10))
         // Byte offsets must match the raw body, never transparently decompress.
         .no_gzip()
         .tcp_keepalive(Duration::from_secs(30));
     if let Some(p) = proxy.filter(|p| !p.trim().is_empty()) {
         b = b.proxy(reqwest::Proxy::all(p.trim()).map_err(|e| Error::InvalidUrl(e.to_string()))?);
+    } else if options.direct {
+        b = b.no_proxy();
     }
     b.build().map_err(Error::from)
 }

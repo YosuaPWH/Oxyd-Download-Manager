@@ -164,6 +164,7 @@ export type AfterQueue = "nothing" | "sleep" | "shutdown";
 export interface Settings {
   downloadDir: string;
   categoryFolders: boolean;
+  categoryPaths: Partial<Record<Category, string>>;
   connections: number;
   maxActive: number;
   speedLimit: number | null;
@@ -173,6 +174,7 @@ export interface Settings {
   notifications: boolean;
   clipboardMonitor: boolean;
   proxy: string | null;
+  connection: { connectTimeoutSecs: number; direct: boolean };
   theme: "system" | "light" | "dark";
   language: "system" | "id" | "en";
   schedule: Schedule;
