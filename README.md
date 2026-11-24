@@ -89,7 +89,7 @@ light window. The feature analysis and the mockups it was built from are in
 
 **Layout**
 
-- **Sidebar**: the Oxyd mark (a ring of eight segments, one lit), *All downloads*,
+- **Sidebar**: the Oxyd download mark, *All downloads*,
   *Unfinished* and *Finished*, the seven file types with their counts, the queues with what
   still waits in each, and the total speed with its last minute as a sparkline. On narrow
   windows it shrinks to icons.
@@ -109,7 +109,7 @@ light window. The feature analysis and the mockups it was built from are in
   holds the path, the URL, a per-download speed limit and the link refresh controls.
 - **Status bar**: the combined speed, running downloads, the schedule and the speed limit,
   which can be switched on and off right there.
-- **Settings**: its own page in seven sections; every change saves itself.
+- **Settings**: its own window; every change saves itself.
 
 **Appearance.** *Settings → Appearance* offers six accent colours (patina, copper, azure,
 violet, rose, graphite), comfortable or compact rows, and a switch for the translucent
@@ -117,7 +117,7 @@ sidebar for weak GPUs and remote desktops. Status colours (finished, paused, fai
 follow the accent.
 
 **Theme and language.** *Settings → General* offers *Follow system*, *Light* and *Dark*, and
-English or Indonesian. Error messages are translated too, with the technical detail
+system language, English or Indonesian. Error messages are translated too, with the technical detail
 underneath.
 
 **Keyboard friendly.** The list and every dialog work without a mouse:

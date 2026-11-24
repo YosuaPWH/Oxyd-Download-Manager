@@ -11,7 +11,7 @@ use oxyd_core::{
     RequestHeaders, Settings,
 };
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager as _, State};
+use tauri::{AppHandle, Emitter, Manager as _, State};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
 use tauri_plugin_dialog::DialogExt as _;
@@ -156,6 +156,13 @@ fn as_link(text: &str) -> Option<String> {
 }
 
 #[tauri::command]
+pub async fn open_settings(app: AppHandle) -> Res<()> {
+    static OPENING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _guard = OPENING.lock().await;
+    crate::open_settings(&app).map_err(|e| CmdError::other("window", e))
+}
+
+#[tauri::command]
 pub fn get_settings(state: State<'_, AppState>) -> Settings {
     state.mgr.settings()
 }
@@ -164,12 +171,22 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
 pub fn set_settings(
     app: AppHandle,
     state: State<'_, AppState>,
-    settings: Settings,
+    patch: serde_json::Map<String, serde_json::Value>,
 ) -> Res<Settings> {
     let old = state.mgr.settings();
+    let mut value = serde_json::to_value(&old).map_err(|e| CmdError::other("settings", e))?;
+    for (key, field) in patch {
+        if let Some(current) = value.get_mut(&key) {
+            *current = field;
+        }
+    }
+    let settings = serde_json::from_value(value).map_err(|e| CmdError::other("settings", e))?;
     let new = state.mgr.set_settings(settings)?;
     if old.language != new.language {
         crate::relabel_tray(&app, &new.language);
+        if let Some(window) = app.get_webview_window("settings") {
+            let _ = window.set_title(crate::i18n::tr(&new.language, "window.settings"));
+        }
     }
     if old.autostart != new.autostart {
         let al = app.autolaunch();
@@ -182,6 +199,7 @@ pub fn set_settings(
             tracing::warn!("changing autostart failed: {e}");
         }
     }
+    let _ = app.emit("oxyd://settings", &new);
     Ok(new)
 }
 
@@ -214,11 +232,22 @@ pub fn path_exists(dir: PathBuf, filename: String) -> bool {
     p.exists() || oxyd_core::filename::part_path(&p).exists()
 }
 
+#[tauri::command]
+pub fn open_project(app: AppHandle) -> Res<()> {
+    app.opener()
+        .open_url(
+            "https://github.com/YosuaPWH/Oxyd-Download-Manager",
+            None::<&str>,
+        )
+        .map_err(|e| CmdError::other("open", e))
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppInfo {
     version: &'static str,
     data_dir: PathBuf,
+    system_language: &'static str,
 }
 
 #[tauri::command]
@@ -226,6 +255,7 @@ pub fn app_info() -> AppInfo {
     AppInfo {
         version: env!("CARGO_PKG_VERSION"),
         data_dir: oxyd_core::paths::data_dir(),
+        system_language: crate::i18n::system_language(),
     }
 }
 
@@ -572,8 +602,11 @@ pub async fn pick_torrent(app: AppHandle) -> Res<Option<PathBuf>> {
 
 /// Open or close the mini window; returns whether it is open now.
 #[tauri::command]
-pub fn toggle_mini(app: AppHandle) -> Res<bool> {
-    crate::toggle_mini(&app).map_err(|e| CmdError::other("window", e))
+pub async fn toggle_mini(app: AppHandle) -> Res<bool> {
+    // Creating a WebView2 window from a synchronous command can stall Windows.
+    let open = crate::toggle_mini(&app).map_err(|e| CmdError::other("window", e))?;
+    let _ = app.emit("oxyd://mini", open);
+    Ok(open)
 }
 
 #[tauri::command]

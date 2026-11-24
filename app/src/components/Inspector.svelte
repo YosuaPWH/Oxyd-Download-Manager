@@ -141,14 +141,14 @@
         {/if}
       </div>
       {#if d.segments.length || d.status === "completed"}
-        <SegmentBar segments={d.segments} total={d.totalSize} downloaded={d.downloaded} />
+        <SegmentBar segments={d.segments} total={d.totalSize} downloaded={d.downloaded} active={moving} />
       {/if}
       {#if lanes.length}
         <div class="lanes">
           {#each lanes as l (l.i)}
             <div class="lane" style:--c="var(--lane-{(l.i % 8) + 1})">
               <span class="num faint">{String(l.i + 1).padStart(2, "0")}</span>
-              <div class="track"><div class="fill" class:done={l.p >= 100} style:width="{l.p}%"></div></div>
+              <div class="track"><div class="fill" class:done={l.p >= 100} class:active={moving && l.p > 0 && l.p < 100} style:width="{l.p}%"></div></div>
               <span class="num faint range">{fmt.bytes(l.start)}–{fmt.bytes(l.end + 1)}</span>
               <span class="num left">{l.p >= 100 ? t("detail.done") : fmt.bytes(l.left)}</span>
             </div>
@@ -336,16 +336,24 @@
     white-space: nowrap;
   }
   .lane .track {
-    height: 4px;
-    border-radius: 2px;
+    height: 6px;
+    border-radius: 3px;
     background: var(--track);
     overflow: hidden;
   }
   .lane .fill {
+    position: relative;
     height: 100%;
     border-radius: 2px;
     background: var(--c);
     transition: width 0.25s linear;
+  }
+  .lane .fill.active::after {
+    content: "";
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: 2px;
+    background: color-mix(in srgb, var(--c) 25%, white);
   }
   .lane .fill.done {
     background: var(--done);

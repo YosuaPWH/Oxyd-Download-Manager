@@ -1,22 +1,12 @@
 <script lang="ts">
+  import { api } from "../lib/api";
   import * as fmt from "../lib/format";
   import { t, type Key } from "../lib/i18n.svelte";
-  import { app, selectOnly, speedLog, type Library } from "../lib/store.svelte";
+  import { app, run, selectOnly, speedLog, type Library } from "../lib/store.svelte";
   import { type Category, type Queue } from "../lib/types";
+  import mark from "../../src-tauri/icons/source.svg";
   import Icon from "./Icon.svelte";
   import Sparkline from "./Sparkline.svelte";
-
-  // The mark is a ring cut into eight segments, one of them lit: a file fetched in parallel.
-  const arcs = [
-    "M14 3A11 11 0 0 1 21.78 6.22",
-    "M22.5 7A11 11 0 0 1 25 14",
-    "M25 15A11 11 0 0 1 21.78 21.78",
-    "M21 22.5A11 11 0 0 1 14 25",
-    "M13 25A11 11 0 0 1 6.22 21.78",
-    "M5.5 21A11 11 0 0 1 3 14",
-    "M3 13A11 11 0 0 1 6.22 6.22",
-    "M7 5.5A11 11 0 0 1 13 3",
-  ];
 
   const libraries: { value: Library; key: Key; icon: string }[] = [
     { value: "all", key: "side.all", icon: "all" },
@@ -54,7 +44,6 @@
     app.library = "all";
     app.category = null;
     app.queue = id;
-    app.page = "downloads";
     selectOnly(null);
   }
 
@@ -73,20 +62,14 @@
     app.library = library;
     app.category = category;
     app.queue = null;
-    app.page = "downloads";
     selectOnly(null);
   }
 
-  const onDownloads = $derived(app.page === "downloads");
 </script>
 
 <nav aria-label="Oxyd">
   <div class="brand">
-    <svg class="mark" width="24" height="24" viewBox="0 0 28 28" role="img" aria-label="Oxyd">
-      {#each arcs as d, i (i)}
-        <path {d} class:lit={i === 0} />
-      {/each}
-    </svg>
+    <img class="mark" src={mark} alt="" width="24" height="24" />
     <span class="label">Oxyd</span>
   </div>
 
@@ -94,7 +77,7 @@
     <button
       class="item"
       title={t(l.key)}
-      aria-current={onDownloads && !app.category && !app.queue && app.library === l.value ? "page" : undefined}
+      aria-current={!app.category && !app.queue && app.library === l.value ? "page" : undefined}
       onclick={() => go(l.value, null)}
     >
       <Icon name={l.icon} /><span class="label grow">{t(l.key)}</span><span class="num count">{counts.c[l.value]}</span>
@@ -106,7 +89,7 @@
     <button
       class="item"
       title={t(`cat.${c}` as Key)}
-      aria-current={onDownloads && app.category === c ? "page" : undefined}
+      aria-current={app.category === c ? "page" : undefined}
       onclick={() => go("all", c)}
     >
       <Icon name={c} /><span class="label grow">{t(`cat.${c}` as Key)}</span><span class="num count">{counts.c[c]}</span>
@@ -122,7 +105,7 @@
       <button
         class="item"
         title={q.name || t("queue.main")}
-        aria-current={onDownloads && app.queue === q.id ? "page" : undefined}
+        aria-current={app.queue === q.id ? "page" : undefined}
         onclick={() => goQueue(q.id)}
       >
         <Icon name={q.schedule.enabled ? "calendar" : "queue"} /><span class="label grow">{q.name || t("queue.main")}</span><span class="num count">{perQueue.get(q.id) ?? 0}</span>
@@ -157,8 +140,7 @@
   <button
     class="item"
     title="{t('tb.settings')} (Ctrl+,)"
-    aria-current={app.page === "settings" ? "page" : undefined}
-    onclick={() => (app.page = "settings")}
+    onclick={() => run(api.openSettings)}
   >
     <Icon name="settings" /><span class="label grow">{t("tb.settings")}</span>
   </button>
@@ -173,15 +155,25 @@
     gap: 2px;
     padding: 12px 8px 8px;
     border-radius: var(--radius-lg);
-    background: var(--panel);
-    box-shadow: var(--sheet-shadow);
-    backdrop-filter: blur(24px) saturate(160%);
+    background: linear-gradient(150deg, var(--glass-edge), transparent 45%), var(--panel);
+    box-shadow: inset 0 0 0 1px var(--glass-edge), var(--sheet-shadow);
+    -webkit-backdrop-filter: blur(18px) saturate(145%);
+    backdrop-filter: blur(18px) saturate(145%);
     overflow-y: auto;
     scrollbar-width: none;
   }
   :global(.no-glass) nav {
     background: var(--surface);
+    box-shadow: var(--sheet-shadow);
+    -webkit-backdrop-filter: none;
     backdrop-filter: none;
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    nav {
+      background: var(--surface);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
   }
   .brand {
     display: flex;
@@ -194,12 +186,6 @@
   }
   .mark {
     flex: none;
-    fill: none;
-    stroke: var(--text);
-    stroke-width: 3;
-  }
-  .mark .lit {
-    stroke: var(--accent);
   }
   .item {
     flex: none;

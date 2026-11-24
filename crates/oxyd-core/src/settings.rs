@@ -63,7 +63,7 @@ pub struct Settings {
     pub proxy: Option<String>,
     /// `system`, `light` or `dark`.
     pub theme: String,
-    /// `id` or `en`.
+    /// `system`, `id` or `en`.
     pub language: String,
     pub schedule: Schedule,
     pub after_queue: AfterQueue,
@@ -122,7 +122,7 @@ impl Default for Settings {
             clipboard_monitor: false,
             proxy: None,
             theme: "system".into(),
-            language: "id".into(),
+            language: "system".into(),
             schedule: Schedule::default(),
             after_queue: AfterQueue::Nothing,
             video: VideoSettings::default(),
@@ -146,6 +146,9 @@ impl Settings {
         self.video.ffmpeg_path = self.video.ffmpeg_path.trim().to_string();
         if !ACCENTS.contains(&self.accent.as_str()) {
             self.accent = ACCENTS[0].into();
+        }
+        if !matches!(self.language.as_str(), "system" | "id" | "en") {
+            self.language = "system".into();
         }
         if self.density != "compact" {
             self.density = "comfortable".into();

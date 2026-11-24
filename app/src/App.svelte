@@ -23,7 +23,7 @@
   import Icon from "./components/Icon.svelte";
   import Inspector from "./components/Inspector.svelte";
   import Sidebar from "./components/Sidebar.svelte";
-  // Settings and dialogs are loaded on demand, not in the initial bundle:
+  // Dialogs are loaded on demand, not in the initial bundle:
   // they are only shown after a click, while the list is shown on every
   // window open. The chunks are local files, so the first open costs one
   // frame, not a network round trip.
@@ -156,10 +156,9 @@
       toggleInspector();
     } else if (mod && e.key === ",") {
       e.preventDefault();
-      app.page = "settings";
+      await run(api.openSettings);
     } else if (mod && key === "f") {
       e.preventDefault();
-      app.page = "downloads";
       await tick();
       searchBox?.focus();
       searchBox?.select();
@@ -192,13 +191,11 @@
   function offer(text: string): boolean {
     const magnet = text.split(/\s+/).find((w) => /^magnet:\?/i.test(w));
     if (magnet) {
-      app.page = "downloads";
       app.manualUrl = magnet;
       return true;
     }
     const { urls } = parseBatch(text);
     if (!urls.length) return false;
-    app.page = "downloads";
     if (urls.length === 1) app.manualUrl = urls[0];
     else app.batch = urls.join("\n");
     return true;
@@ -276,90 +273,89 @@
   <Sidebar />
 
   <div class="sheet">
-    {#if app.page === "settings" && app.settings}
-      {#await import("./components/SettingsPage.svelte") then { default: SettingsPage }}
-        <SettingsPage />
-      {/await}
-    {:else}
-      <div class="toolbar" role="toolbar" aria-label={t("page.downloads")}>
+    <div class="toolbar" role="toolbar" aria-label={t("page.downloads")}>
+      <div class="actions">
         <button class="primary" onclick={() => (app.manualUrl = "")} title="Ctrl+N">
           <Icon name="add" size={14} />{t("tb.add")}
         </button>
         <button onclick={() => (app.batch = "")} title="{t('tb.batchHint')} (Ctrl+B)">
           <Icon name="layers" size={14} /><span class="wide">{t("tb.batch")}</span>
         </button>
-        <span class="sep"></span>
+      </div>
+      <div class="actions">
         <button class="icon" title={t("tb.resumeSel")} aria-label={t("tb.resumeSel")} disabled={!canStartAny} onclick={startSelected}><Icon name="play" /></button>
         <button class="icon" title={t("tb.pauseSel")} aria-label={t("tb.pauseSel")} disabled={!canPauseAny} onclick={pauseSelected}><Icon name="pause" /></button>
         <button class="icon" title="{t('tb.removeSel')} (Del)" aria-label={t("tb.removeSel")} disabled={!picked.length} onclick={() => askRemove(picked)}><Icon name="trash" /></button>
-        <span class="sep"></span>
+      </div>
+      <div class="actions">
         <button class="icon" title={t("tb.resumeAll")} aria-label={t("tb.resumeAll")} onclick={() => run(api.resumeAll)}><Icon name="playAll" /></button>
         <button class="icon" title={t("tb.pauseAll")} aria-label={t("tb.pauseAll")} onclick={() => run(api.pauseAll)}><Icon name="pauseAll" /></button>
         <button class="icon" title={t("tb.clearCompletedHint")} aria-label={t("tb.clearCompleted")} disabled={!overview.done} onclick={clearCompleted}><Icon name="sweep" /></button>
-        <span class="sep"></span>
+      </div>
+      <div class="actions">
         <button class="icon" title="{t('grab.title')} (Ctrl+G)" aria-label={t("grab.title")} onclick={() => (app.grabber = true)}><Icon name="globe" /></button>
         <button class="icon" title={t("mini.toggle")} aria-label={t("mini.toggle")} aria-pressed={app.mini} onclick={toggleMini}><Icon name="pip" /></button>
-        <span class="grow"></span>
-        <label class="search">
-          <span class="sr-only">{t("search.placeholder")}</span>
-          <Icon name="search" size={14} />
-          <input
-            type="search"
-            placeholder={t("search.placeholder")}
-            bind:value={app.search}
-            bind:this={searchBox}
-            onkeydown={(e) => e.key === "Escape" && (app.search = "")}
-          />
-          {#if !app.search}<kbd>Ctrl F</kbd>{/if}
-        </label>
-        <button class="icon" title="{t('insp.title')} (Ctrl+I)" aria-label={t("insp.title")} aria-pressed={app.inspector} onclick={toggleInspector}><Icon name="panel" /></button>
       </div>
+      <span class="grow"></span>
+      <label class="search">
+        <span class="sr-only">{t("search.placeholder")}</span>
+        <Icon name="search" size={14} />
+        <input
+          type="search"
+          placeholder={t("search.placeholder")}
+          bind:value={app.search}
+          bind:this={searchBox}
+          onkeydown={(e) => e.key === "Escape" && (app.search = "")}
+        />
+        {#if !app.search}<kbd>Ctrl F</kbd>{/if}
+      </label>
+      <button class="icon" title="{t('insp.title')} (Ctrl+I)" aria-label={t("insp.title")} aria-pressed={app.inspector} onclick={toggleInspector}><Icon name="panel" /></button>
+    </div>
 
-      <header class="title">
-        <div class="heading">
-          <h1>{heading}</h1>
-          <p class="summary">
-            <span class="num">{counts.all}</span> {t("list.items")} · <span class="num">{fmt.bytes(counts.bytes)}</span>
-            {#each summary as part, i (i)}
-              {" · "}{#each part as bit, j (j)}{bit.text}{#if bit.num}<span class="num">{bit.num}</span>{/if}{/each}
-            {/each}
-          </p>
-        </div>
-        {#if picked.length > 1}
-          <span class="pill accent"><span class="num">{picked.length}</span>&nbsp;{t("sel.count")}</span>
-        {/if}
-        <div class="lines" role="tablist" aria-label={t("nav.status")}>
-          {#each tabs as tab (tab.view)}
-            <button role="tab" aria-selected={app.view === tab.view} onclick={() => (app.view = tab.view)}>
-              {t(tab.key)}<span class="num count">{counts[tab.view]}</span>
-            </button>
+    <header class="title">
+      <div class="heading">
+        <h1>{heading}</h1>
+        <p class="summary">
+          <span class="num">{counts.all}</span> {t("list.items")} · <span class="num">{fmt.bytes(counts.bytes)}</span>
+          {#each summary as part, i (i)}
+            {" · "}{#each part as bit, j (j)}{bit.text}{#if bit.num}<span class="num">{bit.num}</span>{/if}{/each}
           {/each}
-        </div>
-      </header>
-
-      {#if refreshing}
-        <div class="banner" role="status">
-          <Icon name="link" />
-          <span class="grow">{t("refresh.waiting")} <strong>{refreshing.filename}</strong>. {t("refresh.hint")}</span>
-          <button onclick={cancelRefresh}>{t("refresh.cancel")}</button>
-        </div>
+        </p>
+      </div>
+      {#if picked.length > 1}
+        <span class="pill accent"><span class="num">{picked.length}</span>&nbsp;{t("sel.count")}</span>
       {/if}
+      <div class="lines" role="tablist" aria-label={t("nav.status")}>
+        {#each tabs as tab (tab.view)}
+          <button role="tab" aria-selected={app.view === tab.view} onclick={() => (app.view = tab.view)}>
+            {t(tab.key)}<span class="num count">{counts[tab.view]}</span>
+          </button>
+        {/each}
+      </div>
+    </header>
 
-      {#if app.clipboardUrl}
-        <div class="banner" role="status">
-          <Icon name="clipboard" />
-          <span>{t("clip.found")}</span>
-          <span class="ellipsis grow mono">{app.clipboardUrl}</span>
-          <button class="primary" onclick={downloadClipboard}>{t("clip.download")}</button>
-          <button class="ghost" onclick={() => (app.clipboardUrl = null)}>{t("clip.dismiss")}</button>
-        </div>
-      {/if}
+    {#if refreshing}
+      <div class="banner" role="status">
+        <Icon name="link" />
+        <span class="grow">{t("refresh.waiting")} <strong>{refreshing.filename}</strong>. {t("refresh.hint")}</span>
+        <button onclick={cancelRefresh}>{t("refresh.cancel")}</button>
+      </div>
+    {/if}
 
-      <DownloadTable />
+    {#if app.clipboardUrl}
+      <div class="banner" role="status">
+        <Icon name="clipboard" />
+        <span>{t("clip.found")}</span>
+        <span class="ellipsis grow mono">{app.clipboardUrl}</span>
+        <button class="primary" onclick={downloadClipboard}>{t("clip.download")}</button>
+        <button class="ghost" onclick={() => (app.clipboardUrl = null)}>{t("clip.dismiss")}</button>
+      </div>
+    {/if}
 
-      {#if app.inspector}
-        <Inspector />
-      {/if}
+    <DownloadTable />
+
+    {#if app.inspector}
+      <Inspector />
     {/if}
 
     <footer class="status">
@@ -519,16 +515,15 @@
 </div>
 
 <style>
-  /* The window: a tinted panel beside the sheet that holds the data. The accent lights the
-     top left corner; that light is all the "glass" has to refract. */
+  /* The glass surfaces blur this in-app lighting, which works in opaque webviews. */
   .shell {
     display: flex;
     gap: 8px;
     height: 100vh;
     padding: 8px;
     background:
-      radial-gradient(560px 320px at 0% 0%, var(--accent-soft), transparent 70%),
-      radial-gradient(420px 260px at 0% 100%, var(--accent-softer), transparent 70%), var(--ground);
+      radial-gradient(65% 68% at 6% 0%, var(--glass-light), transparent),
+      radial-gradient(52% 62% at 0% 100%, var(--glass-light), transparent), var(--ground);
   }
   :global(.no-glass) .shell {
     background: var(--ground);
@@ -539,28 +534,43 @@
     display: flex;
     flex-direction: column;
     border-radius: var(--radius-lg);
-    background: var(--surface);
+    background: var(--glass-sheet);
     box-shadow: var(--sheet-shadow);
     overflow: hidden;
+  }
+  :global(.no-glass) .sheet {
+    background: var(--surface);
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .shell { background: var(--ground); }
+    .sheet { background: var(--surface); }
   }
   .toolbar {
     flex: none;
     display: flex;
     align-items: center;
-    gap: 4px;
-    height: 50px;
-    padding: 0 12px;
+    gap: 8px;
+    min-height: 52px;
+    padding: 7px 12px;
     border-bottom: 1px solid var(--rule);
   }
-  .toolbar > button:not(.icon) {
-    margin-right: 4px;
-  }
-  .sep {
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
     flex: none;
-    width: 1px;
-    height: 18px;
-    margin: 0 6px;
-    background: var(--border);
+    padding: 2px;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: var(--hover);
+  }
+  .actions > button:not(.primary) {
+    border-color: transparent;
+    background: transparent;
+  }
+  .actions > button:not(.primary):enabled:hover,
+  .actions > button[aria-pressed="true"] {
+    background: var(--pressed);
   }
   .grow {
     flex: 1;

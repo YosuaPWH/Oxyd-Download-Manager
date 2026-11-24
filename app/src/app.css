@@ -24,6 +24,9 @@
   --raised: #ffffff;
   --sunken: #eef1f0;
   --panel: rgb(255 255 255 / 0.55);
+  --glass-sheet: color-mix(in srgb, var(--surface) 82%, transparent);
+  --glass-light: color-mix(in srgb, var(--accent) 34%, transparent);
+  --glass-edge: rgb(255 255 255 / 0.72);
   --border: rgb(15 20 19 / 0.1);
   --rule: rgb(15 20 19 / 0.065);
   --control: rgb(15 20 19 / 0.17);
@@ -86,6 +89,8 @@
   --raised: #171b1c;
   --sunken: #0c0f0f;
   --panel: rgb(23 27 28 / 0.6);
+  --glass-light: color-mix(in srgb, var(--accent) 23%, transparent);
+  --glass-edge: rgb(255 255 255 / 0.12);
   --border: rgb(255 255 255 / 0.1);
   --rule: rgb(255 255 255 / 0.06);
   --control: rgb(255 255 255 / 0.16);

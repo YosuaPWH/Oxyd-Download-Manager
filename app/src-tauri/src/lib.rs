@@ -83,7 +83,7 @@ pub fn toggle_mini(app: &AppHandle) -> tauri::Result<bool> {
         w.destroy()?;
         return Ok(false);
     }
-    tauri::WebviewWindowBuilder::new(app, MINI, tauri::WebviewUrl::App("index.html?mini".into()))
+    tauri::WebviewWindowBuilder::new(app, MINI, tauri::WebviewUrl::App("mini.html".into()))
         .title("Oxyd")
         .inner_size(300.0, 148.0)
         .resizable(false)
@@ -96,6 +96,26 @@ pub fn toggle_mini(app: &AppHandle) -> tauri::Result<bool> {
         .disable_drag_drop_handler()
         .build()?;
     Ok(true)
+}
+
+/// Open or focus the single settings window. Called through an async command for WebView2.
+pub fn open_settings(app: &AppHandle) -> tauri::Result<()> {
+    if let Some(window) = app.get_webview_window("settings") {
+        window.unminimize()?;
+        return window.set_focus();
+    }
+    let lang = app.state::<AppState>().mgr.settings().language;
+    tauri::WebviewWindowBuilder::new(
+        app,
+        "settings",
+        tauri::WebviewUrl::App("settings.html".into()),
+    )
+    .title(tr(&lang, "window.settings"))
+    .inner_size(820.0, 700.0)
+    .min_inner_size(520.0, 420.0)
+    .center()
+    .build()?;
+    Ok(())
 }
 
 /// Label of the progress window of download `id`.
@@ -284,12 +304,14 @@ pub fn run() {
             commands::open_folder,
             commands::copy_text,
             commands::clipboard_link,
+            commands::open_settings,
             commands::get_settings,
             commands::set_settings,
             commands::pick_folder,
             commands::suggest_dir,
             commands::path_exists,
             commands::app_info,
+            commands::open_project,
             commands::pending_downloads,
             commands::probe_pending,
             commands::confirm_pending,
