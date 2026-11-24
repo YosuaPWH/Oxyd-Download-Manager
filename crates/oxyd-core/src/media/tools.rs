@@ -115,15 +115,22 @@ impl Tools {
             Tool::Deno => "",
         };
         if !custom.is_empty() {
-            return Some(PathBuf::from(custom));
+            let path = PathBuf::from(custom);
+            if path.is_file() {
+                return Some(path);
+            }
+            tracing::debug!(tool = tool.name(), "configured tool path is unavailable");
         }
         let env = match tool {
             Tool::YtDlp => "OXYD_YTDLP",
             Tool::Ffmpeg => "OXYD_FFMPEG",
             Tool::Deno => "OXYD_DENO",
         };
-        if let Some(p) = std::env::var_os(env).filter(|p| !p.is_empty()) {
-            return Some(PathBuf::from(p));
+        if let Some(path) = std::env::var_os(env)
+            .map(PathBuf::from)
+            .filter(|path| path.is_file())
+        {
+            return Some(path);
         }
         // On Linux the distribution's ffmpeg is the natural one; yt-dlp and deno move too
         // fast for distribution packages, so Oxyd's own copy comes first.
@@ -189,6 +196,7 @@ impl Tools {
     /// Download the newest yt-dlp when Oxyd's own copy is older and was not checked within
     /// [`UPDATE_EVERY`] (or `force`). Returns the new version when it changed.
     pub async fn update_ytdlp(&self, client: &Client, force: bool) -> Result<Option<String>> {
+        let _guard = self.lock.lock().await;
         let Some(mut current) = self.installed(Tool::YtDlp) else {
             return Ok(None);
         };
@@ -196,7 +204,6 @@ impl Tools {
         if !force && now - current.checked < UPDATE_EVERY.as_secs() as i64 {
             return Ok(None);
         }
-        let _guard = self.lock.lock().await;
         let latest = latest_tag(client, "yt-dlp/yt-dlp").await?;
         if latest == current.version {
             current.checked = now;
@@ -228,47 +235,52 @@ impl Tools {
             None => latest_tag(client, plan.repo).await?,
         };
         std::fs::create_dir_all(&self.dir)?;
-        let staging = self.dir.join(format!("{}.new", tool.name()));
-        let _ = std::fs::remove_dir_all(&staging);
-        std::fs::create_dir_all(&staging)?;
-
         let mut last_err = None;
         for asset in plan.assets {
-            match self
-                .fetch_asset(
-                    tool, client, plan.repo, &tag, asset, plan.sums, &staging, progress,
-                )
-                .await
-            {
-                Ok(archive) => {
-                    let exe = unpack(tool, asset, &archive, &staging);
-                    let _ = std::fs::remove_file(&archive);
-                    let exe = exe?;
-                    let folder = self.folder(tool);
-                    if folder.exists() {
-                        std::fs::remove_dir_all(&folder).map_err(|e| {
-                            Error::Tool(format!("cannot replace {}: {e}", folder.display()))
-                        })?;
-                    }
-                    std::fs::rename(&staging, &folder)?;
-                    self.write_installed(
+            let staging = tempfile::tempdir_in(&self.dir)?;
+            let payload = staging.path().join("payload");
+            std::fs::create_dir(&payload)?;
+            let result = async {
+                let archive = self
+                    .fetch_asset(
                         tool,
-                        &Installed {
-                            exe,
-                            version: tag.clone(),
-                            checked: crate::types::now(),
-                        },
+                        client,
+                        plan.repo,
+                        &tag,
+                        asset,
+                        plan.sums,
+                        staging.path(),
+                        progress,
+                    )
+                    .await?;
+                unpack(tool, asset, &archive, &payload)
+            }
+            .await;
+            match result {
+                Ok(exe) => {
+                    let installed = Installed {
+                        exe,
+                        version: tag.clone(),
+                        checked: crate::types::now(),
+                    };
+                    std::fs::write(
+                        payload.join("tool.json"),
+                        serde_json::to_string(&installed)?,
                     )?;
+                    publish_install(staging, &payload, &self.folder(tool))?;
                     tracing::info!(tool = tool.name(), %tag, "tool installed");
                     return Ok(());
                 }
                 Err(e) => {
-                    tracing::warn!(tool = tool.name(), asset, "download failed: {e}");
+                    tracing::warn!(
+                        tool = tool.name(),
+                        asset,
+                        "download or extraction failed: {e}"
+                    );
                     last_err = Some(e);
                 }
             }
         }
-        let _ = std::fs::remove_dir_all(&staging);
         Err(Error::Tool(format!(
             "cannot download {}: {}",
             tool.name(),
@@ -331,6 +343,29 @@ impl Tools {
         }
         Ok(path)
     }
+}
+
+/// Replace the previous installation only after the executable and metadata are ready.
+fn publish_install(staging: tempfile::TempDir, payload: &Path, folder: &Path) -> Result<()> {
+    let previous = staging.path().join("previous");
+    if folder.exists() {
+        std::fs::rename(folder, &previous)
+            .map_err(|e| Error::Tool(format!("cannot replace {}: {e}", folder.display())))?;
+    }
+    if let Err(error) = std::fs::rename(payload, folder) {
+        if previous.exists() {
+            if let Err(restore) = std::fs::rename(&previous, folder) {
+                let backup = staging.keep().join("previous");
+                return Err(Error::Tool(format!(
+                    "cannot replace {}: {error}; cannot restore {}: {restore}",
+                    folder.display(),
+                    backup.display()
+                )));
+            }
+        }
+        return Err(error.into());
+    }
+    Ok(())
 }
 
 /// How a tool's release publishes checksums.
@@ -436,8 +471,9 @@ async fn latest_tag(client: &Client, repo: &str) -> Result<String> {
         .timeout(Duration::from_secs(30))
         .send()
         .await?;
-    let url = resp.url().as_str();
-    tag_from_url(url).ok_or_else(|| Error::Tool(format!("cannot find the latest {repo} release")))
+    let resp = resp.error_for_status()?;
+    tag_from_url(resp.url().as_str())
+        .ok_or_else(|| Error::Tool(format!("cannot find the latest {repo} release")))
 }
 
 fn tag_from_url(url: &str) -> Option<String> {
@@ -648,17 +684,37 @@ mod tests {
     }
 
     #[test]
+    fn installs_single_executable_with_the_same_name_as_the_release_asset() {
+        let dir = tempfile::tempdir().unwrap();
+        let staging = tempfile::tempdir_in(dir.path()).unwrap();
+        let payload = staging.path().join("payload");
+        std::fs::create_dir(&payload).unwrap();
+        let name = Tool::exe("yt-dlp");
+        let archive = staging.path().join(&name);
+        std::fs::write(&archive, b"verified binary").unwrap();
+
+        let exe = unpack(Tool::YtDlp, &name, &archive, &payload).unwrap();
+        let folder = dir.path().join("yt-dlp");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(folder.join(&name), b"old binary").unwrap();
+        publish_install(staging, &payload, &folder).unwrap();
+
+        assert_eq!(std::fs::read(folder.join(exe)).unwrap(), b"verified binary");
+    }
+
+    #[test]
     fn prefers_configured_paths() {
         let dir = tempfile::tempdir().unwrap();
         let tools = Tools::new(dir.path().to_path_buf());
+        let custom = dir.path().join("custom-yt-dlp");
+        std::fs::write(&custom, b"x").unwrap();
         let settings = VideoSettings {
-            ytdlp_path: "/opt/yt-dlp".into(),
+            ytdlp_path: custom.to_string_lossy().into_owned(),
             ..Default::default()
         };
-        assert_eq!(
-            tools.find(Tool::YtDlp, &settings),
-            Some(PathBuf::from("/opt/yt-dlp"))
-        );
+        assert_eq!(tools.find(Tool::YtDlp, &settings), Some(custom.clone()));
+        std::fs::remove_file(&custom).unwrap();
+        assert_ne!(tools.find(Tool::YtDlp, &settings), Some(custom));
         // A downloaded copy is found through its tool.json.
         let folder = dir.path().join("deno");
         std::fs::create_dir_all(&folder).unwrap();

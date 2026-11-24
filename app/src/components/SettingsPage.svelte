@@ -70,6 +70,8 @@
   }
 
   let tools = $state<ToolStatus[]>([]);
+  const ytdlp = $derived(tools.find((tool) => tool.tool === "yt-dlp"));
+  const installing = $derived(ytdlp?.path == null);
   let updating = $state(false);
   let toolNote = $state<string | null>(null);
   const loadTools = async () => (tools = await api.toolStatus().catch(() => []));
@@ -79,8 +81,9 @@
     updating = true;
     toolNote = null;
     try {
+      const wasMissing = installing;
       const v = await api.updateYtdlp();
-      toolNote = v ? `${t("set.updated")} ${v}` : t("set.upToDate");
+      toolNote = v ? `${t(wasMissing ? "set.installedYtdlp" : "set.updated")} ${v}` : t("set.upToDate");
       await loadTools();
     } catch (e) {
       toolNote = errorMessage(e);
@@ -250,7 +253,11 @@
             {/each}
           </dl>
           <div class="field">
-            <button onclick={updateYtdlp} disabled={updating}>{t("set.updateYtdlp")}</button>
+            {#if ytdlp && (installing || ytdlp.managed)}
+              <button onclick={updateYtdlp} disabled={updating}>
+                {t(updating ? "set.fetchingYtdlp" : installing ? "set.installYtdlp" : "set.updateYtdlp")}
+              </button>
+            {/if}
             {#if toolNote}<span class="muted" aria-live="polite">{toolNote}</span>{/if}
           </div>
         </div>
