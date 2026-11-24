@@ -214,6 +214,16 @@ pub fn path_exists(dir: PathBuf, filename: String) -> bool {
     p.exists() || oxyd_core::filename::part_path(&p).exists()
 }
 
+#[tauri::command]
+pub fn open_project(app: AppHandle) -> Res<()> {
+    app.opener()
+        .open_url(
+            "https://github.com/YosuaPWH/Oxyd-Download-Manager",
+            None::<&str>,
+        )
+        .map_err(|e| CmdError::other("open", e))
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppInfo {

@@ -4,6 +4,7 @@
   import { t } from "../lib/i18n.svelte";
   import { app, saveSettings } from "../lib/store.svelte";
   import { t as tr, type Key } from "../lib/i18n.svelte";
+  import mark from "../../src-tauri/icons/source.svg";
   import { ACCENTS, type Settings, type ToolStatus } from "../lib/types";
 
   let s = $state<Settings>(structuredClone($state.snapshot(app.settings!)));
@@ -326,7 +327,23 @@
       </div>
     </section>
 
-    <p class="muted version">Oxyd · {t("set.version")} <span class="num">{app.version}</span></p>
+    <section aria-labelledby="about">
+      <div class="label"><h2 id="about">{t("set.about")}</h2></div>
+      <div class="panel">
+        <div class="item">
+          <div class="brand">
+            <img src={mark} alt="" width="36" height="36" />
+            <div>
+              <strong>Oxyd Download Manager</strong>
+              <span class="hint">{t("set.version")} <span class="num">{app.version}</span> · MIT</span>
+            </div>
+          </div>
+          <button onclick={() => api.openProject().catch((e) => (error = errorMessage(e)))}>
+            {t("set.sourceCode")}
+          </button>
+        </div>
+      </div>
+    </section>
   </div>
 </main>
 
@@ -500,9 +517,12 @@
     border-color: var(--accent-line);
     background: var(--accent-soft);
   }
-  .version {
-    padding-top: 32px;
-    border-top: 1px solid var(--border);
-    margin: 0;
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .brand img {
+    flex: none;
   }
 </style>

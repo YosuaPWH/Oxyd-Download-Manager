@@ -47,6 +47,7 @@ export const api = {
   pickFolder: (start: string | null) => invoke<string | null>("pick_folder", { start }),
   suggestDir: (filename: string) => invoke<string>("suggest_dir", { filename }),
   pathExists: (dir: string, filename: string) => invoke<boolean>("path_exists", { dir, filename }),
+  openProject: () => invoke<void>("open_project"),
   appInfo: () => invoke<{ version: string; dataDir: string }>("app_info"),
   pending: () => invoke<PendingAdd[]>("pending_downloads"),
   probePending: (key: string) => invoke<ProbeInfo>("probe_pending", { key }),

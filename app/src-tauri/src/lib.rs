@@ -290,6 +290,7 @@ pub fn run() {
             commands::suggest_dir,
             commands::path_exists,
             commands::app_info,
+            commands::open_project,
             commands::pending_downloads,
             commands::probe_pending,
             commands::confirm_pending,
