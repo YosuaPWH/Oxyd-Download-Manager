@@ -46,6 +46,7 @@ async fn forwards_messages_to_the_app() {
         match msg {
             Message::Ping => Message::Pong {
                 app_version: "9.9.9".into(),
+                capture_settings: None,
             },
             Message::AddDownload(a) => Message::ack(a.id, AckStatus::Accepted, None),
             Message::ProbeVideo(p) => Message::VideoInfo(VideoInfo {
@@ -82,7 +83,8 @@ async fn forwards_messages_to_the_app() {
     assert_eq!(
         read_message(&mut r).unwrap(),
         Some(Message::Pong {
-            app_version: "9.9.9".into()
+            app_version: "9.9.9".into(),
+            capture_settings: None,
         })
     );
     assert_eq!(

@@ -2,6 +2,8 @@
 #   - an NSIS setup .exe (per user, no administrator rights)
 #   - an .msi (per machine, for deployment tools and Group Policy)
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1
+param([switch]$Http3)
+
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
@@ -36,9 +38,19 @@ $bundles = if ($version -match "-") { "nsis" } else { "nsis,msi" }
 Write-Host "==> building installers ($bundles)"
 Push-Location app
 npm ci
-npx tauri build --bundles $bundles --config src-tauri/tauri.bundle.json
-if ($LASTEXITCODE -ne 0) { throw "tauri build failed" }
-Pop-Location
+$tauriArgs = @("build", "--bundles", $bundles, "--config", "src-tauri/tauri.bundle.json")
+$previousRustFlags = $env:RUSTFLAGS
+try {
+    if ($Http3) {
+        $env:RUSTFLAGS = "$previousRustFlags --cfg reqwest_unstable".Trim()
+        $tauriArgs += @("--features", "http3")
+    }
+    npx tauri @tauriArgs
+    if ($LASTEXITCODE -ne 0) { throw "tauri build failed" }
+} finally {
+    $env:RUSTFLAGS = $previousRustFlags
+    Pop-Location
+}
 
 Get-ChildItem "target\release\bundle\nsis\*.exe", "target\release\bundle\msi\*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
     Write-Host ("installer: {0} ({1:N1} MB)" -f $_.FullName, ($_.Length / 1MB))

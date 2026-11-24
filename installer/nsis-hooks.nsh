@@ -45,6 +45,9 @@
 !macro NSIS_HOOK_PREUNINSTALL
   DeleteRegKey HKCU "${OXYD_CHROME_KEY}"
   DeleteRegKey HKCU "${OXYD_EDGE_KEY}"
+  DeleteRegKey HKCU "Software\Mozilla\NativeMessagingHosts\${OXYD_HOST}"
+  Delete "${OXYD_HOST_DIR}\firefox\${OXYD_HOST}.json"
+  RMDir "${OXYD_HOST_DIR}\firefox"
   Delete "${OXYD_HOST_DIR}\${OXYD_HOST}.json"
   RMDir "${OXYD_HOST_DIR}"
   ; Autostart entry written by tauri-plugin-autostart.

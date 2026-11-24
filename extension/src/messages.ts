@@ -28,6 +28,7 @@ export interface VideoOptions {
 export type ContentMessage =
   | { type: "video-options"; pageUrl: string; title: string; src?: string; launch: boolean }
   | { type: "video-overlay-site" }
+  | { type: "capture-settings"; refresh?: boolean }
   | { type: "video-download"; pageUrl: string; title: string; entry: MenuEntry };
 
 export interface DownloadResult {

@@ -3,6 +3,7 @@
 mod background;
 mod browser;
 mod commands;
+mod download_backup;
 mod i18n;
 mod native_host;
 mod progress_size;
@@ -319,6 +320,9 @@ pub fn run() {
             commands::repair_browser,
             settings_io::export_settings,
             settings_io::import_settings,
+            download_backup::export_downloads,
+            download_backup::import_downloads,
+            download_backup::export_diagnostics,
             commands::pending_downloads,
             commands::probe_pending,
             commands::confirm_pending,

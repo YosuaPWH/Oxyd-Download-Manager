@@ -226,6 +226,7 @@ pub struct MediaSpec {
     pub streams: Vec<u64>,
     /// yt-dlp downloads this one itself (HLS/DASH fragments, or the engine failed).
     pub ytdlp: bool,
+    pub postprocess: Option<crate::settings::VideoPostprocess>,
 }
 
 /// Live state of a download shown by the UI.

@@ -60,6 +60,7 @@ pub struct Settings {
     pub duplicate_policy: DuplicatePolicy,
     /// Show the "New download" dialog for links coming from the browser.
     pub confirm_new: bool,
+    pub capture: Option<CaptureSettings>,
     pub autostart: bool,
     pub notifications: bool,
     pub clipboard_monitor: bool,
@@ -72,6 +73,7 @@ pub struct Settings {
     pub schedule: Schedule,
     pub after_queue: AfterQueue,
     pub video: VideoSettings,
+    pub scanner: ScannerSettings,
     /// Accent colour of the interface, one of [`ACCENTS`].
     pub accent: String,
     /// Row height of the download list: `comfortable` or `compact`.
@@ -84,6 +86,32 @@ pub struct Settings {
     pub progress_window: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CaptureSettings {
+    pub enabled: bool,
+    pub min_size: u64,
+    pub extensions: Vec<String>,
+    pub mime_types: Vec<String>,
+    pub excluded_domains: Vec<String>,
+    pub video_button: bool,
+    pub min_video_duration: u32,
+}
+
+impl Default for CaptureSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            min_size: 1024 * 1024,
+            extensions: Vec::new(),
+            mime_types: Vec::new(),
+            excluded_domains: Vec::new(),
+            video_button: true,
+            min_video_duration: 0,
+        }
+    }
+}
+
 /// Accent colours the interface knows; the first one is the default.
 pub const ACCENTS: [&str; 6] = ["oxide", "copper", "azure", "violet", "rose", "graphite"];
 
@@ -92,6 +120,10 @@ pub const ACCENTS: [&str; 6] = ["oxide", "copper", "azure", "violet", "rose", "g
 #[serde(rename_all = "camelCase", default)]
 pub struct ConnectionSettings {
     pub connect_timeout_secs: u64,
+    pub read_timeout_secs: u64,
+    pub http_version: HttpVersion,
+    pub user_agent: String,
+    pub proxy_bypass: Vec<String>,
     /// Skip automatic proxy discovery when no explicit proxy is configured.
     pub direct: bool,
 }
@@ -100,9 +132,22 @@ impl Default for ConnectionSettings {
     fn default() -> Self {
         Self {
             connect_timeout_secs: 15,
+            read_timeout_secs: 30,
+            http_version: HttpVersion::Http1,
+            user_agent: String::new(),
+            proxy_bypass: Vec::new(),
             direct: false,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HttpVersion {
+    #[default]
+    Auto,
+    Http1,
+    Http3,
 }
 
 /// Where the tools for videos from web pages come from.
@@ -115,6 +160,7 @@ pub struct VideoSettings {
     pub ffmpeg_path: String,
     /// Update yt-dlp once a day: sites change and old versions stop working.
     pub auto_update: bool,
+    pub postprocess: VideoPostprocess,
 }
 
 impl Default for VideoSettings {
@@ -123,8 +169,36 @@ impl Default for VideoSettings {
             ytdlp_path: String::new(),
             ffmpeg_path: String::new(),
             auto_update: true,
+            postprocess: VideoPostprocess::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VideoPostprocess {
+    pub embed_subtitles: bool,
+    pub subtitle_languages: String,
+    pub embed_metadata: bool,
+    pub embed_thumbnail: bool,
+    pub embed_chapters: bool,
+    pub sponsorblock: SponsorBlock,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SponsorBlock {
+    #[default]
+    Off,
+    Mark,
+    Remove,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ScannerSettings {
+    pub enabled: bool,
+    pub extensions: Vec<String>,
 }
 
 pub const MAX_CONNECTIONS: u32 = 32;
@@ -140,6 +214,7 @@ impl Default for Settings {
             speed_limit: None,
             duplicate_policy: DuplicatePolicy::Rename,
             confirm_new: true,
+            capture: None,
             autostart: false,
             notifications: true,
             clipboard_monitor: false,
@@ -150,6 +225,7 @@ impl Default for Settings {
             schedule: Schedule::default(),
             after_queue: AfterQueue::Nothing,
             video: VideoSettings::default(),
+            scanner: ScannerSettings::default(),
             accent: ACCENTS[0].into(),
             density: "comfortable".into(),
             glass: true,
@@ -173,14 +249,36 @@ impl Settings {
 
     /// Clamp values into their valid ranges.
     pub fn normalized(mut self) -> Self {
+        if let Some(capture) = &mut self.capture {
+            capture.min_size = capture.min_size.min(100_000_000_000);
+            capture.min_video_duration = capture.min_video_duration.min(36_000);
+            for list in [
+                &mut capture.extensions,
+                &mut capture.mime_types,
+                &mut capture.excluded_domains,
+            ] {
+                list.retain(|value| !value.trim().is_empty() && value.len() <= 253);
+                list.truncate(128);
+            }
+        }
         self.category_paths.retain(|id, path| {
             path.is_absolute() && Category::ALL.iter().any(|category| category.as_str() == id)
         });
         self.connections = self.connections.clamp(1, MAX_CONNECTIONS);
         self.connection.connect_timeout_secs = self.connection.connect_timeout_secs.clamp(1, 300);
+        self.connection.read_timeout_secs = self.connection.read_timeout_secs.clamp(1, 600);
+        if !cfg!(feature = "http3") && self.connection.http_version == HttpVersion::Http3 {
+            self.connection.http_version = HttpVersion::Http1;
+        }
+        self.connection.user_agent = self.connection.user_agent.trim().to_owned();
+        self.connection
+            .proxy_bypass
+            .retain(|host| !host.trim().is_empty());
         self.max_active = self.max_active.clamp(1, 20);
         self.speed_limit = self.speed_limit.filter(|&s| s > 0);
         self.proxy = self.proxy.filter(|p| !p.trim().is_empty());
+        self.video.postprocess.subtitle_languages =
+            self.video.postprocess.subtitle_languages.trim().to_owned();
         self.video.ytdlp_path = self.video.ytdlp_path.trim().to_string();
         self.video.ffmpeg_path = self.video.ffmpeg_path.trim().to_string();
         if !ACCENTS.contains(&self.accent.as_str()) {

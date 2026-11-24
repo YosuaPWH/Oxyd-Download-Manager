@@ -1,9 +1,11 @@
+import { api } from "../browser-api.ts";
 import { ping } from "../native.ts";
 import { layoutOverride, OVERLAY_KEY, overlaySettings, siteHost, siteLayout } from "../overlay.ts";
-import { DEFAULTS, loadSettings, parseList, saveSettings } from "../settings.ts";
+import { DEFAULTS, loadSettings, parseList, saveSettings, type EffectiveSettings } from "../settings.ts";
 
 const ID: Record<string, string> = {
   capture: "Tangkap download",
+  managed: "Pengaturan pengambilalihan dikelola dari aplikasi Oxyd.",
   skip: "Biarkan download berikutnya ke browser",
   filters: "Filter",
   minSize: "Ukuran minimum (MB)",
@@ -44,7 +46,7 @@ const EN: Record<string, string> = {
   failed: "Could not send it to Oxyd",
 };
 
-const indonesian = chrome.i18n.getUILanguage().startsWith("id");
+const indonesian = api.i18n.getUILanguage().startsWith("id");
 const tr = (key: string, fallback: string) => (indonesian ? ID[key] : EN[key]) ?? fallback;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -75,7 +77,12 @@ function fill(s: typeof DEFAULTS) {
 }
 
 async function init() {
-  fill(await loadSettings());
+  const profile = await api.runtime.sendMessage({ type: "capture-settings", refresh: true }).catch(() => undefined) as EffectiveSettings | undefined;
+  fill(profile?.settings ?? await loadSettings());
+  if (profile?.managed) {
+    for (const control of [enabled, minSize, extensions, excluded, videoButton, $<HTMLButtonElement>("save"), $<HTMLButtonElement>("reset")]) control.disabled = true;
+    $("managed").hidden = false;
+  }
   const version = await ping();
   status.className = `status ${version ? "ok" : "bad"}`;
   status.textContent = version ? `${tr("connected", "Connected")} · v${version}` : tr("offline", "App not running");
@@ -83,8 +90,8 @@ async function init() {
 
 async function initOverlay() {
   const [stored, [tab]] = await Promise.all([
-    chrome.storage.local.get(OVERLAY_KEY),
-    chrome.tabs.query({ active: true, currentWindow: true }),
+    api.storage.local.get(OVERLAY_KEY),
+    api.tabs.query({ active: true, currentWindow: true }),
   ]);
   const prefs = overlaySettings(stored[OVERLAY_KEY]);
   defaultSize.value = prefs.defaults.compact ? "compact" : "standard";
@@ -104,7 +111,7 @@ $("overlayForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   saveOverlay.disabled = true;
   try {
-    const stored = await chrome.storage.local.get(OVERLAY_KEY);
+    const stored = await api.storage.local.get(OVERLAY_KEY);
     const prefs = overlaySettings(stored[OVERLAY_KEY]);
     prefs.defaults = { ...prefs.defaults, ...layoutOverride({ compact: defaultSize.value === "compact", corner: defaultCorner.value }) };
     if (activeHost) {
@@ -112,7 +119,7 @@ $("overlayForm").addEventListener("submit", async (e) => {
       if (rule.compact !== undefined || rule.corner) prefs.sites = { ...prefs.sites, [activeHost]: rule };
       else delete prefs.sites[activeHost];
     }
-    await chrome.storage.local.set({ [OVERLAY_KEY]: prefs });
+    await api.storage.local.set({ [OVERLAY_KEY]: prefs });
     overlayStatus.textContent = tr("saved", "Saved");
   } catch {
     overlayStatus.textContent = tr("layoutFailed", "Could not save the layout");
@@ -125,11 +132,11 @@ enabled.addEventListener("change", () => void saveSettings({ enabled: enabled.ch
 videoButton.addEventListener("change", () => void saveSettings({ videoButton: videoButton.checked }));
 
 $("pageVideo").addEventListener("click", async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const [tab] = await api.tabs.query({ active: true, currentWindow: true });
   if (tab?.id === undefined) return;
   const button = $("pageVideo") as HTMLButtonElement;
   button.disabled = true;
-  const r = (await chrome.runtime.sendMessage({ type: "page-video", tabId: tab.id })) as { ok: boolean } | undefined;
+  const r = (await api.runtime.sendMessage({ type: "page-video", tabId: tab.id })) as { ok: boolean } | undefined;
   button.textContent = r?.ok ? tr("sent", "Sent to Oxyd") : tr("failed", "Could not send it to Oxyd");
   button.disabled = false;
 });
@@ -150,7 +157,7 @@ $("reset").addEventListener("click", async () => {
 });
 
 $("skip").addEventListener("click", async () => {
-  await chrome.runtime.sendMessage({ type: "skip-next" });
+  await api.runtime.sendMessage({ type: "skip-next" });
   $("skip").textContent = tr("skipArmed", "Next download goes to the browser");
 });
 

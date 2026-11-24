@@ -9,7 +9,7 @@
 pub mod convert;
 pub mod ffmpeg;
 pub mod info;
-mod process;
+pub(crate) mod process;
 pub mod tools;
 pub(crate) mod ytdlp;
 

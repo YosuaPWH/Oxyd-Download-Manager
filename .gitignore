@@ -2,6 +2,7 @@
 node_modules/
 dist/
 extension/build/
+extension/build-firefox/
 app/src-tauri/gen/
 *.oxydpart
 .DS_Store

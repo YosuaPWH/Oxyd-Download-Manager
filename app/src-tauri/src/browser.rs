@@ -48,6 +48,12 @@ async fn handle(app: &AppHandle, msg: Message) -> Message {
     match msg {
         Message::Ping => Message::Pong {
             app_version: env!("CARGO_PKG_VERSION").to_string(),
+            capture_settings: app
+                .state::<AppState>()
+                .mgr
+                .settings()
+                .capture
+                .and_then(|settings| serde_json::to_value(settings).ok()),
         },
         Message::AddDownload(a) => {
             let id = a.id.clone();

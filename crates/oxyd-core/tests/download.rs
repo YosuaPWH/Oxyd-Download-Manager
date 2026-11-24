@@ -80,6 +80,27 @@ fn assert_completed(info: &DownloadInfo, size: u64) {
 }
 
 #[tokio::test]
+async fn imported_history_is_paused_and_uses_the_current_download_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let m = manager(dir.path()).await;
+    let date = 1_600_000_000;
+    let info = m
+        .add_imported(
+            NewDownload {
+                url: "https://example.invalid/archive.zip".into(),
+                filename: Some("archive.zip".into()),
+                start: true,
+                ..Default::default()
+            },
+            date,
+        )
+        .unwrap();
+    assert_eq!(info.record.status, Status::Paused);
+    assert_eq!(info.record.created_at, date);
+    assert_eq!(info.record.save_path, dir.path().join("archive.zip"));
+}
+
+#[tokio::test]
 async fn segmented_download_matches_source() {
     let base = server().await;
     let dir = tempfile::tempdir().unwrap();

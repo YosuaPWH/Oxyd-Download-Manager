@@ -29,6 +29,7 @@ export interface AppInfo {
   version: string;
   dataDir: string;
   systemLanguage: "id" | "en";
+  http3: boolean;
   categoryDirectories: Record<Category, string>;
 }
 
@@ -69,6 +70,9 @@ export const api = {
   repairBrowser: () => invoke<void>("repair_browser"),
   exportSettings: () => invoke<boolean>("export_settings"),
   importSettings: () => invoke<Settings | null>("import_settings"),
+  exportDownloads: () => invoke<boolean>("export_downloads"),
+  importDownloads: () => invoke<number | null>("import_downloads"),
+  exportDiagnostics: () => invoke<boolean>("export_diagnostics"),
   pending: () => invoke<PendingAdd[]>("pending_downloads"),
   probePending: (key: string) => invoke<ProbeInfo>("probe_pending", { key }),
   confirmPending: (

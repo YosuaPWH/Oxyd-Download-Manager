@@ -19,7 +19,6 @@ use crate::types::RequestHeaders;
 use crate::writer::SharedFile;
 
 const WRITE_BUF: usize = 256 * 1024;
-const READ_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_RETRIES: u32 = 10;
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
 /// Without throttling for this long, one connection is added back.
@@ -147,6 +146,7 @@ pub(crate) struct Source {
 
 pub(crate) struct Job {
     pub client: Client,
+    pub http_version: crate::settings::HttpVersion,
     /// Sorted by `start`; the first starts at 0.
     pub sources: Vec<Source>,
     pub file: SharedFile,
@@ -301,25 +301,16 @@ async fn fetch(job: &Job, idx: usize, from: u64, end: u64) -> Result<(), Attempt
                 out.settle().await?;
                 return Err(Attempt::Cancelled);
             }
-            n = tokio::time::timeout(READ_TIMEOUT, stream.next()) => n,
+            n = stream.next() => n,
         };
         let chunk = match next {
-            Ok(Some(Ok(c))) => c,
-            Ok(None) => break,
-            Ok(Some(Err(e))) => {
+            Some(Ok(c)) => c,
+            None => break,
+            Some(Err(e)) => {
                 out.submit(&mut buf).await?;
                 out.settle().await?;
                 return Err(Attempt::Retry {
                     reason: crate::error::describe(&e.without_url()),
-                    after: None,
-                    progressed: out.progressed,
-                });
-            }
-            Err(_) => {
-                out.submit(&mut buf).await?;
-                out.settle().await?;
-                return Err(Attempt::Retry {
-                    reason: "read timeout".into(),
                     after: None,
                     progressed: out.progressed,
                 });
@@ -391,7 +382,12 @@ async fn request(job: &Job, from: u64, end: u64) -> Result<reqwest::Response, At
         end - src.start
     };
     let ranged = job.multi || from > 0;
-    let mut rb = src.headers.apply(job.client.get(&src.url));
+    let mut rb = src.headers.apply(crate::probe::request(
+        &job.client,
+        reqwest::Method::GET,
+        &src.url,
+        job.http_version,
+    ));
     if ranged {
         let range = if end == UNKNOWN_END {
             format!("bytes={from}-")

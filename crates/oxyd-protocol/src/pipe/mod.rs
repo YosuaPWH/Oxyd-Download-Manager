@@ -94,6 +94,7 @@ mod tests {
             match msg {
                 Message::Ping => Message::Pong {
                     app_version: "test".into(),
+                    capture_settings: None,
                 },
                 Message::AddDownload(a) => Message::ack(a.id, AckStatus::Accepted, None),
                 other => other,

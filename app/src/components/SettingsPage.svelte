@@ -12,19 +12,28 @@
   import Icon from "./Icon.svelte";
   import QueueDialog from "./QueueDialog.svelte";
 
+  const basicCapture = () => ({
+    enabled: true, minSize: 1024 * 1024, extensions: [], mimeTypes: [],
+    excludedDomains: [], videoButton: true, minVideoDuration: 0,
+  });
+  function readList(text: string): string[] {
+    return [...new Set(text.toLowerCase().split(/[\s,;]+/).filter(Boolean))];
+  }
+
   const SECTIONS = [
     { id: "general", title: "set.general", icon: "settings", keys: ["set.language", "set.autostart", "set.clipboard"] },
     { id: "appearance", title: "set.appearance", icon: "image", keys: ["set.theme", "set.accent", "set.density", "set.glass"] },
     { id: "downloads", title: "set.downloads", icon: "down", keys: ["set.folder", "set.duplicate", "set.progressWindow"] },
-    { id: "connection", title: "set.connection", icon: "globe", keys: ["set.connections", "set.connectTimeout"] },
-    { id: "proxy", title: "set.proxyTitle", icon: "link", keys: ["set.proxyAddress", "set.directConnection"] },
+    { id: "connection", title: "set.connection", icon: "globe", keys: ["set.connections", "set.connectTimeout", "set.httpVersion", "set.readTimeout", "set.userAgent"] },
+    { id: "proxy", title: "set.proxyTitle", icon: "link", keys: ["set.proxyAddress", "set.directConnection", "set.proxyBypass"] },
     { id: "queues", title: "set.speedQueues", icon: "gauge", keys: ["set.speedLimit", "queue.title", "set.maxActive"] },
     { id: "categories", title: "nav.categories", icon: "layers", keys: ["set.categoryFolders"] },
     { id: "browser", title: "set.browser", icon: "panel", keys: ["set.capture", "set.confirmNew", "set.repairBridge"] },
-    { id: "video", title: "set.video", icon: "video", keys: ["set.tools", "set.ytdlpPath", "set.ffmpegPath", "set.installTools"] },
+    { id: "video", title: "set.video", icon: "video", keys: ["set.tools", "set.ytdlpPath", "set.ffmpegPath", "set.installTools", "set.subtitles", "set.sponsorblock"] },
     { id: "schedule", title: "set.schedule", icon: "calendar", keys: ["set.scheduleStart", "set.scheduleStop", "set.afterQueue"] },
     { id: "notifications", title: "set.notificationsSounds", icon: "music", keys: ["set.notifications", "set.sound"] },
-    { id: "advanced", title: "set.advanced", icon: "wrench", keys: ["set.backup", "set.import", "set.export", "set.dataFolder"] },
+    { id: "security", title: "set.security", icon: "alert", keys: ["set.scanDownloads", "set.scanExtensions"] },
+    { id: "advanced", title: "set.advanced", icon: "wrench", keys: ["set.backup", "set.import", "set.export", "set.dataFolder", "set.downloadList", "set.diagnostics"] },
     { id: "shortcuts", title: "set.shortcuts", icon: "all", keys: ["tb.add", "tb.batchHint", "search.placeholder"] },
     { id: "about", title: "set.about", icon: "other", keys: ["set.version", "set.sourceCode", "set.releases"] },
   ] as const satisfies readonly { id: string; title: Key; icon: string; keys: readonly Key[] }[];
@@ -105,6 +114,23 @@
           actionNote = t("set.importDone");
           await loadTools();
           await refreshQueues();
+        }
+      });
+    } finally {
+      fileBusy = false;
+    }
+  }
+
+  async function transferList(kind: "import" | "export" | "diagnostics") {
+    fileBusy = true;
+    try {
+      await action(async () => {
+        if (kind === "import") {
+          const count = await api.importDownloads();
+          if (count !== null) actionNote = `${t("set.listImported")} · ${count}`;
+        } else {
+          const saved = kind === "export" ? await api.exportDownloads() : await api.exportDiagnostics();
+          if (saved) actionNote = t(kind === "export" ? "set.listExported" : "set.diagnosticsSaved");
         }
       });
     } finally {
@@ -369,12 +395,17 @@
       {:else if section?.id === "video"}
         {@render group(t("set.tools"), videoTools)}
         {@render group(t("set.customPaths"), videoPaths)}
+        {@render group(t("set.postprocess"), postprocess)}
       {:else if section?.id === "schedule"}
         {@render group(t("queue.main"), schedule)}
       {:else if section?.id === "notifications"}
         {@render group(null, notifications)}
+      {:else if section?.id === "security"}
+        {@render group(t("set.antivirus"), scanner)}
       {:else if section?.id === "advanced"}
         {@render group(t("set.backup"), backup)}
+        {@render group(t("set.downloadList"), listBackup)}
+        {@render group(t("set.diagnostics"), diagnostics)}
         {@render group(t("set.dataFolder"), dataFolder)}
       {:else if section?.id === "shortcuts"}
         {@render group(null, shortcuts)}
@@ -501,6 +532,29 @@
       }}
     />
   </div>
+  <div class="item">
+    <label for="s-read-timeout">{t("set.readTimeout")}<small class="hint">{t("set.readTimeoutHint")}</small></label>
+    <input id="s-read-timeout" class="num short" type="number" min="1" max="600"
+      value={s.connection.readTimeoutSecs}
+      onchange={(e) => {
+        const value = e.currentTarget.valueAsNumber;
+        if (Number.isFinite(value)) s.connection.readTimeoutSecs = Math.max(1, Math.min(600, Math.round(value)));
+        e.currentTarget.value = String(s.connection.readTimeoutSecs);
+      }}
+    />
+  </div>
+  <div class="item">
+    <label for="s-http">{t("set.httpVersion")}<small class="hint">{t("set.http3Hint")}</small></label>
+    <select id="s-http" bind:value={s.connection.httpVersion}>
+      <option value="auto">{t("set.httpAuto")}</option>
+      <option value="http1">HTTP/1.1</option>
+      <option value="http3" disabled={!app.info?.http3 || !s.connection.direct || Boolean(s.proxy?.trim())}>HTTP/3</option>
+    </select>
+  </div>
+  <div class="item wide">
+    <label for="s-user-agent">{t("set.userAgent")}</label>
+    <input id="s-user-agent" class="mono" bind:value={s.connection.userAgent} maxlength="512" />
+  </div>
 {/snippet}
 
 {#snippet proxy()}
@@ -512,6 +566,11 @@
     <span>{t("set.directConnection")}<small class="hint">{t("set.directConnectionHint")}</small></span>
     <input type="checkbox" class="switch" role="switch" bind:checked={s.connection.direct} disabled={Boolean(s.proxy?.trim())} />
   </label>
+  <div class="item wide">
+    <label for="s-proxy-bypass">{t("set.proxyBypass")}<small class="hint">{t("set.proxyBypassHint")}</small></label>
+    <input id="s-proxy-bypass" class="mono" value={s.connection.proxyBypass.join(", ")}
+      onchange={(e) => (s.connection.proxyBypass = readList(e.currentTarget.value))} />
+  </div>
 {/snippet}
 
 {#snippet speed()}
@@ -587,6 +646,7 @@
       <li>{t("set.extensionStep1")}</li>
       <li>{t("set.extensionStep2")} <code>chrome://extensions</code> / <code>edge://extensions</code></li>
       <li>{t("set.extensionStep3")}</li>
+      <li>{t("set.firefoxInstall")} <code>about:debugging#/runtime/this-firefox</code></li>
     </ol>
     <button onclick={() => action(api.openReleases)}><Icon name="down" size={14} />{t("set.releases")}</button>
   </div>
@@ -597,7 +657,48 @@
     <span>{t("set.confirmNew")}</span>
     <input type="checkbox" class="switch" role="switch" bind:checked={s.confirmNew} />
   </label>
-  <div class="item"><span>{t("set.captureHint")}</span></div>
+  <label class="item">
+    <span>{t("set.manageCapture")}<small class="hint">{t("set.manageCaptureHint")}</small></span>
+    <input type="checkbox" class="switch" role="switch" checked={s.capture !== null}
+      onchange={(e) => (s.capture = e.currentTarget.checked ? basicCapture() : null)} />
+  </label>
+  {#if s.capture}
+    <label class="item">
+      <span>{t("set.captureEnabled")}</span>
+      <input type="checkbox" class="switch" role="switch" bind:checked={s.capture.enabled} />
+    </label>
+    <div class="item">
+      <label for="s-min-size">{t("set.captureMinSize")}</label>
+      <input id="s-min-size" class="num short" type="number" min="0" max="97656250"
+        value={Math.round(s.capture.minSize / 1024)}
+        onchange={(e) => { if (s.capture && Number.isFinite(e.currentTarget.valueAsNumber)) s.capture.minSize = Math.min(100_000_000_000, Math.max(0, Math.round(e.currentTarget.valueAsNumber) * 1024)); }} />
+    </div>
+    <div class="item wide">
+      <label for="s-capture-ext">{t("set.captureTypes")}<small class="hint">{t("set.anyType")}</small></label>
+      <input id="s-capture-ext" value={s.capture.extensions.join(", ")}
+        onchange={(e) => { if (s.capture) s.capture.extensions = readList(e.currentTarget.value).map((ext) => ext.replace(/^\./, "")); }} placeholder="zip, pdf, mp4" />
+    </div>
+    <div class="item wide">
+      <label for="s-capture-mime">{t("set.captureMimes")}<small class="hint">{t("set.anyType")}</small></label>
+      <input id="s-capture-mime" value={s.capture.mimeTypes.join(", ")}
+        onchange={(e) => { if (s.capture) s.capture.mimeTypes = readList(e.currentTarget.value); }} placeholder="video/*, application/pdf" />
+    </div>
+    <div class="item wide">
+      <label for="s-capture-domains">{t("set.captureDomains")}</label>
+      <input id="s-capture-domains" value={s.capture.excludedDomains.join(", ")}
+        onchange={(e) => { if (s.capture) s.capture.excludedDomains = readList(e.currentTarget.value); }} placeholder="example.com" />
+    </div>
+    <label class="item">
+      <span>{t("set.captureVideo")}</span>
+      <input type="checkbox" class="switch" role="switch" bind:checked={s.capture.videoButton} />
+    </label>
+    <div class="item">
+      <label for="s-video-duration">{t("set.captureVideoDuration")}</label>
+      <input id="s-video-duration" class="num short" type="number" min="0" max="36000"
+        value={s.capture.minVideoDuration}
+        onchange={(e) => { if (s.capture && Number.isFinite(e.currentTarget.valueAsNumber)) s.capture.minVideoDuration = Math.min(36_000, Math.max(0, Math.round(e.currentTarget.valueAsNumber))); }} />
+    </div>
+  {/if}
 {/snippet}
 
 {#snippet videoTools()}
@@ -633,6 +734,32 @@
   <div class="item wide">
     <label for="s-ffmpeg">{t("set.ffmpegPath")}<small class="hint">{t("set.pathHint")}</small></label>
     <input id="s-ffmpeg" class="mono" bind:value={s.video.ffmpegPath} />
+  </div>
+{/snippet}
+
+{#snippet postprocess()}
+  {#each [
+    ["embedSubtitles", "set.subtitles"], ["embedMetadata", "set.metadata"],
+    ["embedThumbnail", "set.thumbnail"], ["embedChapters", "set.chapters"],
+  ] as const as [key, label] (key)}
+    <label class="item">
+      <span>{t(label)}</span>
+      <input type="checkbox" class="switch" role="switch" bind:checked={s.video.postprocess[key]} />
+    </label>
+  {/each}
+  {#if s.video.postprocess.embedSubtitles}
+    <div class="item wide">
+      <label for="s-sub-langs">{t("set.subtitleLanguages")}</label>
+      <input id="s-sub-langs" bind:value={s.video.postprocess.subtitleLanguages} placeholder="id,en.*" maxlength="256" />
+    </div>
+  {/if}
+  <div class="item">
+    <label for="s-sponsorblock">SponsorBlock<small class="hint">{t("set.sponsorblockHint")}</small></label>
+    <select id="s-sponsorblock" bind:value={s.video.postprocess.sponsorblock}>
+      <option value="off">{t("set.afterNothing")}</option>
+      <option value="mark">{t("set.sponsorMark")}</option>
+      <option value="remove">{t("set.sponsorRemove")}</option>
+    </select>
   </div>
 {/snippet}
 
@@ -687,6 +814,37 @@
       <button onclick={() => transferSettings("export")} disabled={fileBusy}><Icon name="up" size={14} />{t("set.export")}</button>
       <button onclick={() => transferSettings("import")} disabled={fileBusy}><Icon name="down" size={14} />{t("set.import")}</button>
     </div>
+  </div>
+{/snippet}
+
+{#snippet scanner()}
+  <label class="item">
+    <span>{t("set.scanDownloads")}<small class="hint">{t("set.scanHint")}</small></span>
+    <input type="checkbox" class="switch" role="switch" bind:checked={s.scanner.enabled} />
+  </label>
+  {#if s.scanner.enabled}
+    <div class="item wide">
+      <label for="s-scan-ext">{t("set.scanExtensions")}<small class="hint">{t("set.anyType")}</small></label>
+      <input id="s-scan-ext" value={s.scanner.extensions.join(", ")}
+        onchange={(e) => (s.scanner.extensions = readList(e.currentTarget.value))} placeholder="exe, msi, zip" />
+    </div>
+  {/if}
+{/snippet}
+
+{#snippet listBackup()}
+  <div class="item wide">
+    <span>{t("set.listBackupHint")}</span>
+    <div class="field">
+      <button onclick={() => transferList("export")} disabled={fileBusy}>{t("set.export")}</button>
+      <button onclick={() => transferList("import")} disabled={fileBusy}>{t("set.import")}</button>
+    </div>
+  </div>
+{/snippet}
+
+{#snippet diagnostics()}
+  <div class="item">
+    <span>{t("set.diagnosticsHint")}</span>
+    <button onclick={() => transferList("diagnostics")} disabled={fileBusy}>{t("set.exportZip")}</button>
   </div>
 {/snippet}
 

@@ -304,6 +304,7 @@ pub struct AppInfo {
     version: &'static str,
     data_dir: PathBuf,
     system_language: &'static str,
+    http3: bool,
     category_directories: std::collections::BTreeMap<&'static str, &'static str>,
 }
 
@@ -313,6 +314,7 @@ pub fn app_info() -> AppInfo {
         version: env!("CARGO_PKG_VERSION"),
         data_dir: oxyd_core::paths::data_dir(),
         system_language: crate::i18n::system_language(),
+        http3: cfg!(feature = "http3"),
         category_directories: Category::ALL
             .into_iter()
             .map(|category| (category.as_str(), category.folder()))

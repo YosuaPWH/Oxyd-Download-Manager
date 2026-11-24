@@ -159,6 +159,16 @@ mod enabled {
             if !outcome? {
                 return Ok(false);
             }
+            if !crate::scanner::scan(
+                &rec.save_path,
+                &rec.filename,
+                &self.settings().scanner,
+                &ctx.cancel,
+            )
+            .await?
+            {
+                return Ok(false);
+            }
             rec.downloaded = meta.total_size;
             rec.status = Status::Completed;
             rec.completed_at = Some(now());

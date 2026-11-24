@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::filename;
-use crate::settings::ConnectionSettings;
+use crate::settings::{ConnectionSettings, HttpVersion};
 use crate::types::RequestHeaders;
 
 pub const DEFAULT_USER_AGENT: &str = concat!(
@@ -46,14 +46,48 @@ pub(crate) fn configured_client(
     options: &ConnectionSettings,
 ) -> Result<Client> {
     let mut b = Client::builder()
-        .user_agent(DEFAULT_USER_AGENT)
+        .user_agent(if options.user_agent.is_empty() {
+            DEFAULT_USER_AGENT
+        } else {
+            &options.user_agent
+        })
+        .read_timeout(Duration::from_secs(options.read_timeout_secs))
         .connect_timeout(Duration::from_secs(options.connect_timeout_secs))
         .redirect(reqwest::redirect::Policy::limited(10))
         // Byte offsets must match the raw body, never transparently decompress.
         .no_gzip()
         .tcp_keepalive(Duration::from_secs(30));
+    b = match options.http_version {
+        HttpVersion::Auto => b,
+        HttpVersion::Http1 => b.http1_only(),
+        #[cfg(feature = "http3")]
+        HttpVersion::Http3 if proxy.is_none() && options.direct => b,
+        #[cfg(feature = "http3")]
+        HttpVersion::Http3 => {
+            return Err(Error::InvalidState(
+                "HTTP/3 requires a direct connection with no proxy".into(),
+            ))
+        }
+        #[cfg(not(feature = "http3"))]
+        HttpVersion::Http3 => {
+            return Err(Error::InvalidState(
+                "This build does not include experimental HTTP/3".into(),
+            ))
+        }
+    };
     if let Some(p) = proxy.filter(|p| !p.trim().is_empty()) {
-        b = b.proxy(reqwest::Proxy::all(p.trim()).map_err(|e| Error::InvalidUrl(e.to_string()))?);
+        let proxy = reqwest::Proxy::all(p.trim()).map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        let bypass = options
+            .proxy_bypass
+            .iter()
+            .map(|host| host.trim().trim_start_matches("*."))
+            .collect::<Vec<_>>()
+            .join(",");
+        b = b.proxy(if bypass.is_empty() {
+            proxy
+        } else {
+            proxy.no_proxy(reqwest::NoProxy::from_string(&bypass))
+        });
     } else if options.direct {
         b = b.no_proxy();
     }
@@ -101,9 +135,36 @@ pub(crate) fn status_error(status: StatusCode) -> Error {
 
 /// Probe with `GET Range: bytes=0-0`, falling back to `HEAD` when the GET is refused.
 pub async fn probe(client: &Client, url: &str, headers: &RequestHeaders) -> Result<ProbeInfo> {
+    probe_with_version(client, url, headers, HttpVersion::Auto).await
+}
+
+pub(crate) fn request(
+    client: &Client,
+    method: reqwest::Method,
+    url: &str,
+    version: HttpVersion,
+) -> reqwest::RequestBuilder {
+    let builder = client.request(method, url);
+    if version == HttpVersion::Http3
+        && url
+            .get(..8)
+            .is_some_and(|p| p.eq_ignore_ascii_case("https://"))
+    {
+        builder.version(reqwest::Version::HTTP_3)
+    } else {
+        builder
+    }
+}
+
+pub(crate) async fn probe_with_version(
+    client: &Client,
+    url: &str,
+    headers: &RequestHeaders,
+    version: HttpVersion,
+) -> Result<ProbeInfo> {
     check_url(url)?;
     let get = headers
-        .apply(client.get(url))
+        .apply(request(client, reqwest::Method::GET, url, version))
         .header(header::RANGE, "bytes=0-0")
         .timeout(Duration::from_secs(30))
         .send()
@@ -127,7 +188,7 @@ pub async fn probe(client: &Client, url: &str, headers: &RequestHeaders) -> Resu
     }
     drop(get);
     let head = headers
-        .apply(client.head(url))
+        .apply(request(client, reqwest::Method::HEAD, url, version))
         .timeout(Duration::from_secs(30))
         .send()
         .await?;
@@ -147,10 +208,19 @@ pub async fn probe_open(
     url: &str,
     headers: &RequestHeaders,
 ) -> Result<(ProbeInfo, Option<reqwest::Response>)> {
+    probe_open_with_version(client, url, headers, HttpVersion::Auto).await
+}
+
+pub(crate) async fn probe_open_with_version(
+    client: &Client,
+    url: &str,
+    headers: &RequestHeaders,
+    version: HttpVersion,
+) -> Result<(ProbeInfo, Option<reqwest::Response>)> {
     check_url(url)?;
     // No request timeout here: it would also cover reading the whole body.
     let send = headers
-        .apply(client.get(url))
+        .apply(request(client, reqwest::Method::GET, url, version))
         .header(header::RANGE, "bytes=0-")
         .send();
     let resp = tokio::time::timeout(Duration::from_secs(30), send)
@@ -169,7 +239,10 @@ pub async fn probe_open(
         return Ok((info, Some(resp)));
     }
     drop(resp);
-    Ok((probe(client, url, headers).await?, None))
+    Ok((
+        probe_with_version(client, url, headers, version).await?,
+        None,
+    ))
 }
 
 fn advertises_ranges(h: &HeaderMap) -> bool {
