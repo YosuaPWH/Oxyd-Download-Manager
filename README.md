@@ -89,7 +89,7 @@ light window. The feature analysis and the mockups it was built from are in
 
 **Layout**
 
-- **Sidebar**: the Oxyd mark (a ring of eight segments, one lit), *All downloads*,
+- **Sidebar**: the Oxyd download mark, *All downloads*,
   *Unfinished* and *Finished*, the seven file types with their counts, the queues with what
   still waits in each, and the total speed with its last minute as a sparkline. On narrow
   windows it shrinks to icons.

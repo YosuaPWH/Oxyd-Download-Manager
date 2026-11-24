@@ -1,13 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2563eb"/>
-      <stop offset="1" stop-color="#7c3aed"/>
+    <linearGradient id="tile" x2="1" y2="1">
+      <stop stop-color="#183b39"/>
+      <stop offset="1" stop-color="#0a2023"/>
+    </linearGradient>
+    <linearGradient id="arrow" x2="0" y2="1">
+      <stop stop-color="#f4fffc"/>
+      <stop offset="1" stop-color="#7fe8d2"/>
     </linearGradient>
   </defs>
-  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#g)"/>
-  <circle cx="256" cy="238" r="150" fill="none" stroke="#fff" stroke-width="44"/>
-  <path d="M256 150v150" stroke="#fff" stroke-width="44" stroke-linecap="round"/>
-  <path d="M190 246l66 66 66-66" fill="none" stroke="#fff" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="150" y="400" width="212" height="36" rx="18" fill="#fff"/>
+  <rect x="16" y="16" width="480" height="480" rx="120" fill="url(#tile)"/>
+  <rect x="19" y="19" width="474" height="474" rx="117" fill="none" stroke="#85decc" stroke-opacity=".3" stroke-width="6"/>
+  <path d="M156 276l100 94 100-94" fill="none" stroke="#43ad9c" stroke-width="38" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M156 196l100 94 100-94M256 115v170" fill="none" stroke="url(#arrow)" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M206 422h100" stroke="#f2ae7e" stroke-width="28" stroke-linecap="round"/>
 </svg>

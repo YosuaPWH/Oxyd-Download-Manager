@@ -3,20 +3,9 @@
   import { t, type Key } from "../lib/i18n.svelte";
   import { app, selectOnly, speedLog, type Library } from "../lib/store.svelte";
   import { type Category, type Queue } from "../lib/types";
+  import mark from "../../src-tauri/icons/source.svg";
   import Icon from "./Icon.svelte";
   import Sparkline from "./Sparkline.svelte";
-
-  // The mark is a ring cut into eight segments, one of them lit: a file fetched in parallel.
-  const arcs = [
-    "M14 3A11 11 0 0 1 21.78 6.22",
-    "M22.5 7A11 11 0 0 1 25 14",
-    "M25 15A11 11 0 0 1 21.78 21.78",
-    "M21 22.5A11 11 0 0 1 14 25",
-    "M13 25A11 11 0 0 1 6.22 21.78",
-    "M5.5 21A11 11 0 0 1 3 14",
-    "M3 13A11 11 0 0 1 6.22 6.22",
-    "M7 5.5A11 11 0 0 1 13 3",
-  ];
 
   const libraries: { value: Library; key: Key; icon: string }[] = [
     { value: "all", key: "side.all", icon: "all" },
@@ -82,11 +71,7 @@
 
 <nav aria-label="Oxyd">
   <div class="brand">
-    <svg class="mark" width="24" height="24" viewBox="0 0 28 28" role="img" aria-label="Oxyd">
-      {#each arcs as d, i (i)}
-        <path {d} class:lit={i === 0} />
-      {/each}
-    </svg>
+    <img class="mark" src={mark} alt="" width="24" height="24" />
     <span class="label">Oxyd</span>
   </div>
 
@@ -204,12 +189,6 @@
   }
   .mark {
     flex: none;
-    fill: none;
-    stroke: var(--text);
-    stroke-width: 3;
-  }
-  .mark .lit {
-    stroke: var(--accent);
   }
   .item {
     flex: none;
