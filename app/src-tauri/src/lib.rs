@@ -83,7 +83,7 @@ pub fn toggle_mini(app: &AppHandle) -> tauri::Result<bool> {
         w.destroy()?;
         return Ok(false);
     }
-    tauri::WebviewWindowBuilder::new(app, MINI, tauri::WebviewUrl::App("index.html?mini".into()))
+    tauri::WebviewWindowBuilder::new(app, MINI, tauri::WebviewUrl::App("mini.html".into()))
         .title("Oxyd")
         .inner_size(300.0, 148.0)
         .resizable(false)

@@ -121,3 +121,7 @@ export function errorMessage(e: unknown): string {
   }
   return String(e);
 }
+
+export function onMiniChanged(cb: (open: boolean) => void): Promise<UnlistenFn> {
+  return listen<boolean>("oxyd://mini", (e) => cb(e.payload));
+}

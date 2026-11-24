@@ -59,18 +59,20 @@
   ondragleave={() => (over = Math.max(0, over - 1))}
   ondragover={(e) => e.preventDefault()}
   ondrop={drop}
-  ondblclick={() => void api.showMain()}
+  ondblclick={() => void run(api.showMain)}
 >
   <header data-tauri-drag-region>
     <span class="readout num" data-tauri-drag-region>{readout[0]} <small>{readout[1]}</small></span>
     <span class="grow" data-tauri-drag-region></span>
-    <button class="icon" title={t("mini.open")} aria-label={t("mini.open")} onclick={() => api.showMain()}><Icon name="panel" size={14} /></button>
-    <button class="icon" title={t("mini.close")} aria-label={t("mini.close")} onclick={() => api.toggleMini()}><Icon name="x" size={14} /></button>
+    <button class="icon" title={t("mini.open")} aria-label={t("mini.open")} onclick={() => run(api.showMain)}><Icon name="panel" size={14} /></button>
+    <button class="icon" title={t("mini.close")} aria-label={t("mini.close")} onclick={() => run(api.toggleMini)}><Icon name="x" size={14} /></button>
   </header>
   <Sparkline samples={speedLog.total} height={30} />
   <div class="line">
     {#if note}
       <span class="ellipsis accent">{note}</span>
+    {:else if app.error}
+      <span class="ellipsis error" role="alert" title={app.error}>{app.error}</span>
     {:else if over > 0}
       <span class="accent">{t("drop.title")}</span>
     {:else if lead}
@@ -145,6 +147,9 @@
   }
   .name {
     min-width: 0;
+  }
+  .error {
+    color: var(--negative);
   }
   .accent {
     color: var(--accent);

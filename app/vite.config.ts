@@ -12,6 +12,7 @@ export default defineConfig({
   },
   envPrefix: ["VITE_", "TAURI_ENV_"],
   build: {
+    rollupOptions: { input: ["index.html", "mini.html"] },
     target: "es2022",
     sourcemap: false,
   },

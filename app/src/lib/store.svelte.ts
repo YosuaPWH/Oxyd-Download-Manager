@@ -1,4 +1,4 @@
-import { api, errorMessage, onClipboard, onEngineEvent, onPending, onRefresh, onResync } from "./api";
+import { api, errorMessage, onClipboard, onEngineEvent, onMiniChanged, onPending, onRefresh, onResync } from "./api";
 import { errorText, i18n, t } from "./i18n.svelte";
 import { playDone } from "./sound";
 import type {
@@ -22,7 +22,7 @@ export type InspectorTab = "connections" | "speed" | "info";
 
 /** False in the mini window and in progress windows, which show no dialogs and make no sound. */
 const windowQuery = new URLSearchParams(location.search);
-export const isMainWindow = !windowQuery.has("mini") && !windowQuery.has("progress");
+export const isMainWindow = !location.pathname.endsWith("/mini.html") && !windowQuery.has("progress");
 
 /** Ticks every second for countdowns. */
 export const clock = $state({ now: Math.floor(Date.now() / 1000) });
@@ -362,39 +362,41 @@ export async function init() {
   systemDark.addEventListener("change", () => app.settings && applyTheme(app.settings));
   await Promise.all([
     onEngineEvent(apply),
+    onResync(() => {
+      void run(refresh);
+      if (isMainWindow) void syncPending();
+    }),
+  ]);
+  const [settings, list] = await Promise.all([api.getSettings(), api.list()]);
+  app.settings = settings;
+  applyTheme(settings);
+  app.downloads = list;
+  if (!isMainWindow) return;
+
+  await Promise.all([
     onPending((p) => {
       if (!app.pending.some((x) => x.key === p.key)) app.pending.push(p);
     }),
     onClipboard((url) => (app.clipboardUrl = url)),
-    onResync(() => {
-      void refresh();
-      void syncPending();
-    }),
+    onMiniChanged((open) => (app.mini = open)),
     onRefresh((r) => {
       app.refreshing = null;
       if (r.ok) app.notice = t("refresh.done");
       else app.error = errorText(r.code) ?? r.message ?? t("err.title");
     }),
   ]);
-  const [settings, list, pending, info, refreshing, queues, mini] = await Promise.all([
-    api.getSettings(),
-    api.list(),
-    api.pending(),
+  const [info, refreshing, queues, mini] = await Promise.all([
     api.appInfo(),
     api.refreshTarget(),
     api.listQueues(),
     api.miniOpen(),
+    syncPending(),
   ]);
-  // Only the main window shows dialogs; the mini and progress windows never take a link.
-  if (isMainWindow) setInterval(() => void syncPending(), 2000);
+  setInterval(() => void syncPending(), 2000);
   app.queues = queues ?? [];
   app.mini = !!mini;
   app.refreshing = refreshing;
-  app.settings = settings;
-  applyTheme(settings);
-  app.downloads = list;
   app.version = info.version;
-  for (const p of pending) if (!app.pending.some((x) => x.key === p.key)) app.pending.push(p);
 }
 
 /** Wait for the next link clicked in the browser and use it for download `d`. */

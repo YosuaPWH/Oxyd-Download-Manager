@@ -11,7 +11,7 @@ use oxyd_core::{
     RequestHeaders, Settings,
 };
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager as _, State};
+use tauri::{AppHandle, Emitter, Manager as _, State};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
 use tauri_plugin_dialog::DialogExt as _;
@@ -572,8 +572,11 @@ pub async fn pick_torrent(app: AppHandle) -> Res<Option<PathBuf>> {
 
 /// Open or close the mini window; returns whether it is open now.
 #[tauri::command]
-pub fn toggle_mini(app: AppHandle) -> Res<bool> {
-    crate::toggle_mini(&app).map_err(|e| CmdError::other("window", e))
+pub async fn toggle_mini(app: AppHandle) -> Res<bool> {
+    // Creating a WebView2 window from a synchronous command can stall Windows.
+    let open = crate::toggle_mini(&app).map_err(|e| CmdError::other("window", e))?;
+    let _ = app.emit("oxyd://mini", open);
+    Ok(open)
 }
 
 #[tauri::command]
