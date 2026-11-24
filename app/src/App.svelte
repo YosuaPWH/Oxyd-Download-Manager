@@ -282,23 +282,28 @@
       {/await}
     {:else}
       <div class="toolbar" role="toolbar" aria-label={t("page.downloads")}>
-        <button class="primary" onclick={() => (app.manualUrl = "")} title="Ctrl+N">
-          <Icon name="add" size={14} />{t("tb.add")}
-        </button>
-        <button onclick={() => (app.batch = "")} title="{t('tb.batchHint')} (Ctrl+B)">
-          <Icon name="layers" size={14} /><span class="wide">{t("tb.batch")}</span>
-        </button>
-        <span class="sep"></span>
-        <button class="icon" title={t("tb.resumeSel")} aria-label={t("tb.resumeSel")} disabled={!canStartAny} onclick={startSelected}><Icon name="play" /></button>
-        <button class="icon" title={t("tb.pauseSel")} aria-label={t("tb.pauseSel")} disabled={!canPauseAny} onclick={pauseSelected}><Icon name="pause" /></button>
-        <button class="icon" title="{t('tb.removeSel')} (Del)" aria-label={t("tb.removeSel")} disabled={!picked.length} onclick={() => askRemove(picked)}><Icon name="trash" /></button>
-        <span class="sep"></span>
-        <button class="icon" title={t("tb.resumeAll")} aria-label={t("tb.resumeAll")} onclick={() => run(api.resumeAll)}><Icon name="playAll" /></button>
-        <button class="icon" title={t("tb.pauseAll")} aria-label={t("tb.pauseAll")} onclick={() => run(api.pauseAll)}><Icon name="pauseAll" /></button>
-        <button class="icon" title={t("tb.clearCompletedHint")} aria-label={t("tb.clearCompleted")} disabled={!overview.done} onclick={clearCompleted}><Icon name="sweep" /></button>
-        <span class="sep"></span>
-        <button class="icon" title="{t('grab.title')} (Ctrl+G)" aria-label={t("grab.title")} onclick={() => (app.grabber = true)}><Icon name="globe" /></button>
-        <button class="icon" title={t("mini.toggle")} aria-label={t("mini.toggle")} aria-pressed={app.mini} onclick={toggleMini}><Icon name="pip" /></button>
+        <div class="actions">
+          <button class="primary" onclick={() => (app.manualUrl = "")} title="Ctrl+N">
+            <Icon name="add" size={14} />{t("tb.add")}
+          </button>
+          <button onclick={() => (app.batch = "")} title="{t('tb.batchHint')} (Ctrl+B)">
+            <Icon name="layers" size={14} /><span class="wide">{t("tb.batch")}</span>
+          </button>
+        </div>
+        <div class="actions">
+          <button class="icon" title={t("tb.resumeSel")} aria-label={t("tb.resumeSel")} disabled={!canStartAny} onclick={startSelected}><Icon name="play" /></button>
+          <button class="icon" title={t("tb.pauseSel")} aria-label={t("tb.pauseSel")} disabled={!canPauseAny} onclick={pauseSelected}><Icon name="pause" /></button>
+          <button class="icon" title="{t('tb.removeSel')} (Del)" aria-label={t("tb.removeSel")} disabled={!picked.length} onclick={() => askRemove(picked)}><Icon name="trash" /></button>
+        </div>
+        <div class="actions">
+          <button class="icon" title={t("tb.resumeAll")} aria-label={t("tb.resumeAll")} onclick={() => run(api.resumeAll)}><Icon name="playAll" /></button>
+          <button class="icon" title={t("tb.pauseAll")} aria-label={t("tb.pauseAll")} onclick={() => run(api.pauseAll)}><Icon name="pauseAll" /></button>
+          <button class="icon" title={t("tb.clearCompletedHint")} aria-label={t("tb.clearCompleted")} disabled={!overview.done} onclick={clearCompleted}><Icon name="sweep" /></button>
+        </div>
+        <div class="actions">
+          <button class="icon" title="{t('grab.title')} (Ctrl+G)" aria-label={t("grab.title")} onclick={() => (app.grabber = true)}><Icon name="globe" /></button>
+          <button class="icon" title={t("mini.toggle")} aria-label={t("mini.toggle")} aria-pressed={app.mini} onclick={toggleMini}><Icon name="pip" /></button>
+        </div>
         <span class="grow"></span>
         <label class="search">
           <span class="sr-only">{t("search.placeholder")}</span>
@@ -553,20 +558,28 @@
     flex: none;
     display: flex;
     align-items: center;
-    gap: 4px;
-    height: 50px;
-    padding: 0 12px;
+    gap: 8px;
+    min-height: 52px;
+    padding: 7px 12px;
     border-bottom: 1px solid var(--rule);
   }
-  .toolbar > button:not(.icon) {
-    margin-right: 4px;
-  }
-  .sep {
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
     flex: none;
-    width: 1px;
-    height: 18px;
-    margin: 0 6px;
-    background: var(--border);
+    padding: 2px;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: var(--hover);
+  }
+  .actions > button:not(.primary) {
+    border-color: transparent;
+    background: transparent;
+  }
+  .actions > button:not(.primary):enabled:hover,
+  .actions > button[aria-pressed="true"] {
+    background: var(--pressed);
   }
   .grow {
     flex: 1;

@@ -61,7 +61,17 @@
       <span class="num">{fmt.bytes(d.downloaded)}{#if d.totalSize !== null}<span class="faint"> / {fmt.bytes(d.totalSize)}</span>{/if}</span>
     </div>
 
-    <SegmentBar segments={d.segments} total={d.totalSize} downloaded={d.downloaded} />
+    {#if pct !== null}
+      <progress aria-label={t("col.progress")} max="100" value={pct}></progress>
+    {:else if moving}
+      <progress aria-label={t("col.progress")} max="100"></progress>
+    {/if}
+    {#if d.segments.length}
+      <div class="file-map">
+        <span class="faint">{t("detail.fileMap")}</span>
+        <SegmentBar segments={d.segments} total={d.totalSize} downloaded={d.downloaded} active={moving} />
+      </div>
+    {/if}
 
     <dl>
       <div><dt>{t("col.speed")}</dt><dd class="num">{moving ? fmt.speed(d.speed) || "0 B/s" : "—"}</dd></div>
@@ -105,7 +115,7 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    height: 100vh;
+    min-height: 100vh;
     padding: 16px 18px 14px;
     background: var(--surface);
     --state: var(--faint);
@@ -149,6 +159,30 @@
   }
   .grow {
     flex: 1;
+  }
+  progress {
+    width: 100%;
+    height: 8px;
+    appearance: none;
+    accent-color: var(--state);
+    border: 0;
+    border-radius: 4px;
+    background: var(--track);
+  }
+  progress::-webkit-progress-bar {
+    border-radius: 4px;
+    background: var(--track);
+  }
+  progress::-webkit-progress-value {
+    border-radius: 4px;
+    background: var(--state);
+  }
+  .file-map {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
   }
   dl {
     display: grid;
