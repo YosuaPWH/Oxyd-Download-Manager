@@ -173,15 +173,25 @@
     gap: 2px;
     padding: 12px 8px 8px;
     border-radius: var(--radius-lg);
-    background: var(--panel);
-    box-shadow: var(--sheet-shadow);
-    backdrop-filter: blur(24px) saturate(160%);
+    background: linear-gradient(150deg, var(--glass-edge), transparent 45%), var(--panel);
+    box-shadow: inset 0 0 0 1px var(--glass-edge), var(--sheet-shadow);
+    -webkit-backdrop-filter: blur(18px) saturate(145%);
+    backdrop-filter: blur(18px) saturate(145%);
     overflow-y: auto;
     scrollbar-width: none;
   }
   :global(.no-glass) nav {
     background: var(--surface);
+    box-shadow: var(--sheet-shadow);
+    -webkit-backdrop-filter: none;
     backdrop-filter: none;
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    nav {
+      background: var(--surface);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
   }
   .brand {
     display: flex;

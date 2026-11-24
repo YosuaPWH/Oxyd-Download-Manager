@@ -519,16 +519,15 @@
 </div>
 
 <style>
-  /* The window: a tinted panel beside the sheet that holds the data. The accent lights the
-     top left corner; that light is all the "glass" has to refract. */
+  /* The glass surfaces blur this in-app lighting, which works in opaque webviews. */
   .shell {
     display: flex;
     gap: 8px;
     height: 100vh;
     padding: 8px;
     background:
-      radial-gradient(560px 320px at 0% 0%, var(--accent-soft), transparent 70%),
-      radial-gradient(420px 260px at 0% 100%, var(--accent-softer), transparent 70%), var(--ground);
+      radial-gradient(65% 68% at 6% 0%, var(--glass-light), transparent),
+      radial-gradient(52% 62% at 0% 100%, var(--glass-light), transparent), var(--ground);
   }
   :global(.no-glass) .shell {
     background: var(--ground);
@@ -539,9 +538,16 @@
     display: flex;
     flex-direction: column;
     border-radius: var(--radius-lg);
-    background: var(--surface);
+    background: var(--glass-sheet);
     box-shadow: var(--sheet-shadow);
     overflow: hidden;
+  }
+  :global(.no-glass) .sheet {
+    background: var(--surface);
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .shell { background: var(--ground); }
+    .sheet { background: var(--surface); }
   }
   .toolbar {
     flex: none;
