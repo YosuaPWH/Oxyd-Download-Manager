@@ -1,4 +1,4 @@
-import { api, errorMessage, onClipboard, onEngineEvent, onMiniChanged, onPending, onRefresh, onResync, onSettingsChanged } from "./api";
+import { api, errorMessage, type AppInfo, onClipboard, onEngineEvent, onMiniChanged, onPending, onRefresh, onResync, onSettingsChanged } from "./api";
 import { errorText, i18n, t } from "./i18n.svelte";
 import { playDone } from "./sound";
 import type {
@@ -100,6 +100,7 @@ export const app = $state({
   /** Download waiting for its new link from the browser. */
   refreshing: null as string | null,
   version: "",
+  info: null as AppInfo | null,
 });
 
 export function saveLayout() {
@@ -347,6 +348,7 @@ function receiveSettings(settings: Settings) {
 export async function initSettings() {
   const info = await api.appInfo();
   app.version = info.version;
+  app.info = info;
   systemLanguage = info.systemLanguage;
   await onSettingsChanged(receiveSettings);
   receiveSettings(await api.getSettings());

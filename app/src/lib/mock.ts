@@ -217,6 +217,7 @@ const video: VideoProbe = {
 let settings: Settings = {
   downloadDir: "C:\\Users\\me\\Downloads",
   categoryFolders: false,
+  categoryPaths: {},
   connections: 8,
   maxActive: 3,
   speedLimit: null,
@@ -226,6 +227,7 @@ let settings: Settings = {
   notifications: true,
   clipboardMonitor: false,
   proxy: null,
+  connection: { connectTimeoutSecs: 15, direct: false },
   theme: "system",
   // `?lang=en` shows the English interface (used for the README screenshots).
   language: new URLSearchParams(location.search).get("lang") === "en" ? "en" : "id",
@@ -251,9 +253,18 @@ export function installMock() {
     settings = data;
     void emit("oxyd://settings", settings);
   };
+  let browserRegistered = false;
+  let toolsReady = false;
+  let backup: Settings | null = null;
   const storageKey = "oxyd.dev.settings";
   const saved = localStorage.getItem(storageKey);
   if (saved) settings = { ...settings, ...JSON.parse(saved) };
+  function publishSettings() {
+    localStorage.setItem(storageKey, JSON.stringify(settings));
+    settingsChannel.postMessage(settings);
+    void emit("oxyd://settings", settings);
+    return settings;
+  }
   mockIPC(
     (cmd, args) => {
       const a = (args ?? {}) as Record<string, unknown>;
@@ -330,15 +341,15 @@ export function installMock() {
           return settings;
         case "set_settings":
           settings = { ...settings, ...(a.patch as Partial<Settings>) };
-          localStorage.setItem(storageKey, JSON.stringify(settings));
-          settingsChannel.postMessage(settings);
-          void emit("oxyd://settings", settings);
-          return settings;
+          return publishSettings();
         case "app_info": {
           const systemLanguage = navigator.languages
             .map((language) => language.toLowerCase().split("-")[0])
             .find((language) => language === "id" || language === "en") ?? "en";
-          return { systemLanguage, version: "0.4.0", dataDir: "C:\\Users\\me\\AppData\\Local\\Oxyd" };
+          return {
+            systemLanguage,
+            categoryDirectories: { video: "Video", music: "Musik", image: "Gambar", document: "Dokumen", archive: "Arsip", program: "Program", other: "Lainnya" },
+            version: "0.4.0", dataDir: "C:\\Users\\me\\AppData\\Local\\Oxyd" };
         }
         case "pending_downloads":
           // `?video` opens the "Download video" dialog as if the browser sent a video.
@@ -349,11 +360,26 @@ export function installMock() {
           return video;
         case "video_file_name":
           return `${String(a.title).replace(/[\\/:*?"<>|]/g, "_")}.${a.container}`;
+        case "browser_status":
+          return { registered: browserRegistered, lastSeen: null };
+        case "repair_browser":
+          browserRegistered = true;
+          return null;
+        case "export_settings":
+          backup = structuredClone(settings);
+          return true;
+        case "import_settings":
+          if (!backup) return null;
+          settings = structuredClone(backup);
+          return publishSettings();
+        case "ensure_video_tools":
+          toolsReady = true;
+          // Fall through to the status returned after installation.
         case "tool_status":
           return [
             { tool: "yt-dlp", path: "C:\\Users\\me\\AppData\\Local\\Oxyd\\tools\\yt-dlp\\yt-dlp.exe", version: "2026.10.26", managed: true },
             { tool: "ffmpeg", path: "C:\\Users\\me\\AppData\\Local\\Oxyd\\tools\\ffmpeg\\ffmpeg.exe", version: "latest", managed: true },
-            { tool: "deno", path: null, version: null, managed: false },
+            { tool: "deno", path: toolsReady ? "deno.exe" : null, version: toolsReady ? "2.0" : null, managed: toolsReady },
           ];
         case "update_ytdlp":
           return null;
