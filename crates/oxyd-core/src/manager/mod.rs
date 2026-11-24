@@ -278,6 +278,16 @@ impl Manager {
     }
 
     fn info(&self, record: DownloadRecord) -> DownloadInfo {
+        self.info_with_saved_segments(record, |id| {
+            self.store.load_segments(id).unwrap_or_default()
+        })
+    }
+
+    fn info_with_saved_segments(
+        &self,
+        record: DownloadRecord,
+        saved: impl FnOnce(&str) -> Vec<Segment>,
+    ) -> DownloadInfo {
         let tasks = self.tasks();
         match tasks.get(&record.id) {
             Some(h) => {
@@ -303,7 +313,7 @@ impl Manager {
                 let segments = if record.status.is_finished() {
                     vec![]
                 } else {
-                    self.store.load_segments(&record.id).unwrap_or_default()
+                    saved(&record.id)
                 };
                 DownloadInfo {
                     record,
@@ -319,11 +329,18 @@ impl Manager {
     }
 
     pub fn list(&self) -> Result<Vec<DownloadInfo>> {
-        Ok(self
-            .store
-            .list()?
+        let records = self.store.list()?;
+        if records.iter().all(|r| r.status.is_finished()) {
+            return Ok(records.into_iter().map(|r| self.info(r)).collect());
+        }
+        let Ok(mut progress) = self.store.load_pending_segments() else {
+            return Ok(records.into_iter().map(|r| self.info(r)).collect());
+        };
+        Ok(records
             .into_iter()
-            .map(|r| self.info(r))
+            .map(|record| {
+                self.info_with_saved_segments(record, |id| progress.remove(id).unwrap_or_default())
+            })
             .collect())
     }
 

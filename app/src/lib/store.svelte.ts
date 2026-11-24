@@ -195,8 +195,10 @@ export function listed(): DownloadInfo[] {
   });
 }
 
+const downloadsById = $derived.by(() => new Map(app.downloads.map((download) => [download.id, download])));
+
 export function selected(): DownloadInfo | undefined {
-  return app.downloads.find((d) => d.id === app.selected);
+  return app.selected === null ? undefined : downloadsById.get(app.selected);
 }
 
 /** The selected downloads, in list order. */
@@ -241,7 +243,7 @@ function apply(e: EngineEvent) {
       upsert(e.download);
       break;
     case "progress": {
-      const d = app.downloads.find((x) => x.id === e.id);
+      const d = downloadsById.get(e.id);
       if (d) {
         d.downloaded = e.downloaded;
         d.totalSize = e.total;

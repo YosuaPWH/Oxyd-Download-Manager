@@ -1,5 +1,6 @@
 //! SQLite persistence for downloads, segments and settings.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -447,15 +448,28 @@ impl Store {
         let mut st = c.prepare(
             "SELECT start, \"end\", downloaded FROM segments WHERE download_id=?1 ORDER BY idx",
         )?;
-        let rows = st.query_map([id], |r| {
-            let end: i64 = r.get(1)?;
-            Ok(Segment {
-                start: r.get::<_, i64>(0)? as u64,
-                end: if end < 0 { UNKNOWN_END } else { end as u64 },
-                downloaded: r.get::<_, i64>(2)? as u64,
-            })
-        })?;
+        let rows = st.query_map([id], row_to_segment)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Read saved progress for the list in one query, preserving segment order.
+    pub(crate) fn load_pending_segments(&self) -> Result<HashMap<String, Vec<Segment>>> {
+        let c = self.conn();
+        let mut st = c.prepare(
+            "SELECT s.start, s.\"end\", s.downloaded, s.download_id
+             FROM segments s JOIN downloads d ON d.id=s.download_id
+             WHERE d.status NOT IN ('completed', 'cancelled')
+             ORDER BY s.download_id, s.idx",
+        )?;
+        let mut rows = st.query([])?;
+        let mut progress: HashMap<String, Vec<Segment>> = HashMap::new();
+        while let Some(row) = rows.next()? {
+            progress
+                .entry(row.get(3)?)
+                .or_default()
+                .push(row_to_segment(row)?);
+        }
+        Ok(progress)
     }
 
     pub fn clear_segments(&self, id: &str) -> Result<()> {
@@ -522,6 +536,15 @@ fn encode_media(m: &Option<MediaSpec>) -> Result<Option<String>> {
 
 fn path_str(p: &Path) -> String {
     p.to_string_lossy().into_owned()
+}
+
+fn row_to_segment(row: &Row<'_>) -> rusqlite::Result<Segment> {
+    let end: i64 = row.get(1)?;
+    Ok(Segment {
+        start: row.get::<_, i64>(0)? as u64,
+        end: if end < 0 { UNKNOWN_END } else { end as u64 },
+        downloaded: row.get::<_, i64>(2)? as u64,
+    })
 }
 
 fn row_to_record(r: &Row<'_>) -> rusqlite::Result<DownloadRecord> {

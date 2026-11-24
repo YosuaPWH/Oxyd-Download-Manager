@@ -52,8 +52,8 @@ configured rate), and its byte generator did a division per byte, capping it at 
 | **Throttling response.** A 429/503 used to be handled only after a worker finished. A throttled worker now gives up its connection immediately (the last one keeps retrying with backoff) and connections come back one at a time after 10 quiet seconds. | Against a server that allows 2 connections: **24 → 6** refused requests |
 
 Tried and not kept: a 1 MiB write block instead of 256 KiB (no measurable difference, more
-memory). Considered and not done: HTTP/2, which multiplexes all requests onto one TCP
-connection and so works against parallel connections (the HTTP client is built without it).
+memory). HTTP/1.1 remains the default. Automatic mode can negotiate HTTP/2, which
+multiplexes requests over one TCP connection.
 
 ## Memory and CPU
 
@@ -183,3 +183,24 @@ Ideas, roughly by value:
 - Segment-level resume across a changed ETag when the server serves identical bytes.
 - Per-server connection limits learned from earlier 429s.
 - macOS and Firefox: out of scope for v1 (see the PRD). Videos from web pages (HLS/DASH included) and Linux have since been added.
+
+
+## Large download lists
+
+`cargo run -p oxyd-core --example list_bench` measures `Manager::list` with 10,000 paused
+records and one saved segment each. In a Linux debug build with an in-memory SQLite
+database, 25 timed runs after five warmups gave the following results.
+
+| Metric | Per-record queries | Batched segment query |
+|---|---:|---:|
+| Median | 215.56 ms | 99.87 ms |
+| 95th percentile | 344.71 ms | 128.82 ms |
+
+The manager now retrieves saved segments with one query and uses the live task state for
+active downloads. The frontend also indexes downloads by ID for progress updates.
+
+Two remaining costs are visible in the code. Large imports resolve destination collisions
+against the reserved-path list for each item. A transaction with a shared index would
+avoid repeated reads. The list still sends the full history and segment state to each
+frontend on initial load. Loading a page of rows first and fetching segment detail on
+selection would reduce that startup IPC payload.
