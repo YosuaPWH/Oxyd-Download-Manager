@@ -60,6 +60,18 @@ impl Manager {
         self.tools.status(&self.settings().video)
     }
 
+    /// Prepare the downloader, muxer and JavaScript runtime from their verified releases.
+    pub async fn ensure_video_tools(&self) -> Result<Vec<ToolStatus>> {
+        let settings = self.settings();
+        let client = self.client();
+        for tool in [Tool::YtDlp, Tool::Ffmpeg, Tool::Deno] {
+            self.tools
+                .ensure(tool, &settings.video, &client, &|_, _| {})
+                .await?;
+        }
+        Ok(self.tool_status())
+    }
+
     /// Install yt-dlp when missing, else update it now. Returns the new version, if any.
     pub async fn update_ytdlp(&self) -> Result<Option<String>> {
         let s = self.settings();

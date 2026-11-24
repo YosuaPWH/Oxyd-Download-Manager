@@ -1,8 +1,10 @@
 //! Application settings persisted in the `settings` key-value table.
 
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
+
+use crate::filename::Category;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -50,6 +52,7 @@ pub struct Settings {
     pub download_dir: PathBuf,
     /// Put files into a sub folder per category.
     pub category_folders: bool,
+    pub category_paths: BTreeMap<String, PathBuf>,
     pub connections: u32,
     pub max_active: u32,
     /// Global speed limit in bytes/second.
@@ -61,6 +64,7 @@ pub struct Settings {
     pub notifications: bool,
     pub clipboard_monitor: bool,
     pub proxy: Option<String>,
+    pub connection: ConnectionSettings,
     /// `system`, `light` or `dark`.
     pub theme: String,
     /// `system`, `id` or `en`.
@@ -82,6 +86,24 @@ pub struct Settings {
 
 /// Accent colours the interface knows; the first one is the default.
 pub const ACCENTS: [&str; 6] = ["oxide", "copper", "azure", "violet", "rose", "graphite"];
+
+/// Network options used by the shared HTTP client.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ConnectionSettings {
+    pub connect_timeout_secs: u64,
+    /// Skip automatic proxy discovery when no explicit proxy is configured.
+    pub direct: bool,
+}
+
+impl Default for ConnectionSettings {
+    fn default() -> Self {
+        Self {
+            connect_timeout_secs: 15,
+            direct: false,
+        }
+    }
+}
 
 /// Where the tools for videos from web pages come from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,6 +134,7 @@ impl Default for Settings {
         Settings {
             download_dir: crate::paths::default_download_dir(),
             category_folders: false,
+            category_paths: BTreeMap::new(),
             connections: 8,
             max_active: 3,
             speed_limit: None,
@@ -121,6 +144,7 @@ impl Default for Settings {
             notifications: true,
             clipboard_monitor: false,
             proxy: None,
+            connection: ConnectionSettings::default(),
             theme: "system".into(),
             language: "system".into(),
             schedule: Schedule::default(),
@@ -136,9 +160,24 @@ impl Default for Settings {
 }
 
 impl Settings {
+    pub fn download_directory_for(&self, filename: &str) -> PathBuf {
+        if !self.category_folders || filename.is_empty() {
+            return self.download_dir.clone();
+        }
+        let category = Category::from_name(filename);
+        self.category_paths
+            .get(category.as_str())
+            .cloned()
+            .unwrap_or_else(|| self.download_dir.join(category.folder()))
+    }
+
     /// Clamp values into their valid ranges.
     pub fn normalized(mut self) -> Self {
+        self.category_paths.retain(|id, path| {
+            path.is_absolute() && Category::ALL.iter().any(|category| category.as_str() == id)
+        });
         self.connections = self.connections.clamp(1, MAX_CONNECTIONS);
+        self.connection.connect_timeout_secs = self.connection.connect_timeout_secs.clamp(1, 300);
         self.max_active = self.max_active.clamp(1, 20);
         self.speed_limit = self.speed_limit.filter(|&s| s > 0);
         self.proxy = self.proxy.filter(|p| !p.trim().is_empty());
@@ -203,6 +242,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(s.connections, 4);
+        assert_eq!(s.connection, ConnectionSettings::default());
         assert!(s.schedule.days.is_empty());
         assert!(s.glass && s.sound);
     }

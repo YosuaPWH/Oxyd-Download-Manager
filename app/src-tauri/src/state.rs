@@ -1,6 +1,6 @@
 //! Shared application state.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{atomic::AtomicI64, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use oxyd_core::media::VideoProbe;
@@ -67,6 +67,7 @@ pub struct RefreshTarget {
 
 pub struct AppState {
     pub mgr: Arc<Manager>,
+    pub browser_last_seen: AtomicI64,
     pub pending: Mutex<Vec<PendingAdd>>,
     pub refresh: Mutex<Option<RefreshTarget>>,
     /// Downloads whose progress window still has to be opened, with the attempts made.
@@ -81,6 +82,7 @@ impl AppState {
     pub fn new(mgr: Arc<Manager>) -> Self {
         AppState {
             mgr,
+            browser_last_seen: AtomicI64::new(0),
             pending: Mutex::new(Vec::new()),
             refresh: Mutex::new(None),
             progress_wanted: Mutex::new(Vec::new()),

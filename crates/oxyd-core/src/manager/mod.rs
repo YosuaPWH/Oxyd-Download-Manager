@@ -145,8 +145,8 @@ impl Manager {
     }
 
     fn build(store: Store, resume: bool) -> Result<Arc<Self>> {
-        let settings = store.load_settings()?;
-        let client = probe::build_client(settings.proxy.as_deref())?;
+        let settings = store.load_settings()?.normalized();
+        let client = probe::configured_client(settings.proxy.as_deref(), &settings.connection)?;
         let (events, _) = broadcast::channel(1024);
         let global = Arc::new(Limiter::new(settings.speed_limit));
         let rt = tokio::runtime::Handle::current();
@@ -236,11 +236,18 @@ impl Manager {
     pub fn set_settings(&self, new: Settings) -> Result<Settings> {
         let new = new.normalized();
         let old = self.settings();
-        if old.proxy != new.proxy {
-            let client = probe::build_client(new.proxy.as_deref())?;
+        let client = if old.proxy != new.proxy || old.connection != new.connection {
+            Some(probe::configured_client(
+                new.proxy.as_deref(),
+                &new.connection,
+            )?)
+        } else {
+            None
+        };
+        self.store.save_settings(&new)?;
+        if let Some(client) = client {
             *self.client.write().unwrap_or_else(|e| e.into_inner()) = client;
         }
-        self.store.save_settings(&new)?;
         self.global.set_rate(new.speed_limit);
         *self.settings.write().unwrap_or_else(|e| e.into_inner()) = new.clone();
         self.schedule();
@@ -376,10 +383,15 @@ impl Manager {
         let category = Category::from_name(&filename);
         let dir = match new.dir {
             Some(d) if !d.as_os_str().is_empty() => d,
-            _ if s.category_folders && !filename.is_empty() => {
-                s.download_dir.join(category.folder())
+            // A fresh HTTP or FTP download without a name can pick its category after probing.
+            _ if s.category_folders
+                && filename.is_empty()
+                && kind != Kind::Torrent
+                && new.media.is_none() =>
+            {
+                PathBuf::new()
             }
-            _ => s.download_dir.clone(),
+            _ => s.download_directory_for(&filename),
         };
         let policy = new.on_conflict.unwrap_or(s.duplicate_policy);
         let save_path = if filename.is_empty() {
@@ -1209,6 +1221,9 @@ impl Manager {
                 rec.category = Category::from_name(&rec.filename);
             }
             if rec.save_path.as_os_str().is_empty() {
+                if rec.dir.as_os_str().is_empty() {
+                    rec.dir = s.download_directory_for(&rec.filename);
+                }
                 rec.save_path =
                     self.resolve_path(&rec.dir, &rec.filename, s.duplicate_policy, &rec.id);
                 rec.filename = file_name(&rec.save_path);
