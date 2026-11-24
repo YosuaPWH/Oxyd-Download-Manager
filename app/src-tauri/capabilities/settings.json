@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "settings",
+  "description": "Allows the settings window to finish saving before it closes",
+  "windows": ["settings"],
+  "permissions": ["core:window:allow-destroy"]
+}

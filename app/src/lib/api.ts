@@ -42,8 +42,9 @@ export const api = {
   openFolder: (id: string) => invoke<void>("open_folder", { id }),
   copy: (text: string) => invoke<void>("copy_text", { text }),
   clipboardLink: () => invoke<string | null>("clipboard_link"),
+  openSettings: () => invoke<void>("open_settings"),
   getSettings: () => invoke<Settings>("get_settings"),
-  setSettings: (settings: Settings) => invoke<Settings>("set_settings", { settings }),
+  setSettings: (patch: Partial<Settings>) => invoke<Settings>("set_settings", { patch }),
   pickFolder: (start: string | null) => invoke<string | null>("pick_folder", { start }),
   suggestDir: (filename: string) => invoke<string>("suggest_dir", { filename }),
   pathExists: (dir: string, filename: string) => invoke<boolean>("path_exists", { dir, filename }),
@@ -125,4 +126,8 @@ export function errorMessage(e: unknown): string {
 
 export function onMiniChanged(cb: (open: boolean) => void): Promise<UnlistenFn> {
   return listen<boolean>("oxyd://mini", (e) => cb(e.payload));
+}
+
+export function onSettingsChanged(cb: (settings: Settings) => void): Promise<UnlistenFn> {
+  return listen<Settings>("oxyd://settings", (e) => cb(e.payload));
 }

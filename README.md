@@ -109,7 +109,7 @@ light window. The feature analysis and the mockups it was built from are in
   holds the path, the URL, a per-download speed limit and the link refresh controls.
 - **Status bar**: the combined speed, running downloads, the schedule and the speed limit,
   which can be switched on and off right there.
-- **Settings**: its own page in seven sections; every change saves itself.
+- **Settings**: its own window; every change saves itself.
 
 **Appearance.** *Settings → Appearance* offers six accent colours (patina, copper, azure,
 violet, rose, graphite), comfortable or compact rows, and a switch for the translucent

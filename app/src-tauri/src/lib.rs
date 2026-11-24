@@ -98,6 +98,26 @@ pub fn toggle_mini(app: &AppHandle) -> tauri::Result<bool> {
     Ok(true)
 }
 
+/// Open or focus the single settings window. Called through an async command for WebView2.
+pub fn open_settings(app: &AppHandle) -> tauri::Result<()> {
+    if let Some(window) = app.get_webview_window("settings") {
+        window.unminimize()?;
+        return window.set_focus();
+    }
+    let lang = app.state::<AppState>().mgr.settings().language;
+    tauri::WebviewWindowBuilder::new(
+        app,
+        "settings",
+        tauri::WebviewUrl::App("settings.html".into()),
+    )
+    .title(tr(&lang, "window.settings"))
+    .inner_size(820.0, 700.0)
+    .min_inner_size(520.0, 420.0)
+    .center()
+    .build()?;
+    Ok(())
+}
+
 /// Label of the progress window of download `id`.
 pub fn progress_label(id: &str) -> String {
     format!("progress-{id}")
@@ -284,6 +304,7 @@ pub fn run() {
             commands::open_folder,
             commands::copy_text,
             commands::clipboard_link,
+            commands::open_settings,
             commands::get_settings,
             commands::set_settings,
             commands::pick_folder,

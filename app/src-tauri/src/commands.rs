@@ -156,6 +156,13 @@ fn as_link(text: &str) -> Option<String> {
 }
 
 #[tauri::command]
+pub async fn open_settings(app: AppHandle) -> Res<()> {
+    static OPENING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _guard = OPENING.lock().await;
+    crate::open_settings(&app).map_err(|e| CmdError::other("window", e))
+}
+
+#[tauri::command]
 pub fn get_settings(state: State<'_, AppState>) -> Settings {
     state.mgr.settings()
 }
@@ -164,9 +171,16 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
 pub fn set_settings(
     app: AppHandle,
     state: State<'_, AppState>,
-    settings: Settings,
+    patch: serde_json::Map<String, serde_json::Value>,
 ) -> Res<Settings> {
     let old = state.mgr.settings();
+    let mut value = serde_json::to_value(&old).map_err(|e| CmdError::other("settings", e))?;
+    for (key, field) in patch {
+        if let Some(current) = value.get_mut(&key) {
+            *current = field;
+        }
+    }
+    let settings = serde_json::from_value(value).map_err(|e| CmdError::other("settings", e))?;
     let new = state.mgr.set_settings(settings)?;
     if old.language != new.language {
         crate::relabel_tray(&app, &new.language);
@@ -182,6 +196,7 @@ pub fn set_settings(
             tracing::warn!("changing autostart failed: {e}");
         }
     }
+    let _ = app.emit("oxyd://settings", &new);
     Ok(new)
 }
 

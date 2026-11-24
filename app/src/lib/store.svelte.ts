@@ -1,4 +1,4 @@
-import { api, errorMessage, onClipboard, onEngineEvent, onMiniChanged, onPending, onRefresh, onResync } from "./api";
+import { api, errorMessage, onClipboard, onEngineEvent, onMiniChanged, onPending, onRefresh, onResync, onSettingsChanged } from "./api";
 import { errorText, i18n, t } from "./i18n.svelte";
 import { playDone } from "./sound";
 import type {
@@ -58,7 +58,6 @@ export const app = $state({
   selected: null as string | null,
   /** Every selected row; always contains `selected` when that is set. */
   selection: [] as string[],
-  page: "downloads" as "downloads" | "settings",
   library: "all" as Library,
   view: "all" as View,
   /** File type chosen in the sidebar; null = every type. */
@@ -339,9 +338,19 @@ export function applyTheme(s: Settings) {
   root.lang = s.language;
 }
 
-export async function saveSettings(s: Settings) {
-  app.settings = await api.setSettings(s);
-  applyTheme(app.settings);
+function receiveSettings(settings: Settings) {
+  app.settings = settings;
+  applyTheme(settings);
+}
+
+export async function initSettings() {
+  await onSettingsChanged(receiveSettings);
+  receiveSettings(await api.getSettings());
+  systemDark.addEventListener("change", () => app.settings && applyTheme(app.settings));
+}
+
+export async function saveSettings(patch: Partial<Settings>) {
+  receiveSettings(await api.setSettings(patch));
 }
 
 /** Global speed limit: `null` lifts it. The last real limit is remembered for the toggle. */
@@ -351,7 +360,7 @@ export async function setGlobalLimit(limit: number | null) {
     app.lastLimit = limit;
     saveLayout();
   }
-  await run(() => saveSettings({ ...$state.snapshot(app.settings!), speedLimit: limit }));
+  await run(() => saveSettings({ speedLimit: limit }));
 }
 
 export async function init() {
@@ -359,7 +368,6 @@ export async function init() {
     clock.now = Math.floor(Date.now() / 1000);
     sampleSpeeds();
   }, 1000);
-  systemDark.addEventListener("change", () => app.settings && applyTheme(app.settings));
   await Promise.all([
     onEngineEvent(apply),
     onResync(() => {
@@ -367,9 +375,7 @@ export async function init() {
       if (isMainWindow) void syncPending();
     }),
   ]);
-  const [settings, list] = await Promise.all([api.getSettings(), api.list()]);
-  app.settings = settings;
-  applyTheme(settings);
+  const [list] = await Promise.all([api.list(), initSettings()]);
   app.downloads = list;
   if (!isMainWindow) return;
 

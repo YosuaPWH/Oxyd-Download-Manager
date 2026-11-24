@@ -245,7 +245,15 @@ let queues: Queue[] = [
 ];
 
 export function installMock() {
-  mockWindows("main");
+  mockWindows(location.pathname.endsWith("/settings.html") ? "settings" : "main");
+  const settingsChannel = new BroadcastChannel("oxyd.dev.settings");
+  settingsChannel.onmessage = ({ data }: MessageEvent<Settings>) => {
+    settings = data;
+    void emit("oxyd://settings", settings);
+  };
+  const storageKey = "oxyd.dev.settings";
+  const saved = localStorage.getItem(storageKey);
+  if (saved) settings = { ...settings, ...JSON.parse(saved) };
   mockIPC(
     (cmd, args) => {
       const a = (args ?? {}) as Record<string, unknown>;
@@ -314,10 +322,16 @@ export function installMock() {
         case "remove_download":
           void emit("oxyd://event", { type: "removed", id: a.id });
           return null;
+        case "open_settings":
+          window.open("/settings.html", "oxyd-settings", "popup,width=820,height=700")?.focus();
+          return null;
         case "get_settings":
           return settings;
         case "set_settings":
-          settings = a.settings as Settings;
+          settings = { ...settings, ...(a.patch as Partial<Settings>) };
+          localStorage.setItem(storageKey, JSON.stringify(settings));
+          settingsChannel.postMessage(settings);
+          void emit("oxyd://settings", settings);
           return settings;
         case "app_info":
           return { version: "0.4.0", dataDir: "C:\\Users\\me\\AppData\\Local\\Oxyd" };

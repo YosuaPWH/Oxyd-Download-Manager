@@ -3,6 +3,8 @@
 pub fn tr(lang: &str, key: &str) -> &'static str {
     let en = lang == "en";
     match key {
+        "window.settings" if en => "Oxyd Settings",
+        "window.settings" => "Pengaturan Oxyd",
         "tray.open" if en => "Open Oxyd",
         "tray.open" => "Buka Oxyd",
         "tray.pause_all" if en => "Pause all",

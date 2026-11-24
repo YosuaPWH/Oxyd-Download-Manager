@@ -1,44 +1,72 @@
 <script lang="ts">
+  import { isTauri } from "@tauri-apps/api/core";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { onMount } from "svelte";
   import { api, errorMessage } from "../lib/api";
   import * as fmt from "../lib/format";
-  import { t } from "../lib/i18n.svelte";
+  import { t, type Key } from "../lib/i18n.svelte";
   import { app, saveSettings } from "../lib/store.svelte";
-  import { t as tr, type Key } from "../lib/i18n.svelte";
   import mark from "../../src-tauri/icons/source.svg";
   import { ACCENTS, type Settings, type ToolStatus } from "../lib/types";
 
-  let s = $state<Settings>(structuredClone($state.snapshot(app.settings!)));
+  const initial = $state.snapshot(app.settings!);
+  let s = $state<Settings>(structuredClone(initial));
   let limit = $state(fmt.rateInput(s.speedLimit));
   let error = $state<string | null>(null);
   let savedAt = $state<string | null>(null);
 
-  // Every control saves itself, shortly after the last change.
-  let first = true;
+  // Debounce typing and serialize writes. Send only edited fields because another window
+  // can change the global speed limit while this form is open.
+  let previous = initial;
+  let pending: Partial<Settings> = {};
   let timer: ReturnType<typeof setTimeout> | undefined;
-  $effect(() => {
+  let saving = Promise.resolve();
+
+  function collectChanges() {
     const snapshot = $state.snapshot(s);
-    if (first) {
-      first = false;
-      return;
-    }
+    const changed = Object.fromEntries(
+      Object.entries(snapshot).filter(([k, value]) =>
+        JSON.stringify(value) !== JSON.stringify(previous[k as keyof Settings]),
+      ),
+    );
+    previous = snapshot;
+    Object.assign(pending, changed);
+  }
+
+  function flush() {
     clearTimeout(timer);
-    timer = setTimeout(() => void save(snapshot), 350);
+    const patch = pending;
+    pending = {};
+    if (Object.keys(patch).length) saving = saving.then(() => save(patch));
+    return saving;
+  }
+
+  $effect(() => {
+    collectChanges();
+    clearTimeout(timer);
+    if (Object.keys(pending).length) timer = setTimeout(() => void flush(), 350);
   });
 
-  async function save(next: Settings) {
+  onMount(() => {
+    if (!isTauri()) return;
+    const unlisten = getCurrentWindow().onCloseRequested(async () => {
+      collectChanges();
+      await flush();
+    });
+    return () => void unlisten.then((stop) => stop()).catch(() => {});
+  });
+
+  async function save(next: Partial<Settings>) {
     error = null;
     try {
-      await saveSettings({
-        ...next,
-        proxy: next.proxy?.trim() || null,
-        schedule: {
-          enabled: next.schedule.enabled,
-          start: next.schedule.start || null,
-          stop: next.schedule.stop || null,
-          days: next.schedule.days,
-        },
-      });
+      if ("proxy" in next) next.proxy = next.proxy?.trim() || null;
+      if (next.schedule) {
+        const { start, stop } = next.schedule;
+        next.schedule = { ...next.schedule, start: start || null, stop: stop || null };
+      }
+      await saveSettings(next);
       savedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      if (next.video) void loadTools();
     } catch (e) {
       error = errorMessage(e);
     }
@@ -82,6 +110,7 @@
     updating = true;
     toolNote = null;
     try {
+      await flush();
       const wasMissing = installing;
       const v = await api.updateYtdlp();
       toolNote = v ? `${t(wasMissing ? "set.installedYtdlp" : "set.updated")} ${v}` : t("set.upToDate");
@@ -162,8 +191,8 @@
                 class="swatch"
                 role="radio"
                 aria-checked={s.accent === a}
-                aria-label={tr(`accent.${a}` as Key)}
-                title={tr(`accent.${a}` as Key)}
+                aria-label={t(`accent.${a}` as Key)}
+                title={t(`accent.${a}` as Key)}
                 style:--c={SWATCH[a]}
                 onclick={() => (s.accent = a)}
               ></button>
@@ -269,13 +298,13 @@
         <div class="item wide">
           <label for="s-ytdlp">{t("set.ytdlpPath")}<span class="hint">{t("set.pathHint")}</span></label>
           <div class="field">
-            <input id="s-ytdlp" class="mono" bind:value={s.video.ytdlpPath} onchange={loadTools} placeholder="—" />
+            <input id="s-ytdlp" class="mono" bind:value={s.video.ytdlpPath} placeholder="—" />
           </div>
         </div>
         <div class="item wide">
           <label for="s-ffmpeg">{t("set.ffmpegPath")}<span class="hint">{t("set.pathHint")}</span></label>
           <div class="field">
-            <input id="s-ffmpeg" class="mono" bind:value={s.video.ffmpegPath} onchange={loadTools} placeholder="—" />
+            <input id="s-ffmpeg" class="mono" bind:value={s.video.ffmpegPath} placeholder="—" />
           </div>
         </div>
       </div>
@@ -301,7 +330,7 @@
           <div class="days" role="group" aria-labelledby="s-days">
             {#each DAYS as d (d)}
               <button aria-pressed={s.schedule.days.includes(d)} disabled={!s.schedule.enabled} onclick={() => toggleDay(d)}>
-                {tr(`day.${d}` as Key)}
+                {t(`day.${d}` as Key)}
               </button>
             {/each}
           </div>
@@ -352,6 +381,7 @@
     flex: 1;
     min-width: 0;
     min-height: 0;
+    height: 100%;
     overflow-y: auto;
     padding: 20px 24px 40px;
   }

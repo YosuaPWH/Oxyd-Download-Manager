@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { api } from "../lib/api";
   import * as fmt from "../lib/format";
   import { t, type Key } from "../lib/i18n.svelte";
-  import { app, selectOnly, speedLog, type Library } from "../lib/store.svelte";
+  import { app, run, selectOnly, speedLog, type Library } from "../lib/store.svelte";
   import { type Category, type Queue } from "../lib/types";
   import mark from "../../src-tauri/icons/source.svg";
   import Icon from "./Icon.svelte";
@@ -43,7 +44,6 @@
     app.library = "all";
     app.category = null;
     app.queue = id;
-    app.page = "downloads";
     selectOnly(null);
   }
 
@@ -62,11 +62,9 @@
     app.library = library;
     app.category = category;
     app.queue = null;
-    app.page = "downloads";
     selectOnly(null);
   }
 
-  const onDownloads = $derived(app.page === "downloads");
 </script>
 
 <nav aria-label="Oxyd">
@@ -79,7 +77,7 @@
     <button
       class="item"
       title={t(l.key)}
-      aria-current={onDownloads && !app.category && !app.queue && app.library === l.value ? "page" : undefined}
+      aria-current={!app.category && !app.queue && app.library === l.value ? "page" : undefined}
       onclick={() => go(l.value, null)}
     >
       <Icon name={l.icon} /><span class="label grow">{t(l.key)}</span><span class="num count">{counts.c[l.value]}</span>
@@ -91,7 +89,7 @@
     <button
       class="item"
       title={t(`cat.${c}` as Key)}
-      aria-current={onDownloads && app.category === c ? "page" : undefined}
+      aria-current={app.category === c ? "page" : undefined}
       onclick={() => go("all", c)}
     >
       <Icon name={c} /><span class="label grow">{t(`cat.${c}` as Key)}</span><span class="num count">{counts.c[c]}</span>
@@ -107,7 +105,7 @@
       <button
         class="item"
         title={q.name || t("queue.main")}
-        aria-current={onDownloads && app.queue === q.id ? "page" : undefined}
+        aria-current={app.queue === q.id ? "page" : undefined}
         onclick={() => goQueue(q.id)}
       >
         <Icon name={q.schedule.enabled ? "calendar" : "queue"} /><span class="label grow">{q.name || t("queue.main")}</span><span class="num count">{perQueue.get(q.id) ?? 0}</span>
@@ -142,8 +140,7 @@
   <button
     class="item"
     title="{t('tb.settings')} (Ctrl+,)"
-    aria-current={app.page === "settings" ? "page" : undefined}
-    onclick={() => (app.page = "settings")}
+    onclick={() => run(api.openSettings)}
   >
     <Icon name="settings" /><span class="label grow">{t("tb.settings")}</span>
   </button>
