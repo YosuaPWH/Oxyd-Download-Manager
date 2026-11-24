@@ -117,7 +117,7 @@ sidebar for weak GPUs and remote desktops. Status colours (finished, paused, fai
 follow the accent.
 
 **Theme and language.** *Settings → General* offers *Follow system*, *Light* and *Dark*, and
-English or Indonesian. Error messages are translated too, with the technical detail
+system language, English or Indonesian. Error messages are translated too, with the technical detail
 underneath.
 
 **Keyboard friendly.** The list and every dialog work without a mouse:

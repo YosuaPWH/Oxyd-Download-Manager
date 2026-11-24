@@ -1,15 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import SettingsPage from "./components/SettingsPage.svelte";
-  import { api } from "./lib/api";
   import { t } from "./lib/i18n.svelte";
   import { app, initSettings, run } from "./lib/store.svelte";
 
   onMount(() => {
-    void run(async () => {
-      const [info] = await Promise.all([api.appInfo(), initSettings()]);
-      app.version = info.version;
-    });
+    void run(initSettings);
   });
 </script>
 

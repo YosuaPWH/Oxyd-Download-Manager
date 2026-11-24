@@ -184,6 +184,9 @@ pub fn set_settings(
     let new = state.mgr.set_settings(settings)?;
     if old.language != new.language {
         crate::relabel_tray(&app, &new.language);
+        if let Some(window) = app.get_webview_window("settings") {
+            let _ = window.set_title(crate::i18n::tr(&new.language, "window.settings"));
+        }
     }
     if old.autostart != new.autostart {
         let al = app.autolaunch();
@@ -244,6 +247,7 @@ pub fn open_project(app: AppHandle) -> Res<()> {
 pub struct AppInfo {
     version: &'static str,
     data_dir: PathBuf,
+    system_language: &'static str,
 }
 
 #[tauri::command]
@@ -251,6 +255,7 @@ pub fn app_info() -> AppInfo {
     AppInfo {
         version: env!("CARGO_PKG_VERSION"),
         data_dir: oxyd_core::paths::data_dir(),
+        system_language: crate::i18n::system_language(),
     }
 }
 

@@ -149,6 +149,7 @@
         <div class="item">
           <label for="s-lang">{t("set.language")}</label>
           <select id="s-lang" bind:value={s.language}>
+            <option value="system">{t("set.languageSystem")}</option>
             <option value="id">Bahasa Indonesia</option>
             <option value="en">English</option>
           </select>

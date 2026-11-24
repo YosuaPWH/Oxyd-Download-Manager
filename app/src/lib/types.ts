@@ -174,7 +174,7 @@ export interface Settings {
   clipboardMonitor: boolean;
   proxy: string | null;
   theme: "system" | "light" | "dark";
-  language: "id" | "en";
+  language: "system" | "id" | "en";
   schedule: Schedule;
   afterQueue: AfterQueue;
   video: { ytdlpPath: string; ffmpegPath: string; autoUpdate: boolean };

@@ -326,6 +326,7 @@ export function samplesOf(id: string): number[] {
   return [...(perDownload.get(id) ?? [])];
 }
 
+let systemLanguage: "id" | "en" = "en";
 const systemDark = matchMedia("(prefers-color-scheme: dark)");
 
 export function applyTheme(s: Settings) {
@@ -334,8 +335,8 @@ export function applyTheme(s: Settings) {
   root.dataset.accent = s.accent;
   root.dataset.density = s.density;
   root.classList.toggle("no-glass", !s.glass);
-  i18n.lang = s.language;
-  root.lang = s.language;
+  i18n.lang = s.language === "system" ? systemLanguage : s.language;
+  root.lang = i18n.lang;
 }
 
 function receiveSettings(settings: Settings) {
@@ -344,6 +345,9 @@ function receiveSettings(settings: Settings) {
 }
 
 export async function initSettings() {
+  const info = await api.appInfo();
+  app.version = info.version;
+  systemLanguage = info.systemLanguage;
   await onSettingsChanged(receiveSettings);
   receiveSettings(await api.getSettings());
   systemDark.addEventListener("change", () => app.settings && applyTheme(app.settings));
@@ -391,8 +395,7 @@ export async function init() {
       else app.error = errorText(r.code) ?? r.message ?? t("err.title");
     }),
   ]);
-  const [info, refreshing, queues, mini] = await Promise.all([
-    api.appInfo(),
+  const [refreshing, queues, mini] = await Promise.all([
     api.refreshTarget(),
     api.listQueues(),
     api.miniOpen(),
@@ -402,7 +405,6 @@ export async function init() {
   app.queues = queues ?? [];
   app.mini = !!mini;
   app.refreshing = refreshing;
-  app.version = info.version;
 }
 
 /** Wait for the next link clicked in the browser and use it for download `d`. */
