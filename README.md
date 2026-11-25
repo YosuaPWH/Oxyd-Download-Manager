@@ -558,7 +558,8 @@ one `SHA256SUMS.txt`. Tags with a suffix such as `v0.2.0-beta.1` become pre-rele
 
 Requirements: Rust stable and Node.js 22 or newer, plus
 
-- **Windows** 10/11 (64-bit) with the MSVC toolchain;
+- **Windows** 10/11 (64-bit) with the MSVC Rust toolchain and Visual Studio Build Tools
+  with the *Desktop development with C++* workload, including a Windows SDK;
 - **Linux**: the Tauri system libraries. On Debian or Ubuntu:
 
   ```bash
@@ -581,11 +582,28 @@ Packages:
 powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1
 # -> target/release/bundle/nsis/Oxyd Download Manager_<version>_x64-setup.exe
 # -> target/release/bundle/msi/Oxyd Download Manager_<version>_x64_en-US.msi
+# -> extension/build (Chromium), extension/build-firefox (Firefox)
 
 # Linux (pass e.g. "deb" to build only one kind)
 bash scripts/build-linux.sh
 # -> target/release/bundle/deb/*.deb, rpm/*.rpm, appimage/*.AppImage
 ```
+
+### Windows release smoke test
+
+Build the installer and both extensions from the same checkout. Install the NSIS setup,
+then open Oxyd once so it can register the native host. When distributing the MSI, repeat
+the same checks on a separate test install.
+
+1. Open Settings in its own window. Toggle Glass, reopen the mini window, and switch
+   between English, Indonesian and the system language. In **Videos from the web**,
+   install yt-dlp and check that its version appears.
+2. Load the extensions from that build. Open the popup in each browser while Oxyd runs.
+   Check the host status, version, and last contact under **Browser & integration**.
+3. Run `cargo run -p test-server` and open
+   `http://127.0.0.1:8787/file/2097152?name=oxyd-smoke.zip` in Firefox. With capture
+   enabled and Oxyd running, confirm the download reaches Oxyd. Exit Oxyd from the
+   tray and open the same link again. Check that Firefox saves the entire 2 MiB file.
 
 Useful during development:
 
