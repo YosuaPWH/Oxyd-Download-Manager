@@ -1,14 +1,13 @@
 # Oxyd Download Manager
 
-[![CI](https://github.com/YosuaPWH/Oxyd-Download-Manager/actions/workflows/ci.yml/badge.svg)](https://github.com/YosuaPWH/Oxyd-Download-Manager/actions/workflows/ci.yml)
-[![Build installer](https://github.com/YosuaPWH/Oxyd-Download-Manager/actions/workflows/build.yml/badge.svg)](https://github.com/YosuaPWH/Oxyd-Download-Manager/actions/workflows/build.yml)
-
 A fast, lightweight download manager for **Windows and Linux** in the spirit of Internet
-Download Manager. Oxyd splits every file into segments that download in parallel, survives
-crashes and lost connections, picks up downloads from Firefox, Chrome, Edge and other Chromium
-browsers, and lets you continue a download from where it stopped even after its link has
-expired. Files, videos from web pages, torrents and FTP all land in one list, sorted into
-queues that run on their own schedule.
+Download Manager. Oxyd downloads files in parallel segments when the server supports it,
+resumes after crashes and lost connections, and can refresh an expired download link. Files
+from Firefox and Chromium browsers, videos from web pages, torrents and FTP downloads share
+a list with scheduled queues.
+
+[Download a release](https://github.com/YosuaPWH/Oxyd-Download-Manager/releases/latest) ·
+[Build from source](#build-from-source) · [Set up the browser extension](#extension)
 
 <p align="center">
   <img src="docs/images/downloads-dark.png" alt="Oxyd main window, dark theme: sidebar with file types and queues, the download list, and one lane per connection of the selected download" width="900">
@@ -21,17 +20,14 @@ queues that run on their own schedule.
 - Up to **32 parallel connections** per file, with segments that rebalance themselves
 - **Resume after anything**: pause, crash, power loss, lost network, app restart
 - **Refresh an expired link** from the browser and continue from the last byte, like IDM
-- **Browser integration**: Chrome, Edge, Chromium, Brave and Vivaldi downloads are captured,
-  cookies and referer included
+- **Browser integration**: Firefox and Chromium browsers can hand downloads to Oxyd.
+  Settings shows the native host status, extension version and last contact for Chrome/Chromium,
+  Edge and Firefox
 - **Videos from web pages**: hover a video on YouTube, Instagram, Facebook, TikTok, X and the
   other sites yt-dlp knows and pick a quality, or just the MP3; video and audio download in
   parallel and are merged without re-encoding
-- **Small**: the Linux release binary is about 28 MB with BitTorrent built in and compresses
-  to about 8 MB, so the installers stay far below 50 MB. (Before torrents were added the
-  Windows installer was about 5 MB and the app used about 21 MB in the tray; the BitTorrent
-  session only starts with the first torrent, but those two figures were not measured again.)
-- **Torrents and FTP**: magnet links, `.torrent` files and `ftp://` links are downloads like
-  any other
+- **Torrents and FTP**: magnet links, `.torrent` files and `ftp://` links share the download
+  list. The BitTorrent session starts with the first torrent
 - **Named queues**, each with its own concurrency, speed limit and schedule
 - **Site grabber**: list every file a page links to and pick what to download
 - **Tools** for finished files: convert, make smaller, ZIP
@@ -52,7 +48,8 @@ queues that run on their own schedule.
   [progress and mini windows](#progress-and-mini-windows) ·
   [limits and schedule](#limits-retries-and-schedule) · [settings](#settings)
 - [Browser extension](#browser-extension) · [How it works](#how-it-works) · [Install](#install)
-- [Build from source](#build-from-source) · [Repository layout](#repository-layout)
+- [Build from source](#build-from-source) · [Windows release smoke test](#windows-release-smoke-test) ·
+  [Repository layout](#repository-layout)
 - [Documentation](#documentation) · [License](#license)
 
 ## Platforms
@@ -139,11 +136,10 @@ underneath.
 | Ctrl+, | Settings |
 | Esc, Tab | Close the top dialog; focus stays inside it |
 
-**Tray.** Closing the window does not quit Oxyd. It keeps downloading from the tray (*Open*,
-*Pause all*, *Resume all*, *Quit*) and the window, with its web view, is only created when you
-open it. That is why a tray-only Oxyd needs about 21 MB on Windows. On Linux the tray icon
-uses AppIndicator: KDE, Cinnamon, XFCE and Ubuntu show it out of the box; on plain GNOME
-(for example Fedora) install the *AppIndicator and KStatusNotifierItem Support* extension.
+**Tray.** Closing the main window keeps Oxyd running in the tray (*Open*, *Pause all*,
+*Resume all*, *Quit*). Opening the window loads its web view. On Linux the tray icon uses
+AppIndicator. KDE, Cinnamon, XFCE and Ubuntu show it out of the box. On plain GNOME, install
+the *AppIndicator and KStatusNotifierItem Support* extension.
 
 ## Everyday use
 
@@ -218,10 +214,10 @@ How a video downloads:
 
 Nothing extra is installed up front: yt-dlp (and deno, which yt-dlp needs for YouTube) are
 downloaded the first time a video needs them, ffmpeg the first time something has to be merged
-or converted (Linux uses the system's ffmpeg when it has one). Each is checked against the
-SHA-256 its release publishes and kept in Oxyd's data folder. yt-dlp is updated once a day,
-because sites change often. *Settings → Videos from the web* shows the tools, updates yt-dlp
-on request and accepts your own yt-dlp or ffmpeg.
+or converted (Linux uses the system's ffmpeg when it has one). Oxyd verifies managed tools
+against their release checksums and stores them in its data folder. Open
+*Settings → Videos from the web* to install the tools, check their versions, set a custom
+yt-dlp or ffmpeg path, or turn daily yt-dlp updates on or off.
 
 Download only what you have the right to: many sites' terms forbid downloading their videos.
 
@@ -332,7 +328,7 @@ main window picks up appearance and language changes while Settings is open.
 | Connection and Proxy | Connections per download (1–32), connect and read timeouts, HTTP version, custom User-Agent, HTTP/HTTPS/SOCKS5 proxy and host exceptions |
 | Speed & queues and Schedule | Global limit, queue editor, start and stop times, completion action |
 | Categories | Subfolder sorting and optional per-category folders |
-| Browser & integration | Bridge registration and repair, extension installation, optional desktop-managed capture filters and video button |
+| Browser & integration | Native host status by browser, extension version and last contact, bridge repair, optional desktop-managed capture filters and video button |
 | Videos from the web | Install yt-dlp, ffmpeg and Deno, set tool paths, choose subtitles, metadata, thumbnails, chapters, and YouTube SponsorBlock |
 | Notifications & sounds | Desktop notifications and completion tone |
 | Security | Optional local scans using Microsoft Defender on Windows or ClamAV on Linux |
@@ -349,17 +345,17 @@ and HTTP/3 in Settings. Use it with servers that support QUIC.
 
 ## Browser extension
 
-The Manifest V3 extension sends downloads and videos from Chromium browsers and Firefox to Oxyd
-through the local `oxyd-bridge` native messaging host. In Firefox, a regular attachment
-opened through a link can be handed off before the browser opens its Save dialog. Other
-downloads still use Firefox's download-list handoff. Automatic Firefox capture leaves the
-download in the browser when Oxyd is closed. *Download with Oxyd* can still start the app.
+The extension sends downloads and videos from Chromium browsers and Firefox through the
+local `oxyd-bridge` native messaging host. In Firefox, Oxyd can accept a compatible
+attachment link before Firefox opens its Save dialog. Firefox also checks its download list
+for other eligible downloads. With automatic capture, Firefox handles the download when
+Oxyd is closed. Use *Download with Oxyd* from the link menu to start the app explicitly.
 
 - Cookies and login headers are only sent to the site they came from: after a redirect to
   another site (a CDN) they are left out.
-- **Captures** downloads by file type, with a minimum size of 1 MB by default; blob and data
-  URLs are always left to the browser. Cookies (including HttpOnly), referer and user agent
-  are passed along so sites that need a login still work.
+- **Captures** downloads by file type, with a minimum size of 1 MiB by default. Blob and data
+  URLs stay in the browser. Oxyd can use the browser's cookies, referer and user agent to
+  download from sites that require a login.
 - **Browser fallback.** When the extension intercepts a response, it lets that response
   continue if Oxyd declines or is unreachable. When an existing download is paused for
   handoff, the extension resumes it in the browser if Oxyd does not accept it.
@@ -400,9 +396,10 @@ Browser extension ──stdio──▶ oxyd-bridge ──pipe / socket──▶ 
                                                              └─ oxyd-core ─ SQLite + disk
 ```
 
-The browser starts `oxyd-bridge` (its *native messaging host*) for each message; the bridge
-forwards it to the running app over a named pipe on Windows or a Unix socket on Linux, and
-starts the app first if needed.
+The browser starts `oxyd-bridge` (its *native messaging host*) for each message. The bridge
+forwards the message over a named pipe on Windows or a Unix socket on Linux. Chromium
+download handoffs and explicit download requests can start the app. Connection checks and
+automatic capture in Firefox use the running app when available.
 
 1. **Probe.** Oxyd asks the server for the first bytes with a `Range` request. The answer
    tells it the size, whether ranges work, the ETag and the file name; that same response
@@ -460,9 +457,12 @@ reduced to their host and path, and there is no telemetry.
 
 ## Install
 
-Released versions are on the **Releases** page of the repository. Every push to `main` also
-builds them: open the latest run of the *Build installer* workflow in the **Actions** tab and
-download the Windows or Linux artifact (kept for 30 days).
+Published installers and the Chromium extension are available on the release page.
+[Download a release](https://github.com/YosuaPWH/Oxyd-Download-Manager/releases/latest)
+
+The `v0.4.0` packages predate the per-browser status and Firefox capture changes described
+here. Build the app and extensions locally from the same checkout to use those changes.
+GitHub Actions workflows are currently disabled. [Build from source](#build-from-source)
 
 | File | Platform |
 |---|---|
@@ -471,7 +471,7 @@ download the Windows or Linux artifact (kept for 30 days).
 | `Oxyd-<version>-amd64.deb` | Debian, Ubuntu, Linux Mint, Pop!_OS, … |
 | `Oxyd-<version>-x86_64.rpm` | Fedora, RHEL, openSUSE, … |
 | `Oxyd-<version>-x86_64.AppImage` | Any other 64-bit distribution, no installation |
-| `Oxyd-Extension-<version>.zip` | The unpacked browser extension (same on every system) |
+| `Oxyd-Extension-<version>.zip` | Unpacked Chromium extension for Windows and Linux |
 | `SHA256SUMS.txt` | Checksums of all files |
 
 ### Windows
@@ -480,13 +480,14 @@ download the Windows or Linux artifact (kept for 30 days).
 |---|---|---|
 | For | Normal use on your own PC | IT deployment: Group Policy, Intune, `msiexec` |
 | Installs | Per user, **no administrator rights** | For all users in `Program Files`, needs administrator rights |
-| Browser helper | Registered for your user in the registry | Registered machine-wide (HKLM) for Chrome and Edge |
+| Browser helper | Chrome and Edge host registered for your user (HKCU) | Chrome and Edge host registered machine-wide (HKLM) |
 | Uninstall | Removes the program, the registration and the autostart entry | Removes the program and the machine-wide registration |
 | Silent install | `Oxyd-Setup-<version>.exe /S` | `msiexec /i Oxyd-Setup-<version>.msi /qn` |
 
 Pre-release versions such as `0.2.0-beta.1` only come as `.exe`, because MSI versions must be
 numeric. Neither installer is code signed yet, so Windows SmartScreen may ask for
 confirmation. WebView2 (part of Windows 11) is installed automatically if it is missing.
+For Firefox, launch a build that supports it once to register the native host for your user.
 
 ### Linux
 
@@ -511,39 +512,46 @@ first start it copies `oxyd-bridge` to `~/.local/share/Oxyd/bin`, because the br
 start a program inside the AppImage. Keep the AppImage where it is; if you move it, start it
 once from the new place so the helper finds it again.
 
-Whatever the package, Oxyd also registers the helper for your user in
-`~/.config/<browser>/NativeMessagingHosts` every time it starts, for each of Chrome, Chromium,
-Edge, Brave and Vivaldi that is installed. Browsers installed as Flatpak or Snap cannot start
-native helpers and are not supported.
+Open the browser at least once before starting Oxyd so it can register the helper for your
+user. Chromium browsers use `~/.config/<browser>/NativeMessagingHosts/` and Firefox uses
+`~/.mozilla/native-messaging-hosts/`. Use a browser installed outside Flatpak or Snap for
+native messaging.
 
 ### Extension
 
-- **Chromium** — unzip the extension or select `extension/build` after building it.
-  Open `chrome://extensions`, `edge://extensions`, or the equivalent page, enable
-  *Developer mode*, then select the folder with *Load unpacked*.
-- **Firefox 140+** — build the extension with `npm ci --prefix extension` and
-  `npm run build --prefix extension`. Start Oxyd, open
-  `about:debugging#/runtime/this-firefox`, choose *Load Temporary Add-on*, and
-  select `extension/build-firefox/manifest.json`. Temporary add-ons need to be
-  loaded again after restarting Firefox.
+Install the desktop app and open it once before testing the extension. Both package scripts
+build the two extension folders. To build the extensions separately, run these commands from
+the repository root.
 
-In *Settings → Browser & integration*, check native host registration for Chrome/Chromium,
-Edge, and Firefox. Open the extension popup in the browser you want to test to record its
-version and last contact. Select *Repair bridge* if the registration is missing or invalid.
+```bash
+npm ci --prefix extension
+npm run build --prefix extension
+```
+
+- **Chrome, Edge and other Chromium 116+ browsers.** Open `chrome://extensions`,
+  `edge://extensions`, or the equivalent page. Enable *Developer mode*, choose
+  *Load unpacked*, then select `extension/build` or the folder extracted from the release ZIP.
+- **Firefox 140+.** Open `about:debugging#/runtime/this-firefox`, choose *Load Temporary
+  Add-on*, and select `extension/build-firefox/manifest.json`. Load the add-on again after
+  restarting Firefox.
+
+While Oxyd is running, open the extension popup to test the connection. In
+*Settings → Browser & integration*, check the native host status, extension version, and
+last contact for Chrome/Chromium, Edge, or Firefox during the current Oxyd session. Use
+*Repair bridge* for missing or invalid registration. After rebuilding the extension, reload it
+from the browser's extension page. Use the extension built from the same checkout as the app.
 
 ### Publishing a release
 
-For maintainers: raise the version in `app/src-tauri/tauri.conf.json`,
-the workspace `Cargo.toml` and both `package.json` files, commit, then
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-The workflow checks that the tag matches the app version, builds the Windows and Linux
-packages in parallel and publishes a GitHub Release with all of them, the extension zip and
-one `SHA256SUMS.txt`. Tags with a suffix such as `v0.2.0-beta.1` become pre-releases.
+1. Set the release version in `app/src-tauri/tauri.conf.json`, the workspace `Cargo.toml`,
+   both `package.json` files and `extension/static/manifest.json`. Keep the manifest's
+   `version` numeric for prereleases and put the prerelease label in `version_name`.
+   Refresh the lockfiles and commit the version changes.
+2. Build the Windows and Linux packages locally from that commit. Zip the contents of
+   `extension/build` for *Load unpacked* and generate `SHA256SUMS.txt` for the files you
+   plan to upload.
+3. Push a matching tag such as `v0.4.1` and create the GitHub Release with the packages,
+   extension ZIP and checksums. Mark builds with a prerelease suffix as prereleases.
 
 ### Data
 
@@ -551,15 +559,16 @@ one `SHA256SUMS.txt`. Tags with a suffix such as `v0.2.0-beta.1` become pre-rele
 |---|---|---|
 | Downloads and settings | `%LOCALAPPDATA%\Oxyd\oxyd.db` | `~/.local/share/Oxyd/oxyd.db` |
 | Logs | `%LOCALAPPDATA%\Oxyd\logs\` | `~/.local/share/Oxyd/logs/` |
-| Browser helper | `%LOCALAPPDATA%\Oxyd\native-host\` and HKCU | `~/.config/<browser>/NativeMessagingHosts/` |
+| Browser helper | `%LOCALAPPDATA%\Oxyd\native-host\` and HKCU | `~/.config/<browser>/NativeMessagingHosts/` or `~/.mozilla/native-messaging-hosts/` |
 | yt-dlp, ffmpeg, deno | `%LOCALAPPDATA%\Oxyd\tools\` | `~/.local/share/Oxyd/tools/` |
 
 ## Build from source
 
-Requirements: Rust stable and Node.js 22 or newer, plus
+From the repository root, check out the branch or tag you want to build. Use stable Rust
+and Node.js 22.12 or newer, plus the dependencies for your OS.
 
 - **Windows** 10/11 (64-bit) with the MSVC Rust toolchain and Visual Studio Build Tools
-  with the *Desktop development with C++* workload, including a Windows SDK;
+  with the *Desktop development with C++* workload, including a Windows SDK.
 - **Linux**: the Tauri system libraries. On Debian or Ubuntu:
 
   ```bash
@@ -568,26 +577,26 @@ Requirements: Rust stable and Node.js 22 or newer, plus
 
   On Fedora: `sudo dnf install webkit2gtk4.1-devel libappindicator-gtk3-devel librsvg2-devel patchelf`.
 
-```bash
-cargo test --workspace                 # engine, protocol, bridge and app tests
-(cd app && npm install && npm test)    # unit tests of the interface
-cd app && npm install && npx tauri dev # desktop app with hot reload
-cd extension && npm install && npm run build   # extension into extension/build
+### Windows packages
+
+Run from PowerShell at the repository root.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-installer.ps1
 ```
 
-Packages:
+Find the setup `.exe` under `target/release/bundle/nsis/` and the `.msi` under
+`target/release/bundle/msi/`. Prerelease builds produce the NSIS setup. The script also
+builds `extension/build` for Chromium and `extension/build-firefox` for Firefox.
+
+### Linux packages
 
 ```bash
-# Windows
-powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1
-# -> target/release/bundle/nsis/Oxyd Download Manager_<version>_x64-setup.exe
-# -> target/release/bundle/msi/Oxyd Download Manager_<version>_x64_en-US.msi
-# -> extension/build (Chromium), extension/build-firefox (Firefox)
-
-# Linux (pass e.g. "deb" to build only one kind)
 bash scripts/build-linux.sh
-# -> target/release/bundle/deb/*.deb, rpm/*.rpm, appimage/*.AppImage
 ```
+
+Packages go under `target/release/bundle/`. Pass `deb`, `rpm` or `appimage` to build one
+package type. The script also builds both extensions.
 
 ### Windows release smoke test
 
@@ -605,16 +614,21 @@ the same checks on a separate test install.
    enabled and Oxyd running, confirm the download reaches Oxyd. Exit Oxyd from the
    tray and open the same link again. Check that Firefox saves the entire 2 MiB file.
 
-Useful during development:
+### Development
 
 ```bash
+cargo test --workspace                 # engine, protocol, bridge and app tests
+npm ci --prefix app
+npm test --prefix app                   # unit tests for the interface
+cargo build -p oxyd-bridge             # native messaging sidecar for the dev build
+npm run tauri --prefix app -- dev       # desktop app with hot reload
+npm run dev --prefix app                # UI in a browser with a mock backend
 cargo run -p test-server               # local server: ranges, throttling, drops, 429/503, ETags, cookies
 cargo run -p oxyd-cli -- download "http://127.0.0.1:8787/file/104857600?rate=1048576" -c 8
-cd app && npm run dev                  # UI alone in a browser with a mock backend
-powershell -File scripts/register-dev.ps1   # Windows: register a local oxyd-bridge.exe (-Unregister to remove)
 ```
 
-On Linux a development build registers its own `oxyd-bridge` for your user when it starts.
+A development build registers the local bridge when it starts. On Windows,
+`scripts/register-dev.ps1` can also register a local `oxyd-bridge.exe` manually.
 
 | Variable | Effect |
 |---|---|
@@ -636,8 +650,8 @@ sockets.
 | `crates/oxyd-cli` | `oxyd-cli`, a command line front end for the engine |
 | `crates/oxyd-protocol` | Message types, framing, the secured named pipe (Windows) and Unix socket (Linux) |
 | `crates/oxyd-bridge` | `oxyd-bridge`, the native messaging host |
-| `app/` | Tauri app (`src-tauri/`) and the Svelte interface (`src/`): one bundle for the main window, the mini window and the progress windows |
-| `extension/` | Chromium extension (TypeScript, esbuild) |
+| `app/` | Tauri app (`src-tauri/`) and Svelte interface (`src/`) for the main, Settings, mini and progress windows |
+| `extension/` | Chromium and Firefox extensions built from shared TypeScript source with esbuild |
 | `installer/`, `scripts/` | NSIS hooks, WiX fragment for the MSI, Windows and Linux package builds, dev registration, kill/resume test |
 | `test-server/` | Local HTTP server used by the tests and benchmarks |
 
