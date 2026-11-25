@@ -158,11 +158,17 @@
     });
   }
 
-  let browser = $state<BrowserStatus | null>(null);
+  const browserNames: Record<BrowserStatus["browser"], string> = {
+    chrome: "Chrome / Chromium", edge: "Microsoft Edge", firefox: "Firefox",
+  };
+  const registrationLabels = {
+    registered: "set.bridgeRegistered", missing: "set.bridgeMissing", invalid: "set.bridgeInvalid",
+  } as const;
+  let browsers = $state<BrowserStatus[] | null>(null);
   let browserBusy = $state(false);
 
   async function refreshBrowser() {
-    browser = await api.browserStatus();
+    browsers = await api.browserStatus();
   }
 
   $effect(() => {
@@ -626,16 +632,30 @@
 {/snippet}
 
 {#snippet browserStatus()}
-  <div class="item">
-    <div class="named">
-      <span class="indicator" class:ready={browser?.registered}></span>
-      <span>
-        <strong>{t(browser === null ? "loading" : browser.registered ? "set.bridgeRegistered" : "set.bridgeMissing")}</strong>
-        <small class="hint">
-          {browser?.lastSeen ? `${t("set.lastBrowserContact")} · ${new Date(browser.lastSeen * 1000).toLocaleString()}` : t("set.noBrowserContact")}
-        </small>
-      </span>
+  {#each browsers ?? [] as { browser, registration, contact } (browser)}
+    <div class="item">
+      <div class="named">
+        <span class="indicator" class:ready={registration === "registered"}></span>
+        <div>
+          <strong>{browserNames[browser]}</strong>
+          <small class="hint">{t(registrationLabels[registration])}</small>
+          {#if contact}
+            <small class="hint">{t("set.lastBrowserContact")} · {new Date(contact.lastSeen * 1000).toLocaleString()}</small>
+            {#if contact.extensionVersion}
+              <small class="hint">
+                {t("set.extensionVersion")} <span class="num">{contact.extensionVersion}</span>
+                {#if app.info?.version && contact.extensionVersion !== app.info.version.split("-")[0]}
+                  · {t("set.extensionVersionMismatch")} <span class="num">{app.info.version}</span>
+                {/if}
+              </small>
+            {/if}
+          {/if}
+        </div>
+      </div>
     </div>
+  {/each}
+  <div class="item">
+    <small class="hint">{t(browsers === null ? "loading" : "set.noBrowserContact")}</small>
     <button onclick={repairBrowser} disabled={browserBusy}><Icon name="refresh" size={14} />{t(browserBusy ? "set.repairingBridge" : "set.repairBridge")}</button>
   </div>
 {/snippet}

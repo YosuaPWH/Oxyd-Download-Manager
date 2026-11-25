@@ -92,7 +92,7 @@ mod tests {
         assert!(bind(&name).is_err(), "second owner must be refused");
         tokio::spawn(serve(first, |msg| async move {
             match msg {
-                Message::Ping => Message::Pong {
+                Message::Ping(_) => Message::Pong {
                     app_version: "test".into(),
                     capture_settings: None,
                 },
@@ -105,7 +105,7 @@ mod tests {
             // Two clients in a row: the server keeps accepting.
             for _ in 0..2 {
                 let mut pipe = crate::connect(&n).unwrap();
-                write_message(&mut pipe, &Message::Ping).unwrap();
+                write_message(&mut pipe, &Message::Ping(Default::default())).unwrap();
                 assert!(matches!(
                     read_message(&mut pipe).unwrap(),
                     Some(Message::Pong { .. })

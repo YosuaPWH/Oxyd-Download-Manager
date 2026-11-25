@@ -1,7 +1,6 @@
 //! Commands invoked by the frontend.
 
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
 
 use oxyd_core::filename::{sanitize, Category};
 use oxyd_core::grabber::{GrabOptions, GrabResult};
@@ -270,17 +269,23 @@ pub fn open_data_directory(app: AppHandle) -> Res<()> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserStatus {
-    registered: bool,
-    last_seen: Option<i64>,
+    browser: oxyd_protocol::Browser,
+    registration: crate::native_host::Registration,
+    contact: Option<crate::state::BrowserContact>,
 }
 
 #[tauri::command]
-pub fn browser_status(state: State<'_, AppState>) -> BrowserStatus {
-    let last_seen = state.browser_last_seen.load(Ordering::Relaxed);
-    BrowserStatus {
-        registered: crate::native_host::registered(),
-        last_seen: (last_seen != 0).then_some(last_seen),
-    }
+pub fn browser_status(state: State<'_, AppState>) -> Vec<BrowserStatus> {
+    use oxyd_protocol::Browser;
+    let contacts = state.browser_contacts.lock().ok().map(|c| c.clone());
+    [Browser::Chrome, Browser::Edge, Browser::Firefox]
+        .into_iter()
+        .map(|browser| BrowserStatus {
+            browser,
+            registration: crate::native_host::registration(browser),
+            contact: contacts.as_ref().and_then(|c| c.get(&browser).cloned()),
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -292,7 +297,7 @@ pub async fn repair_browser() -> Res<()> {
     if manifests.is_empty() {
         return Err(CmdError::other(
             "browser",
-            "Open Chrome or Edge once, then try again.",
+            "Open Chrome, Edge or Firefox once, then try again.",
         ));
     }
     Ok(())

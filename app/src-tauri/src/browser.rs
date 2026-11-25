@@ -1,7 +1,5 @@
 //! Links arriving from the browser bridge (named pipe) or the command line.
 
-use std::sync::atomic::Ordering;
-
 use oxyd_core::media::{ChoiceKind, VideoProbe};
 use oxyd_core::{NewDownload, RequestHeaders};
 use oxyd_protocol::{
@@ -11,7 +9,7 @@ use tauri::{AppHandle, Emitter, Manager as _};
 
 use serde::Serialize;
 
-use crate::state::{AppState, PendingAdd, PendingMatch, PendingVideo};
+use crate::state::{AppState, BrowserContact, PendingAdd, PendingMatch, PendingVideo};
 
 /// Serve the bridge pipe (Windows) or socket (Linux) for the lifetime of the app.
 pub fn start_pipe_server(app: &AppHandle) {
@@ -37,24 +35,34 @@ pub fn start_pipe_server(app: &AppHandle) {
 }
 
 async fn handle(app: &AppHandle, msg: Message) -> Message {
-    if matches!(
-        &msg,
-        Message::Ping | Message::AddDownload(_) | Message::ProbeVideo(_) | Message::AddVideo(_)
-    ) {
-        app.state::<AppState>()
-            .browser_last_seen
-            .store(chrono::Utc::now().timestamp(), Ordering::Relaxed);
-    }
     match msg {
-        Message::Ping => Message::Pong {
-            app_version: env!("CARGO_PKG_VERSION").to_string(),
-            capture_settings: app
-                .state::<AppState>()
-                .mgr
-                .settings()
-                .capture
-                .and_then(|settings| serde_json::to_value(settings).ok()),
-        },
+        Message::Ping(ping) => {
+            let state = app.state::<AppState>();
+            if let Some(browser) = ping.browser {
+                let version = ping.extension_version.filter(|v| {
+                    !v.is_empty()
+                        && v.len() <= 32
+                        && v.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+                });
+                if let Ok(mut contacts) = state.browser_contacts.lock() {
+                    contacts.insert(
+                        browser,
+                        BrowserContact {
+                            last_seen: chrono::Utc::now().timestamp(),
+                            extension_version: version,
+                        },
+                    );
+                }
+            }
+            Message::Pong {
+                app_version: env!("CARGO_PKG_VERSION").to_string(),
+                capture_settings: state
+                    .mgr
+                    .settings()
+                    .capture
+                    .and_then(|settings| serde_json::to_value(settings).ok()),
+            }
+        }
         Message::AddDownload(a) => {
             let id = a.id.clone();
             match accept(app, a) {

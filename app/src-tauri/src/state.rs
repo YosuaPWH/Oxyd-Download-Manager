@@ -1,10 +1,12 @@
 //! Shared application state.
 
-use std::sync::{atomic::AtomicI64, Arc, Mutex};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use oxyd_core::media::VideoProbe;
 use oxyd_core::{DownloadInfo, Manager, RequestHeaders};
+use oxyd_protocol::Browser;
 use serde::Serialize;
 
 /// A link received from the browser (or the command line) waiting for the user to confirm
@@ -65,9 +67,16 @@ pub struct RefreshTarget {
     pub since: Instant,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserContact {
+    pub last_seen: i64,
+    pub extension_version: Option<String>,
+}
+
 pub struct AppState {
     pub mgr: Arc<Manager>,
-    pub browser_last_seen: AtomicI64,
+    pub browser_contacts: Mutex<HashMap<Browser, BrowserContact>>,
     pub pending: Mutex<Vec<PendingAdd>>,
     pub refresh: Mutex<Option<RefreshTarget>>,
     /// Downloads whose progress window still has to be opened, with the attempts made.
@@ -82,7 +91,7 @@ impl AppState {
     pub fn new(mgr: Arc<Manager>) -> Self {
         AppState {
             mgr,
-            browser_last_seen: AtomicI64::new(0),
+            browser_contacts: Mutex::new(HashMap::new()),
             pending: Mutex::new(Vec::new()),
             refresh: Mutex::new(None),
             progress_wanted: Mutex::new(Vec::new()),

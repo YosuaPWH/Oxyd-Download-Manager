@@ -124,7 +124,7 @@ pub enum Message {
     VideoInfo(VideoInfo),
     /// Download a video of a web page in the chosen quality (answered with an [`Ack`]).
     AddVideo(AddVideo),
-    Ping,
+    Ping(BrowserPing),
     #[serde(rename_all = "camelCase")]
     Pong {
         app_version: String,
@@ -132,6 +132,24 @@ pub enum Message {
         capture_settings: Option<serde_json::Value>,
     },
     Ack(Ack),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Browser {
+    Chrome,
+    Edge,
+    Firefox,
+}
+
+/// Passive connection check. Older extensions send a ping without browser details.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct BrowserPing {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub browser: Option<Browser>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extension_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -275,7 +293,7 @@ impl Message {
             Message::VideoInfo(v) => &v.id,
             Message::AddVideo(a) => &a.id,
             Message::Ack(a) => &a.id,
-            Message::Ping | Message::Pong { .. } => "",
+            Message::Ping(_) | Message::Pong { .. } => "",
         }
     }
 }
@@ -428,7 +446,10 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(pong, r#"{"v":1,"type":"pong","appVersion":"0.1.0"}"#);
-        assert_eq!(decode(br#"{"v":1,"type":"ping"}"#).unwrap(), Message::Ping);
+        assert_eq!(
+            decode(br#"{"v":1,"type":"ping"}"#).unwrap(),
+            Message::Ping(Default::default())
+        );
     }
 
     #[test]
@@ -516,14 +537,17 @@ mod tests {
     #[test]
     fn frames_round_trip() {
         let mut buf = Vec::new();
-        write_message(&mut buf, &Message::Ping).unwrap();
+        write_message(&mut buf, &Message::Ping(Default::default())).unwrap();
         write_message(
             &mut buf,
             &Message::ack("1", AckStatus::Error, Some("x".into())),
         )
         .unwrap();
         let mut r = &buf[..];
-        assert_eq!(read_message(&mut r).unwrap(), Some(Message::Ping));
+        assert_eq!(
+            read_message(&mut r).unwrap(),
+            Some(Message::Ping(Default::default()))
+        );
         assert!(matches!(
             read_message(&mut r).unwrap(),
             Some(Message::Ack(Ack {

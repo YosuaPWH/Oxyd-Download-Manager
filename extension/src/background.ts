@@ -8,7 +8,7 @@ import { api, firefox } from "./browser-api.ts";
 import { shouldCapture } from "./filters.ts";
 import { handOffDownload } from "./handoff.ts";
 import type { ContentMessage } from "./messages.ts";
-import { browserName, cookieHeader, sendNative, type AddDownload } from "./native.ts";
+import { browserName, cookieHeader, ping, pingNative, sendNative, type AddDownload } from "./native.ts";
 import { siteHost } from "./overlay.ts";
 import { DESKTOP_CAPTURE_KEY, loadSettings, type EffectiveSettings, type ExtSettings } from "./settings.ts";
 import { initSniffer } from "./sniffer.ts";
@@ -27,7 +27,7 @@ function desktopProfile(force = false): Promise<ExtSettings | null> {
   captureProfile = (async () => {
     const stored = (await api.storage.local.get(DESKTOP_CAPTURE_KEY))[DESKTOP_CAPTURE_KEY] as ExtSettings | undefined;
     try {
-      const reply = await sendNative({ v: 1, type: "ping" }, 600);
+      const reply = await pingNative(600);
       if (reply.type === "pong") {
         const next = reply.captureSettings ?? null;
         if (JSON.stringify(stored ?? null) !== JSON.stringify(next)) {
@@ -172,6 +172,7 @@ if (firefox) {
 }
 
 api.runtime.onInstalled.addListener(() => {
+  void ping();
   const id = api.i18n.getUILanguage().startsWith("id");
   api.contextMenus.create({
     id: MENU_ID,
@@ -184,6 +185,8 @@ api.runtime.onInstalled.addListener(() => {
     contexts: ["video", "audio"],
   });
 });
+
+api.runtime.onStartup.addListener(() => void ping());
 
 /** Right-click on a video: the button's menu over it, else the app's video dialog. */
 async function videoFromContextMenu(info: chrome.contextMenus.OnClickData, tab?: chrome.tabs.Tab) {

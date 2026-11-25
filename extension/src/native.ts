@@ -78,11 +78,20 @@ export function sendNative(msg: object, timeout = TIMEOUT_MS): Promise<Reply> {
 
 export async function ping(): Promise<string | null> {
   try {
-    const r = await sendNative({ v: 1, type: "ping" }, 2000);
+    const r = await pingNative(2000);
     return r.type === "pong" ? r.appVersion : null;
   } catch {
     return null;
   }
+}
+
+export function pingNative(timeout: number): Promise<Reply> {
+  return sendNative({
+    v: 1,
+    type: "ping",
+    browser: browserName(),
+    extensionVersion: api.runtime.getManifest().version,
+  }, timeout);
 }
 
 /** Cookies for `url` as a `Cookie` header value (HttpOnly cookies included). */
