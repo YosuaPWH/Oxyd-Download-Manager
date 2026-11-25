@@ -5,7 +5,8 @@ import { api, firefox } from "./browser-api.ts";
 // MV3 service workers are stopped when idle, so state that must outlive a few seconds
 // (the "skip next download" switch, URLs re-started in the browser) lives in
 // api.storage.session instead of module variables.
-import { shouldCapture } from "./filters.ts";
+import { shouldCapture, type Candidate } from "./filters.ts";
+import { watchFirefoxAttachments } from "./firefox-capture.ts";
 import { handOffDownload } from "./handoff.ts";
 import type { ContentMessage } from "./messages.ts";
 import { browserName, cookieHeader, ping, pingNative, sendNative, type AddDownload } from "./native.ts";
@@ -121,17 +122,19 @@ function baseName(path: string): string | undefined {
   return path.split(/[\\/]/).pop() || undefined;
 }
 
-async function capture(item: chrome.downloads.DownloadItem) {
+async function captureDecision(item: Candidate) {
   const [{ settings }, state] = await Promise.all([effectiveSettings(), session()]);
   const decision = shouldCapture(item, settings, {
     selfId: api.runtime.id,
     bypass: new Set(Object.keys(state.bypass)),
     skipNext: Date.now() < state.skipNextUntil,
   });
-  if (!decision.capture) {
-    if (decision.reason === "skip-next") await clearSkipNext();
-    return;
-  }
+  if (!decision.capture && decision.reason === "skip-next") await clearSkipNext();
+  return decision;
+}
+
+async function capture(item: chrome.downloads.DownloadItem) {
+  if (!(await captureDecision(item)).capture) return;
 
   const url = item.finalUrl || item.url;
   const filename = baseName(item.filename);
@@ -156,14 +159,60 @@ async function capture(item: chrome.downloads.DownloadItem) {
           userAgent: navigator.userAgent,
           cookies: await cookieHeader(url, (item as chrome.downloads.DownloadItem & { cookieStoreId?: string }).cookieStoreId ?? await storeIdFor(item.incognito)),
           source: browserName(),
+          launch: firefox ? false : undefined,
         }),
     },
   );
 }
 
-// Firefox has no filename hook. Its download stays intact until the app accepts it.
 if (firefox) {
-  api.downloads.onCreated.addListener((item) => void capture(item).catch(console.warn));
+  // A declined or explicitly skipped response will enter the download list later. Consume
+  // one marker per response so repeating the same URL does not disable future capture.
+  const passthrough = new Map<string, number[]>();
+  const key = (url: string, incognito: boolean) => `${incognito}:${url}`;
+  watchFirefoxAttachments(async (item) => {
+    if (item.replayable) {
+      const decision = await captureDecision(item);
+      if (!decision.capture && decision.reason !== "skip-next") return false;
+      if (decision.capture && await offerToOxyd({
+        v: 1,
+        type: "add_download",
+        id: crypto.randomUUID(),
+        url: item.finalUrl,
+        filename: item.filename,
+        size: item.totalBytes,
+        mime: item.mime,
+        referrer: item.referrer,
+        userAgent: item.userAgent ?? navigator.userAgent,
+        cookies: item.cookies,
+        source: "firefox",
+        launch: false,
+      })) return true;
+    }
+
+    const now = Date.now();
+    for (const [k, markers] of passthrough) {
+      const active = markers.filter((until) => until > now);
+      if (active.length) passthrough.set(k, active);
+      else passthrough.delete(k);
+    }
+    const url = key(item.finalUrl, item.incognito);
+    passthrough.set(url, [...(passthrough.get(url) ?? []), now + SKIP_MS]);
+    return false;
+  });
+  api.downloads.onCreated.addListener((item) => {
+    if (item.byExtensionId === api.runtime.id || item.state !== "in_progress") return;
+    const url = key(item.finalUrl || item.url, item.incognito);
+    const markers = passthrough.get(url)?.filter((until) => until > Date.now());
+    if (!markers?.length) {
+      passthrough.delete(url);
+      void capture(item).catch(console.warn);
+    } else if (markers.length === 1) {
+      passthrough.delete(url);
+    } else {
+      passthrough.set(url, markers.slice(1));
+    }
+  });
 } else {
   api.downloads.onDeterminingFilename.addListener((item, suggest) => {
     suggest();

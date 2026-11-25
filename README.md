@@ -350,17 +350,19 @@ and HTTP/3 in Settings. Use it with servers that support QUIC.
 ## Browser extension
 
 The Manifest V3 extension sends downloads and videos from Chromium browsers and Firefox to Oxyd
-through the local `oxyd-bridge` native messaging host. Firefox starts handoff from its download
-list, so its Save dialog can appear before Oxyd accepts the download.
+through the local `oxyd-bridge` native messaging host. In Firefox, a regular attachment
+opened through a link can be handed off before the browser opens its Save dialog. Other
+downloads still use Firefox's download-list handoff. Automatic Firefox capture leaves the
+download in the browser when Oxyd is closed. *Download with Oxyd* can still start the app.
 
 - Cookies and login headers are only sent to the site they came from: after a redirect to
   another site (a CDN) they are left out.
 - **Captures** downloads by file type, with a minimum size of 1 MB by default; blob and data
   URLs are always left to the browser. Cookies (including HttpOnly), referer and user agent
   are passed along so sites that need a login still work.
-- **Never loses a download.** The browser download is paused while Oxyd is asked; it is only
-  cancelled once Oxyd accepted it, and resumed in the browser if Oxyd does not answer
-  within 3 seconds.
+- **Browser fallback.** When the extension intercepts a response, it lets that response
+  continue if Oxyd declines or is unreachable. When an existing download is paused for
+  handoff, the extension resumes it in the browser if Oxyd does not accept it.
 - **Right-click a link** and choose *Download with Oxyd*; press **Alt+Shift+O** to let the
   next download stay in the browser.
 - **Download button on videos** (see [Videos from web pages](#videos-from-web-pages)). The
@@ -370,8 +372,8 @@ list, so its Save dialog can appear before Oxyd accepts the download.
   for a player inside a frame. In the extension popup, **Video overlay** lets you choose an
   icon-only button and a player corner. Each site's settings also apply to players embedded
   on that site. To list streams on pages yt-dlp does not know, the extension notes which
-  responses a tab received were video, audio or HLS/DASH manifests
-  (`webRequest`, read-only); that list stays in the browser session.
+  responses a tab received were video, audio or HLS/DASH manifests. That list stays in the
+  browser session.
 - The popup shows whether the app is reachable and lets you switch capturing off, change the
   minimum size, the captured file types and the domains that should be left alone.
 
@@ -523,8 +525,11 @@ native helpers and are not supported.
   `npm run build --prefix extension`. Start Oxyd, open
   `about:debugging#/runtime/this-firefox`, choose *Load Temporary Add-on*, and
   select `extension/build-firefox/manifest.json`. Temporary add-ons need to be
-  loaded again after restarting Firefox. Open *Settings → Browser & integration*
-  and select *Repair bridge* if the browser cannot reach Oxyd.
+  loaded again after restarting Firefox.
+
+In *Settings → Browser & integration*, check native host registration for Chrome/Chromium,
+Edge, and Firefox. Open the extension popup in the browser you want to test to record its
+version and last contact. Select *Repair bridge* if the registration is missing or invalid.
 
 ### Publishing a release
 

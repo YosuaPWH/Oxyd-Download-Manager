@@ -20,6 +20,7 @@ for (const [outdir, target] of [["build", "chrome116"], ["build-firefox", "firef
       ...shared,
       description: "Send Firefox downloads and videos to Oxyd Download Manager.",
       background: { scripts: ["background.js"] },
+      permissions: [...shared.permissions, "webRequestBlocking"],
       browser_specific_settings: { gecko: { id: "oxyd@yosuapwh.github.io", strict_min_version: "140.0" } },
     }, null, 2) + "\n");
   }

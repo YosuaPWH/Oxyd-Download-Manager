@@ -173,6 +173,9 @@ pub struct AddDownload {
     /// `chrome`, `edge`, ...
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// Passive captures can leave the download in the browser when Oxyd is closed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

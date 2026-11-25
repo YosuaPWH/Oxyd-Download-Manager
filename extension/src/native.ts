@@ -14,6 +14,7 @@ export interface AddDownload {
   userAgent?: string;
   cookies?: string;
   source?: string;
+  launch?: boolean;
 }
 
 export interface VideoChoice {
