@@ -34,8 +34,9 @@ export interface AppInfo {
 }
 
 export interface BrowserStatus {
-  registered: boolean;
-  lastSeen: number | null;
+  browser: "chrome" | "edge" | "firefox";
+  registration: "registered" | "missing" | "invalid";
+  contact: { lastSeen: number; extensionVersion: string | null } | null;
 }
 
 export const api = {
@@ -66,7 +67,7 @@ export const api = {
   appInfo: () => invoke<AppInfo>("app_info"),
   openReleases: () => invoke<void>("open_releases"),
   openDataDirectory: () => invoke<void>("open_data_directory"),
-  browserStatus: () => invoke<BrowserStatus>("browser_status"),
+  browserStatus: () => invoke<BrowserStatus[]>("browser_status"),
   repairBrowser: () => invoke<void>("repair_browser"),
   exportSettings: () => invoke<boolean>("export_settings"),
   importSettings: () => invoke<Settings | null>("import_settings"),

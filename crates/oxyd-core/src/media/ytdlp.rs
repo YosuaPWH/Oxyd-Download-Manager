@@ -225,80 +225,110 @@ impl YtDlp {
         mp3: bool,
         prefs: &VideoPostprocess,
         connections: u32,
+        hls: bool,
         stem: &Path,
         cancel: &CancellationToken,
         on_progress: &mut (dyn FnMut(&Progress) + Send),
     ) -> Result<Option<PathBuf>> {
         let (ctx, _cookies) = self.context_args(url, headers)?;
-        let mut template = stem.as_os_str().to_string_lossy().replace('%', "%%");
-        template.push_str(".%(ext)s");
-        let mut cmd = command(&self.exe);
-        cmd.env("PYTHONUTF8", "1")
-            .args(self.base_args())
-            .args(ctx)
-            .args(postprocess_args(prefs, url, container, mp3))
-            .args(["-f", format, "--newline", "--progress", "--no-mtime"])
-            .arg("--progress-template")
-            .arg(format!(
-                "download:{PROGRESS}%(progress.downloaded_bytes)s|%(progress.total_bytes)s|\
-                 %(progress.total_bytes_estimate)s|%(progress.speed)s|%(info.format_id)s"
-            ))
-            .arg("--print")
-            .arg(format!("after_move:{FILE}%(filepath)s"))
-            .arg("--concurrent-fragments")
-            .arg(connections.clamp(1, 16).to_string())
-            .arg("-o")
-            .arg(&template);
-        if mp3 {
-            cmd.args(["-x", "--audio-format", "mp3", "--audio-quality", "192K"]);
-        } else if format.contains('+') {
-            cmd.args(["--merge-output-format", container]);
-        } else if self.ffmpeg.is_some() {
-            cmd.args(["--remux-video", container]);
-        }
-        cmd.arg("--")
-            .arg(url)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| Error::Tool(format!("cannot start yt-dlp: {e}")))?;
-        let stdout = child.stdout.take().expect("piped");
-        let mut stderr = child.stderr.take().expect("piped");
-        let errors = tokio::spawn(async move {
-            let mut err = Vec::new();
-            let _ = stderr.read_to_end(&mut err).await;
-            String::from_utf8_lossy(&err).into_owned()
-        });
-
-        let mut lines = BufReader::new(stdout).lines();
-        let mut state = Progress::default();
-        let mut file = None;
-        loop {
-            let line = tokio::select! {
-                l = lines.next_line() => l?,
-                _ = cancel.cancelled() => {
-                    kill_tree(&mut child).await;
-                    errors.abort();
-                    return Ok(None);
-                }
-            };
-            let Some(line) = line else { break };
-            if let Some(path) = line.strip_prefix(FILE) {
-                file = Some(PathBuf::from(path.trim()));
-            } else if parse_line(&line, &mut state) {
-                on_progress(&state);
+        let build = |stem: &Path, external_hls: bool| {
+            let mut template = stem.as_os_str().to_string_lossy().replace('%', "%%");
+            template.push_str(".%(ext)s");
+            let mut cmd = command(&self.exe);
+            cmd.env("PYTHONUTF8", "1")
+                .args(self.base_args())
+                .args(&ctx)
+                .args(postprocess_args(prefs, url, container, mp3))
+                .args(["-f", format, "--newline", "--progress", "--no-mtime"])
+                .arg("--progress-template")
+                .arg(format!(
+                    "download:{PROGRESS}%(progress.downloaded_bytes)s|%(progress.total_bytes)s|\
+                     %(progress.total_bytes_estimate)s|%(progress.speed)s|%(info.format_id)s"
+                ))
+                .arg("--print")
+                .arg(format!("after_move:{FILE}%(filepath)s"))
+                .arg("--concurrent-fragments")
+                .arg(connections.clamp(1, 16).to_string())
+                .arg("-o")
+                .arg(&template);
+            if mp3 {
+                cmd.args(["-x", "--audio-format", "mp3", "--audio-quality", "192K"]);
+            } else if format.contains('+') {
+                cmd.args(["--merge-output-format", container]);
+            } else if self.ffmpeg.is_some() {
+                cmd.args(["--remux-video", container]);
             }
+            if external_hls {
+                cmd.args(["--downloader", "m3u8:ffmpeg"]);
+            }
+            cmd.arg("--")
+                .arg(url)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            cmd
+        };
+
+        let result = run_download(build(stem, false), cancel, on_progress).await;
+        if hls
+            && self.ffmpeg.is_some()
+            && self.proxy.is_none()
+            && matches!(&result, Err(Error::Video(message)) if message.contains("Initialization fragment found after media fragments"))
+            && !cancel.is_cancelled()
+        {
+            // yt-dlp's native HLS reader only accepts one init section. FFmpeg handles
+            // a new EXT-X-MAP after a discontinuity, including AES-128-encrypted maps.
+            // Give it a separate part file so it cannot reuse native fragment offsets.
+            tracing::debug!("retrying HLS with FFmpeg after an unsupported initialization map");
+            let fallback_stem = stem.with_extension("oxydtmp.hls");
+            return run_download(build(&fallback_stem, true), cancel, on_progress).await;
         }
-        let status = child.wait().await?;
-        let err = errors.await.unwrap_or_default();
-        if !status.success() {
-            return Err(failure(&err));
+        result
+    }
+}
+
+async fn run_download(
+    mut cmd: tokio::process::Command,
+    cancel: &CancellationToken,
+    on_progress: &mut (dyn FnMut(&Progress) + Send),
+) -> Result<Option<PathBuf>> {
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| Error::Tool(format!("cannot start yt-dlp: {e}")))?;
+    let stdout = child.stdout.take().expect("piped");
+    let mut stderr = child.stderr.take().expect("piped");
+    let errors = tokio::spawn(async move {
+        let mut err = Vec::new();
+        let _ = stderr.read_to_end(&mut err).await;
+        String::from_utf8_lossy(&err).into_owned()
+    });
+
+    let mut lines = BufReader::new(stdout).lines();
+    let mut state = Progress::default();
+    let mut file = None;
+    loop {
+        let line = tokio::select! {
+            l = lines.next_line() => l?,
+            _ = cancel.cancelled() => {
+                kill_tree(&mut child).await;
+                errors.abort();
+                return Ok(None);
+            }
+        };
+        let Some(line) = line else { break };
+        if let Some(path) = line.strip_prefix(FILE) {
+            file = Some(PathBuf::from(path.trim()));
+        } else if parse_line(&line, &mut state) {
+            on_progress(&state);
         }
-        match file.filter(|f| f.is_file()) {
-            Some(f) => Ok(Some(f)),
-            None => Err(Error::Video("yt-dlp finished without a file".into())),
-        }
+    }
+    let status = child.wait().await?;
+    let err = errors.await.unwrap_or_default();
+    if !status.success() {
+        return Err(failure(&err));
+    }
+    match file.filter(|f| f.is_file()) {
+        Some(f) => Ok(Some(f)),
+        None => Err(Error::Video("yt-dlp finished without a file".into())),
     }
 }
 

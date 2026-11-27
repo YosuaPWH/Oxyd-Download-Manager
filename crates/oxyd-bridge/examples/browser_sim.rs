@@ -15,7 +15,7 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let target = args.next().unwrap_or_else(|| "ping".into());
     let msg = if target == "ping" {
-        Message::Ping
+        Message::Ping(Default::default())
     } else {
         Message::AddDownload(AddDownload {
             id: format!("sim-{}", std::process::id()),

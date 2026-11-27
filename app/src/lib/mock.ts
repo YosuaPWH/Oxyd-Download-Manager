@@ -376,7 +376,9 @@ export function installMock() {
         case "video_file_name":
           return `${String(a.title).replace(/[\\/:*?"<>|]/g, "_")}.${a.container}`;
         case "browser_status":
-          return { registered: browserRegistered, lastSeen: null };
+          return ["chrome", "edge", "firefox"].map((browser) => ({
+            browser, registration: browserRegistered ? "registered" : "missing", contact: null,
+          }));
         case "repair_browser":
           browserRegistered = true;
           return null;

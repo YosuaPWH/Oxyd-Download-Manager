@@ -68,6 +68,16 @@ async fn downloads_a_torrent_from_a_local_peer() {
     assert_eq!(info.record.save_path, out.join("payload.bin"));
     assert!(std::fs::read(out.join("payload.bin")).unwrap() == data);
 
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&info.record.save_path)
+            .expect("completed torrent has released its file handles");
+    }
+
     // Removing a finished torrent with its file.
     m.remove(&id, true).unwrap();
     assert!(!out.join("payload.bin").exists());

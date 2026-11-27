@@ -68,7 +68,8 @@ impl Bridge {
     fn forward(&mut self, msg: &Message) -> Message {
         // A click starts the app; looking a video up ahead of a click does not.
         let launch = match msg {
-            Message::AddDownload(_) | Message::AddVideo(_) => true,
+            Message::AddDownload(a) => a.launch.unwrap_or(true),
+            Message::AddVideo(_) => true,
             Message::ProbeVideo(p) => p.launch,
             _ => false,
         };

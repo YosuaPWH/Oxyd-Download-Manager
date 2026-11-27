@@ -4,8 +4,8 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 use oxyd_protocol::{
-    read_message, write_frame, write_message, Ack, AckStatus, AddDownload, Message, ProbeVideo,
-    VideoInfo,
+    read_message, write_frame, write_message, Ack, AckStatus, AddDownload, Browser, BrowserPing,
+    Message, ProbeVideo, VideoInfo,
 };
 
 fn bridge(pipe: &str) -> Command {
@@ -44,7 +44,10 @@ async fn forwards_messages_to_the_app() {
     let server = oxyd_protocol::pipe::bind(&pipe).unwrap();
     tokio::spawn(oxyd_protocol::pipe::serve(server, |msg| async move {
         match msg {
-            Message::Ping => Message::Pong {
+            Message::Ping(BrowserPing {
+                browser: Some(Browser::Firefox),
+                extension_version,
+            }) if extension_version.as_deref() == Some("0.4.0") => Message::Pong {
                 app_version: "9.9.9".into(),
                 capture_settings: None,
             },
@@ -61,7 +64,14 @@ async fn forwards_messages_to_the_app() {
     let out = tokio::task::spawn_blocking(move || {
         let mut child = bridge(&pipe).spawn().unwrap();
         let mut stdin = child.stdin.take().unwrap();
-        write_message(&mut stdin, &Message::Ping).unwrap();
+        write_message(
+            &mut stdin,
+            &Message::Ping(BrowserPing {
+                browser: Some(Browser::Firefox),
+                extension_version: Some("0.4.0".into()),
+            }),
+        )
+        .unwrap();
         write_message(&mut stdin, &add("dl-1")).unwrap();
         write_message(&mut stdin, &probe("pv-1")).unwrap();
         // Invalid JSON keeps the bridge alive and reports the id when possible.
@@ -117,7 +127,7 @@ fn reports_error_when_app_is_unreachable() {
         .spawn()
         .unwrap();
     let mut stdin = child.stdin.take().unwrap();
-    write_message(&mut stdin, &Message::Ping).unwrap();
+    write_message(&mut stdin, &Message::Ping(Default::default())).unwrap();
     write_message(&mut stdin, &add("dl-2")).unwrap();
     // A lookup ahead of a click does not try to start the app.
     write_message(&mut stdin, &probe("pv-2")).unwrap();

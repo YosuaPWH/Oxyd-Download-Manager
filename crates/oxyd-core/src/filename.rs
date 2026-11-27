@@ -60,28 +60,60 @@ pub fn split_ext(name: &str) -> (&str, &str) {
     }
 }
 
+/// Parse a `Content-Disposition` value, including servers that put raw UTF-8 in `filename`.
+pub fn from_content_disposition_bytes(value: &[u8]) -> Option<String> {
+    match std::str::from_utf8(value) {
+        Ok(value) => from_content_disposition(value),
+        Err(_) => {
+            from_content_disposition(&value.iter().copied().map(char::from).collect::<String>())
+        }
+    }
+}
+
 /// Parse a file name from a `Content-Disposition` header value.
 pub fn from_content_disposition(value: &str) -> Option<String> {
     let mut plain = None;
-    for part in value.split(';').map(str::trim) {
+    let mut quoted = false;
+    let mut escaped = false;
+    let parts = value.split(|ch| {
+        if escaped {
+            escaped = false;
+        } else if ch == '"' {
+            quoted = !quoted;
+        } else if quoted && ch == '\\' {
+            escaped = true;
+        }
+        ch == ';' && !quoted
+    });
+    for part in parts.map(str::trim) {
         let Some((k, v)) = part.split_once('=') else {
             continue;
         };
         let k = k.trim().to_ascii_lowercase();
-        let v = v.trim();
+        let v = v.trim().trim_matches('"');
         if k == "filename*" {
-            // RFC 5987: charset'lang'percent-encoded
-            if let Some(enc) = v.splitn(3, '\'').nth(2) {
-                let decoded = percent_decode_str(enc.trim_matches('"')).decode_utf8_lossy();
-                if !decoded.is_empty() {
-                    return Some(decoded.into_owned());
+            let mut fields = v.splitn(3, '\'');
+            let charset = fields.next().unwrap_or_default();
+            if let Some(encoded) = fields.nth(1).filter(|s| !s.is_empty()) {
+                let bytes = percent_decode_str(encoded);
+                let decoded = if charset.eq_ignore_ascii_case("utf-8") {
+                    bytes.decode_utf8().ok().map(|s| s.into_owned())
+                } else if charset.eq_ignore_ascii_case("iso-8859-1") {
+                    Some(bytes.map(char::from).collect())
+                } else {
+                    None
+                };
+                if decoded.is_some() {
+                    return decoded;
                 }
             }
-        } else if k == "filename" {
-            let v = v.trim_matches('"');
-            if !v.is_empty() {
-                plain = Some(percent_decode_str(v).decode_utf8_lossy().into_owned());
-            }
+        } else if k == "filename" && !v.is_empty() {
+            let v = v.replace("\\\"", "\"").replace("\\\\", "\\");
+            plain = Some(
+                percent_decode_str(&v)
+                    .decode_utf8()
+                    .map_or_else(|_| v.clone(), |s| s.into_owned()),
+            );
         }
     }
     plain
@@ -236,6 +268,23 @@ mod tests {
             Some("naïve file.txt")
         );
         assert_eq!(from_content_disposition("inline"), None);
+    }
+
+    #[test]
+    fn handles_latin1_and_invalid_extended_filenames() {
+        assert_eq!(
+            from_content_disposition_bytes(b"attachment; filename=\"caf\xe9.zip\"").as_deref(),
+            Some("café.zip")
+        );
+        assert_eq!(
+            from_content_disposition("attachment; filename*=ISO-8859-1''caf%E9.zip").as_deref(),
+            Some("café.zip")
+        );
+        assert_eq!(
+            from_content_disposition("attachment; filename*=UTF-8''%FF.zip; filename=fallback.zip")
+                .as_deref(),
+            Some("fallback.zip")
+        );
     }
 
     #[test]

@@ -20,40 +20,115 @@
     return [...new Set(text.toLowerCase().split(/[\s,;]+/).filter(Boolean))];
   }
 
+  const CAPTURE_KEYS = [
+    "set.captureEnabled", "set.captureMinSize", "set.captureTypes", "set.captureMimes",
+    "set.captureDomains", "set.captureVideo", "set.captureVideoDuration",
+  ] as const satisfies readonly Key[];
+
+  // Index the visible option labels and hints in both languages, including options
+  // that only appear after enabling browser capture, subtitles or antivirus.
   const SECTIONS = [
-    { id: "general", title: "set.general", icon: "settings", keys: ["set.language", "set.autostart", "set.clipboard"] },
-    { id: "appearance", title: "set.appearance", icon: "image", keys: ["set.theme", "set.accent", "set.density", "set.glass"] },
-    { id: "downloads", title: "set.downloads", icon: "down", keys: ["set.folder", "set.duplicate", "set.progressWindow"] },
-    { id: "connection", title: "set.connection", icon: "globe", keys: ["set.connections", "set.connectTimeout", "set.httpVersion", "set.readTimeout", "set.userAgent"] },
-    { id: "proxy", title: "set.proxyTitle", icon: "link", keys: ["set.proxyAddress", "set.directConnection", "set.proxyBypass"] },
-    { id: "queues", title: "set.speedQueues", icon: "gauge", keys: ["set.speedLimit", "queue.title", "set.maxActive"] },
-    { id: "categories", title: "nav.categories", icon: "layers", keys: ["set.categoryFolders"] },
-    { id: "browser", title: "set.browser", icon: "panel", keys: ["set.capture", "set.confirmNew", "set.repairBridge"] },
-    { id: "video", title: "set.video", icon: "video", keys: ["set.tools", "set.ytdlpPath", "set.ffmpegPath", "set.installTools", "set.subtitles", "set.sponsorblock"] },
-    { id: "schedule", title: "set.schedule", icon: "calendar", keys: ["set.scheduleStart", "set.scheduleStop", "set.afterQueue"] },
+    { id: "general", title: "set.general", icon: "settings", keys: [
+      "set.language", "set.languageSystem", "set.startup", "set.autostart", "set.autostartHint", "set.clipboard",
+    ], terms: ["Bahasa Indonesia", "English"] },
+    { id: "appearance", title: "set.appearance", icon: "image", keys: [
+      "set.theme", "set.themeSystem", "set.themeLight", "set.themeDark", "set.accent",
+      ...ACCENTS.map((accent) => `accent.${accent}` as const),
+      "set.display", "set.density", "set.densityComfortable", "set.densityCompact", "set.glass", "set.glassHint",
+    ] },
+    { id: "downloads", title: "set.downloads", icon: "down", keys: [
+      "set.folder", "set.downloadBehavior", "set.duplicate", "set.dupRename", "set.dupOverwrite",
+      "set.dupAsk", "set.progressWindow", "set.progressWindowHint",
+    ] },
+    { id: "connection", title: "set.connection", icon: "globe", keys: [
+      "set.connections", "set.connectTimeout", "set.connectTimeoutHint", "set.readTimeout",
+      "set.readTimeoutHint", "set.httpVersion", "set.httpAuto", "set.http3Hint", "set.userAgent",
+    ], terms: ["HTTP/1.1", "HTTP/3"] },
+    { id: "proxy", title: "set.proxyTitle", icon: "link", keys: [
+      "set.proxyAddress", "set.proxyHint", "set.directConnection", "set.directConnectionHint",
+      "set.proxyBypass", "set.proxyBypassHint",
+    ] },
+    { id: "queues", title: "set.speedQueues", icon: "gauge", keys: [
+      "set.speedLimit", "detail.limitHint", "queue.title", "queue.main", "set.maxActive", "queue.new", "queue.edit",
+    ] },
+    { id: "categories", title: "nav.categories", icon: "layers", keys: ["set.categoryFolders", "set.resetFolder"] },
+    { id: "browser", title: "set.browser", icon: "panel", keys: [
+      "set.browserStatus", "set.repairBridge", "set.lastBrowserContact", "set.extensionVersion",
+      "set.extensionInstall", "set.firefoxInstall", "set.capture", "set.confirmNew",
+      "set.manageCapture", "set.manageCaptureHint", ...CAPTURE_KEYS,
+    ], terms: ["Chrome", "Chromium", "Microsoft Edge", "Firefox"] },
+    { id: "video", title: "set.video", icon: "video", keys: [
+      "set.tools", "set.customPaths", "set.ytdlpPath", "set.ffmpegPath", "set.autoUpdate",
+      "set.installTools", "set.installYtdlp", "set.updateYtdlp", "set.postprocess", "set.subtitles",
+      "set.subtitleLanguages", "set.metadata", "set.thumbnail", "set.chapters", "set.sponsorblock",
+      "set.sponsorblockHint", "set.sponsorMark", "set.sponsorRemove",
+    ], terms: ["Deno"] },
+    { id: "schedule", title: "set.schedule", icon: "calendar", keys: [
+      "set.scheduleEnabled", "set.scheduleStart", "set.scheduleStop", "set.scheduleDays",
+      "set.scheduleDaysHint", "set.afterQueue", "set.afterSleep", "set.afterShutdown",
+    ] },
     { id: "notifications", title: "set.notificationsSounds", icon: "music", keys: ["set.notifications", "set.sound"] },
-    { id: "security", title: "set.security", icon: "alert", keys: ["set.scanDownloads", "set.scanExtensions"] },
-    { id: "advanced", title: "set.advanced", icon: "wrench", keys: ["set.backup", "set.import", "set.export", "set.dataFolder", "set.downloadList", "set.diagnostics"] },
+    { id: "security", title: "set.security", icon: "alert", keys: [
+      "set.antivirus", "set.scanDownloads", "set.scanHint", "set.scanExtensions",
+    ] },
+    { id: "advanced", title: "set.advanced", icon: "wrench", keys: [
+      "set.backup", "set.backupHint", "set.import", "set.export", "set.dataFolder",
+      "set.downloadList", "set.listBackupHint", "set.diagnostics", "set.diagnosticsHint", "set.exportZip",
+    ] },
     { id: "shortcuts", title: "set.shortcuts", icon: "all", keys: ["tb.add", "tb.batchHint", "search.placeholder"] },
     { id: "about", title: "set.about", icon: "other", keys: ["set.version", "set.sourceCode", "set.releases"] },
-  ] as const satisfies readonly { id: string; title: Key; icon: string; keys: readonly Key[] }[];
+  ] as const satisfies readonly {
+    id: string; title: Key; icon: string; keys: readonly Key[]; terms?: readonly string[];
+  }[];
+
+  function foldSearch(value: string): string {
+    return value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+  }
+
+  function hasWords(value: string, words: string[]) {
+    const folded = foldSearch(value);
+    return words.every((word) => folded.includes(word));
+  }
 
   type Section = (typeof SECTIONS)[number]["id"];
   let selected = $state<Section>("general");
   let search = $state("");
   let searchInput: HTMLInputElement;
-  let content: HTMLElement;
-  const matches = $derived.by(() => {
-    const words = search.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
-    return SECTIONS.filter(({ title, keys }) => {
-      const text = [title, ...keys].map((key) => t(key)).join(" ").toLocaleLowerCase();
-      return words.every((word) => text.includes(word));
-    });
-  });
+  let content = $state<HTMLElement>();
+  const words = $derived(foldSearch(search).trim().split(/\s+/).filter(Boolean));
+  const matches = $derived(SECTIONS.filter((item) =>
+    hasWords([t(item.title), ...item.keys.map(t), ...("terms" in item ? item.terms : [])].join(" "), words),
+  ));
   const section = $derived(matches.find(({ id }) => id === selected) ?? matches[0]);
 
   $effect(() => {
-    if (section) content?.scrollTo({ top: 0 });
+    const pane = content;
+    const query = words;
+    if (!pane || !section) return;
+    if (!query.length) {
+      for (const row of pane.querySelectorAll("[data-search-hit]")) row.removeAttribute("data-search-hit");
+      pane.scrollTo({ top: 0 });
+      return;
+    }
+
+    // Row labels use the current language. Re-evaluate when edits show a hidden option.
+    const markMatches = () => {
+      let first: HTMLElement | undefined;
+      for (const row of pane.querySelectorAll<HTMLElement>(".item, .theme-choice, .accent-choice, .group h2")) {
+        const text = [row.textContent, row.dataset.searchAlias].join(" ");
+        const hit = hasWords(text, query);
+        row.toggleAttribute("data-search-hit", hit);
+        if (hit && !row.dataset.searchAlias) first ??= row;
+      }
+      return first ?? pane.querySelector<HTMLElement>("[data-search-hit]");
+    };
+    const first = markMatches();
+    // Keep highlighting in sync if a conditional field appears while search is open.
+    const observer = new MutationObserver(markMatches);
+    observer.observe(pane, { childList: true, subtree: true, characterData: true });
+    if (first) first.scrollIntoView({ block: "center" });
+    else pane.scrollTo({ top: 0 });
+    return () => observer.disconnect();
   });
 
   function keydown(event: KeyboardEvent) {
@@ -158,11 +233,17 @@
     });
   }
 
-  let browser = $state<BrowserStatus | null>(null);
+  const browserNames: Record<BrowserStatus["browser"], string> = {
+    chrome: "Chrome / Chromium", edge: "Microsoft Edge", firefox: "Firefox",
+  };
+  const registrationLabels = {
+    registered: "set.bridgeRegistered", missing: "set.bridgeMissing", invalid: "set.bridgeInvalid",
+  } as const;
+  let browsers = $state<BrowserStatus[] | null>(null);
   let browserBusy = $state(false);
 
   async function refreshBrowser() {
-    browser = await api.browserStatus();
+    browsers = await api.browserStatus();
   }
 
   $effect(() => {
@@ -626,16 +707,30 @@
 {/snippet}
 
 {#snippet browserStatus()}
-  <div class="item">
-    <div class="named">
-      <span class="indicator" class:ready={browser?.registered}></span>
-      <span>
-        <strong>{t(browser === null ? "loading" : browser.registered ? "set.bridgeRegistered" : "set.bridgeMissing")}</strong>
-        <small class="hint">
-          {browser?.lastSeen ? `${t("set.lastBrowserContact")} · ${new Date(browser.lastSeen * 1000).toLocaleString()}` : t("set.noBrowserContact")}
-        </small>
-      </span>
+  {#each browsers ?? [] as { browser, registration, contact } (browser)}
+    <div class="item">
+      <div class="named">
+        <span class="indicator" class:ready={registration === "registered"}></span>
+        <div>
+          <strong>{browserNames[browser]}</strong>
+          <small class="hint">{t(registrationLabels[registration])}</small>
+          {#if contact}
+            <small class="hint">{t("set.lastBrowserContact")} · {new Date(contact.lastSeen * 1000).toLocaleString()}</small>
+            {#if contact.extensionVersion}
+              <small class="hint">
+                {t("set.extensionVersion")} <span class="num">{contact.extensionVersion}</span>
+                {#if app.info?.version && contact.extensionVersion !== app.info.version.split("-")[0]}
+                  · {t("set.extensionVersionMismatch")} <span class="num">{app.info.version}</span>
+                {/if}
+              </small>
+            {/if}
+          {/if}
+        </div>
+      </div>
     </div>
+  {/each}
+  <div class="item">
+    <small class="hint">{t(browsers === null ? "loading" : "set.noBrowserContact")}</small>
     <button onclick={repairBrowser} disabled={browserBusy}><Icon name="refresh" size={14} />{t(browserBusy ? "set.repairingBridge" : "set.repairBridge")}</button>
   </div>
 {/snippet}
@@ -657,7 +752,7 @@
     <span>{t("set.confirmNew")}</span>
     <input type="checkbox" class="switch" role="switch" bind:checked={s.confirmNew} />
   </label>
-  <label class="item">
+  <label class="item" data-search-alias={!s.capture ? CAPTURE_KEYS.map(t).join(" ") : undefined}>
     <span>{t("set.manageCapture")}<small class="hint">{t("set.manageCaptureHint")}</small></span>
     <input type="checkbox" class="switch" role="switch" checked={s.capture !== null}
       onchange={(e) => (s.capture = e.currentTarget.checked ? basicCapture() : null)} />
@@ -742,7 +837,7 @@
     ["embedSubtitles", "set.subtitles"], ["embedMetadata", "set.metadata"],
     ["embedThumbnail", "set.thumbnail"], ["embedChapters", "set.chapters"],
   ] as const as [key, label] (key)}
-    <label class="item">
+    <label class="item" data-search-alias={key === "embedSubtitles" && !s.video.postprocess.embedSubtitles ? t("set.subtitleLanguages") : undefined}>
       <span>{t(label)}</span>
       <input type="checkbox" class="switch" role="switch" bind:checked={s.video.postprocess[key]} />
     </label>
@@ -818,7 +913,7 @@
 {/snippet}
 
 {#snippet scanner()}
-  <label class="item">
+  <label class="item" data-search-alias={!s.scanner.enabled ? t("set.scanExtensions") : undefined}>
     <span>{t("set.scanDownloads")}<small class="hint">{t("set.scanHint")}</small></span>
     <input type="checkbox" class="switch" role="switch" bind:checked={s.scanner.enabled} />
   </label>
@@ -996,6 +1091,7 @@
     min-height: 52px;
     padding: 10px 0;
   }
+  main :global([data-search-hit]) { outline: 1px solid var(--accent-line); outline-offset: 2px; border-radius: var(--radius); }
   .item + .item { border-top: 1px solid var(--rule); }
   label.item { cursor: pointer; }
   .item > :first-child { flex: 1 1 145px; min-width: 0; }

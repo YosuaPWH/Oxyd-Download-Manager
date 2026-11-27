@@ -95,11 +95,11 @@ impl Torrent {
     }
 
     /// Take the torrent out of the session. The files stay on disk.
-    pub async fn stop(self) {
-        let id = TorrentIdOrHash::Hash(self.handle.info_hash());
-        if let Err(e) = self.session.delete(id, false).await {
-            tracing::debug!("removing torrent from the session: {e}");
-        }
+    pub async fn stop(self) -> Result<()> {
+        let Self { session, handle } = self;
+        let id = TorrentIdOrHash::Id(handle.id());
+        drop(handle);
+        session.delete(id, false).await.map_err(err)
     }
 }
 
@@ -115,6 +115,9 @@ impl Engine {
             default_dir,
             SessionOptions {
                 client_name_and_version: Some(format!("Oxyd/{}", env!("CARGO_PKG_VERSION"))),
+                // Oxyd's database restores unfinished jobs. Opening librqbit's saved
+                // torrents too could reopen completed files that the user moved or deleted.
+                persistence: None,
                 ..Default::default()
             },
         )
@@ -240,13 +243,22 @@ impl Engine {
             initial_peers: peers,
             ..Default::default()
         };
-        let handle = self
+        let response = self
             .session
             .add_torrent(Self::source(url)?, Some(options))
             .await
-            .map_err(err)?
-            .into_handle()
-            .ok_or_else(|| Error::Torrent("the torrent was not added".into()))?;
+            .map_err(err)?;
+        let handle = match response {
+            AddTorrentResponse::Added(_, handle) => handle,
+            AddTorrentResponse::AlreadyManaged(..) => {
+                return Err(Error::Torrent(
+                    "this torrent is already active in Oxyd".into(),
+                ));
+            }
+            AddTorrentResponse::ListOnly(_) => {
+                return Err(Error::Torrent("the torrent was not added".into()));
+            }
+        };
         Ok(Torrent {
             session: self.session.clone(),
             handle,

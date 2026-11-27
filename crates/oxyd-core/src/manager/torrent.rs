@@ -91,7 +91,12 @@ mod enabled {
                 r = engine.add(&rec.url, &meta, &rec.dir, peers) => r?,
             };
             rec.status = Status::Downloading;
-            self.save_task(rec, true)?;
+            if let Err(error) = self.save_task(rec, true) {
+                if let Err(release) = torrent.stop().await {
+                    tracing::warn!(%release, "could not release torrent after saving its state failed");
+                }
+                return Err(error);
+            }
 
             let mut interval = tokio::time::interval(TICK);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -154,9 +159,11 @@ mod enabled {
             let seg = ctx.shared.snapshot();
             let _ = self.store.save_progress(&rec.id, &seg);
             // Oxyd does not seed: the torrent leaves the session, its files stay.
-            torrent.stop().await;
+            let released = torrent.stop().await;
+            let complete = outcome?;
+            released?;
 
-            if !outcome? {
+            if !complete {
                 return Ok(false);
             }
             if !crate::scanner::scan(

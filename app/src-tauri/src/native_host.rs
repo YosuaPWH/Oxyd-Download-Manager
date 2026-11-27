@@ -8,7 +8,10 @@
 
 use std::path::{Path, PathBuf};
 
-use oxyd_protocol::{firefox_host_manifest, host_manifest, HOST_NAME};
+use oxyd_protocol::{
+    firefox_host_manifest, host_manifest, Browser, EXTENSION_IDS, FIREFOX_EXTENSION_ID, HOST_NAME,
+};
+use serde::Serialize;
 
 /// Registry keys (under HKCU) whose default value points at the manifest.
 #[cfg(windows)]
@@ -64,59 +67,148 @@ pub fn repair() -> std::io::Result<Vec<PathBuf>> {
     write(&bridge)
 }
 
-fn valid_manifest(path: &Path) -> bool {
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Registration {
+    Missing,
+    Invalid,
+    Registered,
+}
+
+fn manifest_status(path: &Path, browser: Browser) -> Registration {
+    use Registration::*;
     let Ok(content) = std::fs::read_to_string(path) else {
-        return false;
+        return if path.exists() { Invalid } else { Missing };
     };
     let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content) else {
-        return false;
+        return Invalid;
     };
     let Some(bridge) = manifest["path"].as_str().filter(|path| !path.is_empty()) else {
-        return false;
+        return Invalid;
     };
-    path.parent()
-        .is_some_and(|parent| parent.join(bridge).is_file())
+    if !cfg!(windows) && !Path::new(bridge).is_absolute() {
+        return Invalid;
+    }
+    let allowed = if browser == Browser::Firefox {
+        manifest["allowed_extensions"]
+            .as_array()
+            .is_some_and(|ids| ids.iter().any(|id| id == FIREFOX_EXTENSION_ID))
+    } else {
+        manifest["allowed_origins"]
+            .as_array()
+            .is_some_and(|origins| {
+                EXTENSION_IDS.iter().any(|id| {
+                    let origin = format!("chrome-extension://{id}/");
+                    origins.iter().any(|value| value == &origin)
+                })
+            })
+    };
+    if allowed
+        && manifest["name"] == HOST_NAME
+        && manifest["type"] == "stdio"
+        && path
+            .parent()
+            .is_some_and(|parent| parent.join(bridge).is_file())
+    {
+        Registered
+    } else {
+        Invalid
+    }
+}
+
+pub fn registered() -> bool {
+    [Browser::Chrome, Browser::Edge, Browser::Firefox]
+        .into_iter()
+        .any(|browser| registration(browser) == Registration::Registered)
 }
 
 #[cfg(windows)]
-pub fn registered() -> bool {
-    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+pub fn registration(browser: Browser) -> Registration {
+    use winreg::enums::{
+        HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_32KEY, KEY_WOW64_64KEY,
+    };
     use winreg::RegKey;
 
-    [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE]
-        .into_iter()
-        .any(|hive| {
-            let root = RegKey::predef(hive);
-            REGISTRY_KEYS
-                .iter()
-                .copied()
-                .chain([FIREFOX_REGISTRY_KEY])
-                .any(|base| {
-                    root.open_subkey(format!(r"{base}\{HOST_NAME}"))
-                        .and_then(|key| key.get_value::<String, _>(""))
-                        .is_ok_and(|manifest| valid_manifest(Path::new(&manifest)))
-                })
-        })
+    let base = match browser {
+        Browser::Chrome => REGISTRY_KEYS[0],
+        Browser::Edge => REGISTRY_KEYS[1],
+        Browser::Firefox => FIREFOX_REGISTRY_KEY,
+    };
+    let path = format!(r"{base}\{HOST_NAME}");
+    for hive in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
+        let root = RegKey::predef(hive);
+        for view in [KEY_WOW64_32KEY, KEY_WOW64_64KEY] {
+            if let Ok(key) = root.open_subkey_with_flags(&path, KEY_READ | view) {
+                return match key.get_value::<String, _>("") {
+                    Ok(manifest)
+                        if manifest_status(Path::new(&manifest), browser)
+                            == Registration::Registered =>
+                    {
+                        Registration::Registered
+                    }
+                    _ => Registration::Invalid,
+                };
+            }
+        }
+    }
+    Registration::Missing
 }
 
 #[cfg(not(windows))]
-pub fn registered() -> bool {
-    directories::BaseDirs::new().is_some_and(|base| {
-        let firefox = base
+pub fn registration(browser: Browser) -> Registration {
+    use Registration::*;
+    let Some(base) = directories::BaseDirs::new() else {
+        return Missing;
+    };
+    let name = format!("{HOST_NAME}.json");
+    let mut status = Missing;
+    if browser == Browser::Firefox {
+        let manifest = base
             .home_dir()
             .join(".mozilla/native-messaging-hosts")
-            .join(format!("{HOST_NAME}.json"));
-        valid_manifest(&firefox)
-            || BROWSER_DIRS.iter().any(|browser| {
-                valid_manifest(
-                    &base
-                        .config_dir()
-                        .join(browser)
-                        .join("NativeMessagingHosts")
-                        .join(format!("{HOST_NAME}.json")),
-                )
-            })
-    })
+            .join(&name);
+        let user = manifest_status(&manifest, browser);
+        if user != Missing {
+            return user;
+        }
+    } else {
+        for profile in BROWSER_DIRS
+            .iter()
+            .filter(|dir| dir.starts_with("microsoft-edge") == (browser == Browser::Edge))
+        {
+            let path = base
+                .config_dir()
+                .join(profile)
+                .join("NativeMessagingHosts")
+                .join(&name);
+            match manifest_status(&path, browser) {
+                Registered => return Registered,
+                Invalid => status = Invalid,
+                Missing => {}
+            }
+        }
+    }
+
+    // `.deb` and `.rpm` bundles also ship system manifests for Chromium browsers.
+    let system_dirs: &[&str] = match browser {
+        Browser::Chrome => &[
+            "/etc/opt/chrome/native-messaging-hosts",
+            "/etc/chromium/native-messaging-hosts",
+        ],
+        Browser::Edge => &["/etc/opt/edge/native-messaging-hosts"],
+        Browser::Firefox => &[
+            "/usr/lib/mozilla/native-messaging-hosts",
+            "/usr/lib64/mozilla/native-messaging-hosts",
+        ],
+    };
+    for dir in system_dirs {
+        match manifest_status(&Path::new(dir).join(&name), browser) {
+            Registered => return Registered,
+            Invalid => status = Invalid,
+            Missing => {}
+        }
+    }
+    status
 }
 
 /// The bridge next to the running executable.
