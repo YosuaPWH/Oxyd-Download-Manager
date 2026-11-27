@@ -28,13 +28,18 @@ fn fake_ytdlp(dir: &Path, page: &str, file: Option<&Path>) -> PathBuf {
     let copy = file.map_or(String::new(), |f| format!("cp '{}' \"$file\"", f.display()));
     let script = format!(
         r#"#!/bin/sh
-out=""; prev=""; probe=0
+out=""; prev=""; probe=0; external=0
 for a in "$@"; do
   [ "$prev" = "-o" ] && out="$a"
   [ "$a" = "-J" ] && probe=1
+  [ "$prev" = "--downloader" ] && [ "$a" = "m3u8:ffmpeg" ] && external=1
   prev="$a"
 done
 if [ $probe = 1 ]; then cat '{page}'; exit 0; fi
+if [ -f '{require_external}' ] && [ $external = 0 ]; then
+  echo 'ERROR: Initialization fragment found after media fragments, unable to download' >&2
+  exit 1
+fi
 file=$(printf '%s' "$out" | sed 's/\.%(ext)s$/.mkv/')
 mkdir -p "$(dirname "$file")"
 echo "[oxyd] 50|100|NA|1000|hls-1"
@@ -43,7 +48,8 @@ echo "[Merger] Merging formats into $file"
 echo "[oxyd] 100|100|NA|1000|hls-1"
 echo "[oxyd-file] $file"
 "#,
-        page = dir.join("page.json").display()
+        page = dir.join("page.json").display(),
+        require_external = dir.join("require-external-hls").display()
     );
     let path = dir.join("yt-dlp");
     std::fs::write(&path, script).unwrap();
@@ -61,6 +67,7 @@ async fn manager(downloads: &Path, ytdlp: &Path) -> Arc<Manager> {
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_default(),
             auto_update: false,
+            ..VideoSettings::default()
         },
         ..Settings::default()
     })
@@ -267,6 +274,21 @@ async fn hls_streams_are_left_to_ytdlp() {
         b"merged by yt-dlp"
     );
     assert_eq!(files_in(&dl), ["Live replay.mkv"]);
+
+    std::fs::write(tmp.path().join("require-external-hls"), b"").unwrap();
+    let id = add_video(
+        &m,
+        "https://example.com/v/3",
+        "hls-1",
+        "mkv",
+        "Encrypted replay.mkv",
+    );
+    let info = wait(&m, &id).await;
+    assert_eq!(
+        std::fs::read(info.record.save_path).unwrap(),
+        b"merged by yt-dlp"
+    );
+    assert_eq!(files_in(&dl), ["Encrypted replay.mkv", "Live replay.mkv"]);
 }
 
 #[tokio::test]

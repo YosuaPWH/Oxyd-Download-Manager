@@ -591,6 +591,9 @@ impl Manager {
             }
         };
         let stem = crate::media::ytdlp_stem(&rec.save_path);
+        let hls = formats
+            .iter()
+            .any(|format| matches!(format.protocol.as_deref(), Some("m3u8" | "m3u8_native")));
         let result = yt
             .download(
                 &rec.url,
@@ -600,6 +603,7 @@ impl Manager {
                 mp3,
                 &prefs,
                 rec.connections,
+                hls,
                 &stem,
                 &ctx.cancel,
                 &mut on_progress,

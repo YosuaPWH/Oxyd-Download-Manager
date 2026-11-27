@@ -210,7 +210,9 @@ How a video downloads:
   needed. Stream links that expired while paused are read from the page again and the
   download continues where it stopped.
 - HLS and fragmented DASH streams, or streams a site refuses to Oxyd's engine, are downloaded
-  by yt-dlp itself (several fragments at once) and shown with the same progress.
+  by yt-dlp and shown in the same progress view. For a direct HLS download whose playlist
+  changes its initialization segment, Oxyd retries with FFmpeg if yt-dlp's native downloader
+  rejects the change. This also works for AES-128-encrypted initialization segments.
 
 Nothing extra is installed up front: yt-dlp (and deno, which yt-dlp needs for YouTube) are
 downloaded the first time a video needs them, ffmpeg the first time something has to be merged
