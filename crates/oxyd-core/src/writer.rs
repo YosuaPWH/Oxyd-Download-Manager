@@ -10,7 +10,7 @@ pub struct SharedFile(Arc<File>);
 
 impl SharedFile {
     /// Open (or create) the part file. When `fresh` the file is truncated and, if the size
-    /// is known, pre-allocated to its final length.
+    /// is known, sized to its final length. On Windows every part file is marked sparse.
     pub fn open(path: &Path, size: Option<u64>, fresh: bool) -> io::Result<Self> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -21,12 +21,9 @@ impl SharedFile {
             .create(true)
             .truncate(fresh)
             .open(path)?;
-        if fresh {
-            // Segments write far into the file right away. On a normal NTFS file every such
-            // write first zero-fills everything before it (valid data length), stalling
-            // for seconds on big files and writing the disk twice. Sparse files skip that.
-            set_sparse(&file, true);
-        }
+        // Mark before sizing or writing. A resumed part can have lost its sparse flag in
+        // another build or during a copy. NTFS would zero-fill the gaps on the next write.
+        set_sparse(&file, true);
         if let Some(size) = size {
             if fresh || file.metadata()?.len() != size {
                 file.set_len(size)?;
@@ -193,6 +190,26 @@ mod tests {
             "part file not sparse"
         );
         drop(f);
+        assert_ne!(
+            std::fs::metadata(&p).unwrap().file_attributes() & FILE_ATTRIBUTE_SPARSE_FILE,
+            0
+        );
+
+        // Resume a part copied by a tool that did not preserve the sparse attribute.
+        let copied = dir.path().join("copied.part");
+        std::fs::write(&copied, b"data").unwrap();
+        drop(SharedFile::open(&copied, Some(1 << 30), false).unwrap());
+        assert_ne!(
+            std::fs::metadata(&copied).unwrap().file_attributes() & FILE_ATTRIBUTE_SPARSE_FILE,
+            0
+        );
+        use std::io::Read as _;
+        let mut prefix = [0; 4];
+        File::open(&copied)
+            .unwrap()
+            .read_exact(&mut prefix)
+            .unwrap();
+        assert_eq!(&prefix, b"data");
         // Fully written files lose the flag (here: a small file written completely).
         let small = dir.path().join("small.part");
         let f = SharedFile::open(&small, Some(4), true).unwrap();
