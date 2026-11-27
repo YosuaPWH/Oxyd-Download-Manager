@@ -319,8 +319,9 @@ view of its own and costs memory while it is open.
   <img src="docs/images/settings-page-dark.png" alt="Settings page" width="800">
 </p>
 
-Search by a section or preference name in the sidebar. Changes save automatically, and the
-main window picks up appearance and language changes while Settings is open.
+Search by a section name, option label, or hint in the sidebar. Settings highlights matching
+rows and scrolls to the first one. Changes save automatically, and the main window picks up
+appearance and language changes while Settings is open.
 
 | Section | Controls |
 |---|---|
