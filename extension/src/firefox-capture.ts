@@ -22,7 +22,7 @@ function header(headers: chrome.webRequest.HttpHeader[] | undefined, name: strin
   return headers?.find((item) => item.name.toLowerCase() === name)?.value;
 }
 
-function attachmentName(disposition: string): string | undefined {
+export function attachmentName(disposition: string): string | undefined {
   const extended = /;\s*filename\*\s*=\s*UTF-8'[^']*'([^;]+)/i.exec(disposition);
   if (extended) {
     try {
@@ -32,7 +32,15 @@ function attachmentName(disposition: string): string | undefined {
     }
   }
   const plain = /;\s*filename\s*=\s*(?:"((?:[^"\\]|\\.)*)"|([^;]*))/i.exec(disposition);
-  return plain?.[1]?.replace(/\\(["\\])/g, "$1") || plain?.[2]?.trim() || undefined;
+  const name = plain?.[1]?.replace(/\\(["\\])/g, "$1") || plain?.[2]?.trim() || undefined;
+  // Firefox can expose raw UTF-8 header bytes as Latin-1 code units. Reinterpret
+  // them only if the complete name is valid UTF-8, so genuine Latin-1 stays intact.
+  if (!name || !/^[\x00-\xff]+$/.test(name) || /^[\x00-\x7f]+$/.test(name)) return name;
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(name, (c) => c.charCodeAt(0)));
+  } catch {
+    return name;
+  }
 }
 
 /** Firefox can hold an attachment response while the desktop decides whether to accept it. */

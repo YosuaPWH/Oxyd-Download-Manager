@@ -282,8 +282,7 @@ fn from_response(final_url: &str, status: StatusCode, h: &HeaderMap, orig: &str)
     };
     let name = h
         .get(header::CONTENT_DISPOSITION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(filename::from_content_disposition)
+        .and_then(|v| filename::from_content_disposition_bytes(v.as_bytes()))
         .or_else(|| filename::from_url(final_url))
         .or_else(|| filename::from_url(orig))
         .map(|n| filename::sanitize(&n));
@@ -303,6 +302,23 @@ fn from_response(final_url: &str, status: StatusCode, h: &HeaderMap, orig: &str)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_non_latin_attachment_names_without_falling_back_to_the_url() {
+        let url = "https://example.test/download";
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::CONTENT_DISPOSITION,
+            header::HeaderValue::from_bytes("attachment; filename=\"อัพเดท; 数据.zip\"".as_bytes())
+                .unwrap(),
+        );
+        assert_eq!(
+            from_response(url, StatusCode::OK, &headers, url)
+                .filename
+                .as_deref(),
+            Some("อัพเดท; 数据.zip")
+        );
+    }
 
     #[test]
     fn redacts_secrets_from_urls() {
